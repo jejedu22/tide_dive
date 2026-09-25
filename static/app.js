@@ -14,6 +14,15 @@ const resultsEl = document.getElementById("results-list");
 maxCoefInput.addEventListener("input", () => coefVal.textContent = maxCoefInput.value);
 marginInput.addEventListener("input", () => marginVal.textContent = marginInput.value);
 
+const fmtDate = new Intl.DateTimeFormat("fr-FR", {
+  weekday: "long", day: "numeric", month: "long", year: "numeric",
+});
+
+function formatDate(iso) {
+  // midi pour éviter tout décalage de jour lié au fuseau
+  return fmtDate.format(new Date(iso + "T12:00:00"));
+}
+
 const fmtDay = new Intl.DateTimeFormat("fr-FR", {
   weekday: "short", day: "2-digit", month: "2-digit",
 });
@@ -191,16 +200,24 @@ async function search() {
     daylight: daylightSelect.value,
     margin_minutes: marginInput.value,
   });
+  let res;
   try {
-    const res = await fetch(`/api/dive-windows?${params}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      statusEl.textContent = `Erreur : ${err.detail || res.statusText}`;
-      return;
-    }
-    renderResults(await res.json());
+    res = await fetch(`/api/dive-windows?${params}`);
   } catch (e) {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
+    console.error(e);
+    return;
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    statusEl.textContent = `Erreur ${res.status} : ${err.detail || res.statusText}`;
+    return;
+  }
+  try {
+    renderResults(await res.json());
+  } catch (e) {
+    statusEl.textContent = `Erreur d'affichage : ${e.message}`;
+    console.error(e);
   }
 }
 
