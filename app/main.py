@@ -176,7 +176,17 @@ def api_dive_windows(
         )
 
     results.sort(key=lambda r: (r["date"], r["time"]))
-    return {"port": port["name"], "criteria": {
+
+    # Vacances : la table peut être vide (synchro jamais faite ou échouée) —
+    # on le signale au front plutôt que d'afficher silencieusement « aucune vacance ».
+    n_periods, last_end = db.school_holidays_coverage(calendar_fr.SCHOOL_ACADEMY)
+    school_holidays_status = {
+        "academy": calendar_fr.SCHOOL_ACADEMY,
+        "periods": n_periods,
+        "covered": bool(n_periods) and last_end is not None and last_end > end.isoformat(),
+    }
+
+    return {"port": port["name"], "school_holidays": school_holidays_status, "criteria": {
         "max_coefficient": max_coefficient, "tide_phase": tide_phase,
         "daylight": daylight, "margin_minutes": margin_minutes,
     }, "results": results}

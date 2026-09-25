@@ -256,3 +256,13 @@ def get_school_holidays_range(academy: str, start_date: str, end_date: str) -> l
             """,
             (academy, end_date, start_date),
         ).fetchall()
+
+
+def school_holidays_coverage(academy: str) -> tuple[int, str | None]:
+    """(nombre de périodes, dernière date de reprise) pour une académie."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n, MAX(end_date) AS last FROM school_holidays WHERE academy = ?",
+            (academy,),
+        ).fetchone()
+    return row["n"], row["last"]
