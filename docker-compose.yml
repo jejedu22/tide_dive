@@ -13,6 +13,7 @@ x-app: &app
     TZ: Europe/Paris
     TIDE_MODEL_DIRECTORY: /models
     PYTMD_CACHE_DIR: /models        # répertoire par défaut de pyTMD 3.x
+    SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
   volumes:
     - ./data:/srv/maree/data              # base SQLite (data/plongee.db, chemin relatif de db.py)
     - ${FES_DIR:-./models}:/models:ro

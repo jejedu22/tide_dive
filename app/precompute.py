@@ -44,7 +44,7 @@ import sys
 
 import pandas as pd
 
-from . import db, tide_model, twilight
+from . import calendar_fr, db, tide_model, twilight
 from .ports_catalog import PORTS
 
 BREST_NAME = "Brest"
@@ -205,6 +205,13 @@ def main() -> None:
     # 3. Remplacement atomique de l'année demandée, les autres sont conservées.
     print(f"[{name}] remplacement des données {args.year} en base…")
     db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows)
+
+    # 4. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
+    try:
+        n = calendar_fr.sync_school_holidays()
+        print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {calendar_fr.SCHOOL_ACADEMY}).")
+    except Exception as exc:
+        print(f"[{name}] vacances scolaires non mises à jour : {exc}", file=sys.stderr)
 
     years = ", ".join(str(y) for y in db.years_available(port_id))
     print(f"\n[{name}] Terminé. Années disponibles pour ce port : {years}")

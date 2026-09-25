@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS sun_times (
     PRIMARY KEY (port_id, date)
 );
 
+-- Vacances scolaires par académie (source : data.education.gouv.fr).
+-- Intervalle [start_date, end_date[ : end_date = jour de reprise des cours.
+CREATE TABLE IF NOT EXISTS school_holidays (
+    academy TEXT NOT NULL,
+    start_date TEXT NOT NULL,       -- YYYY-MM-DD, premier jour de vacances
+    end_date TEXT NOT NULL,         -- YYYY-MM-DD, jour de reprise (exclu)
+    description TEXT NOT NULL,
+    PRIMARY KEY (academy, start_date, description)
+);
+
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
 CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
 """
@@ -222,4 +232,27 @@ def get_sun_times_range(port_id: int, start_date: str, end_date: str) -> list[sq
             ORDER BY date
             """,
             (port_id, start_date, end_date),
+        ).fetchall()
+
+def replace_school_holidays(academy: str, rows: Iterable[tuple[str, str, str]]) -> None:
+    """Remplace toutes les vacances d'une académie. rows : (start_date, end_date, description)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM school_holidays WHERE academy = ?", (academy,))
+        conn.executemany(
+            "INSERT OR REPLACE INTO school_holidays (academy, start_date, end_date, description) "
+            "VALUES (?, ?, ?, ?)",
+            [(academy, *r) for r in rows],
+        )
+
+
+def get_school_holidays_range(academy: str, start_date: str, end_date: str) -> list[sqlite3.Row]:
+    """Périodes de vacances qui chevauchent [start_date, end_date] (bornes incluses)."""
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM school_holidays
+            WHERE academy = ? AND start_date <= ? AND end_date > ?
+            ORDER BY start_date
+            """,
+            (academy, end_date, start_date),
         ).fetchall()

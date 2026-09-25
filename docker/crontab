@@ -5,3 +5,6 @@
 
 # 15 décembre, 03:00 — précalcul de l'année suivante pour chaque port de MAREE_PORTS
 0 3 15 12 * Y="$(python -c 'import datetime; print(datetime.date.today().year + 1)')"; for p in $MAREE_PORTS; do python -m app.precompute --year "$Y" --port "$p" || echo "[precompute] échec pour $p"; done
+
+# 1er de chaque mois, 04:00 — vacances scolaires (open data Éducation nationale)
+0 4 1 * * python -m app.calendar_fr || echo "[vacances] échec, données existantes conservées"

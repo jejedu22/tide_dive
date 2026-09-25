@@ -23,6 +23,27 @@ function formatDay(iso) {
   return fmtDay.format(new Date(iso + "T12:00:00"));
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+// Classes CSS et badges selon la nature du jour (week-end, férié, vacances)
+function dayDecorations(day) {
+  if (!day) return { classes: "", badges: "" };
+  const classes = [];
+  const badges = [];
+  if (day.weekend) classes.push("weekend");
+  if (day.holiday) {
+    classes.push("ferie");
+    badges.push(`<span class="badge badge-ferie">${escapeHtml(day.holiday)}</span>`);
+  }
+  if (day.school_holiday) {
+    classes.push("vacances");
+    badges.push(`<span class="badge badge-vacances">${escapeHtml(day.school_holiday)}</span>`);
+  }
+  return { classes: classes.join(" "), badges: badges.join("") };
+}
+
 function show(v) {
   return v ?? "–";
 }
@@ -104,8 +125,31 @@ function renderResults(data) {
   // Regroupe par jour : date et heures de soleil fusionnées sur les lignes du jour
   const byDay = new Map();
   for (const r of data.results) {
-    if (!byDay.has(r.date)) byDay.set(r.date, []);
-    byDay.get(r.date).push(r);
+    const card = document.createElement("div");
+    const deco = dayDecorations(r.day);
+    card.className = `day-card ${r.kind} ${deco.classes}`.trim();
+    const maree = r.kind === "PM" ? "Pleine mer" : "Basse mer";
+    const sun = r.sun || {};
+
+    card.innerHTML = `
+      <div class="rdv">
+        <div class="date">${formatDate(r.rdv.date)}</div>
+        ${deco.badges ? `<div class="badges">${deco.badges}</div>` : ""}
+        <div class="rdv-time"><span>RDV</span> ${r.rdv.time}</div>
+      </div>
+      <dl class="tide">
+        <div><dt>${maree}</dt><dd>${r.time}</dd></div>
+        <div><dt>Hauteur d'eau</dt><dd>${r.height_m != null ? r.height_m.toFixed(2).replace(".", ",") + " m" : "–"}</dd></div>
+        <div><dt>Coefficient</dt><dd class="coef">${show(r.coefficient)}</dd></div>
+      </dl>
+      <dl class="sun">
+        <div><dt>Lever du soleil</dt><dd>${show(sun.sunrise)}</dd></div>
+        <div><dt>Coucher du soleil</dt><dd>${show(sun.sunset)}</dd></div>
+        <div><dt>Aube nautique</dt><dd>${show(sun.nautical_dawn)}</dd></div>
+        <div><dt>Crépuscule nautique</dt><dd>${show(sun.nautical_dusk)}</dd></div>
+      </dl>
+    `;
+    resultsEl.appendChild(card);
   }
 
   const rows = [];
