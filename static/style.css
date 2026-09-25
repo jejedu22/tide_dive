@@ -95,9 +95,13 @@ table.windows {
   text-align: left;
 }
 
-.windows thead th {
+/* sticky sur le thead entier : les deux lignes (titres + filtres) restent collées */
+.windows thead {
   position: sticky;
   top: 0;
+  z-index: 1;
+}
+.windows thead th {
   background: var(--blue-deep);
   color: white;
   font-size: 0.8rem;
@@ -106,6 +110,52 @@ table.windows {
 .windows thead abbr { text-decoration: none; cursor: help; border-bottom: 1px dotted rgba(255,255,255,0.6); }
 
 .windows .num { text-align: right; }
+
+/* ---- Ligne de filtres ---- */
+.windows tr.filters th {
+  padding-top: 0;
+  vertical-align: top;
+  font-weight: 400;
+}
+.windows .filters select,
+.windows .filters input {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 4px;
+  background: white;
+  color: var(--text);
+}
+/* filtre actif : liseré turquoise */
+.windows .filters .is-active {
+  outline: 2px solid var(--teal);
+  outline-offset: -1px;
+}
+.windows .filters .range { display: flex; gap: 0.25rem; justify-content: flex-end; }
+.windows .filters .range.stack { flex-direction: column; }
+.windows .filters input[type="number"] { width: 4.2em; }
+.windows .filters input[type="time"] { width: 6.5em; }
+
+.reset-filters {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  background: transparent;
+  color: white;
+  cursor: pointer;
+}
+.reset-filters:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); }
+.reset-filters:disabled { opacity: 0.35; cursor: default; }
+
+.windows td.empty {
+  padding: 1.2rem;
+  text-align: center;
+  color: #607d8b;
+  white-space: normal;
+}
 
 /* séparation entre jours, pas entre créneaux d'un même jour */
 .windows tbody tr.day-start { border-top: 1px solid #d8e8ee; }
