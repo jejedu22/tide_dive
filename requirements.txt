@@ -1,0 +1,10 @@
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+pyTMD==3.0.*
+astral==3.2
+numpy>=1.24
+scipy>=1.10
+python-dateutil>=2.8
+pytz>=2024.1
+h5py>=3.10
+dask[array]>=2024.1

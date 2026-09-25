@@ -1,0 +1,52 @@
+# --- Secrets et configuration locale ---
+# .env contient les identifiants AVISO+ et HOST_UID/HOST_GID
+.env
+.env.*
+!.env.example
+.netrc
+
+# --- Données générées ---
+# Base SQLite (recalculable via precompute) et ses fichiers de journal
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Modèles de marée FES ---
+# Plusieurs Go, et soumis à la licence AVISO+ : ne pas redistribuer
+models/
+*.nc
+*.nc.gz
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Docker ---
+docker-compose.override.yml
+compose.override.yml
+
+# --- Éditeurs et systèmes ---
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environnements virtuels
+venv/
+.venv/

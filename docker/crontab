@@ -1,0 +1,7 @@
+# 1er décembre, 02:00 — mise à jour du modèle FES depuis AVISO+.
+# Un échec (FTP indisponible) est journalisé mais ne bloque pas le précalcul :
+# les fichiers déjà présents restent utilisables.
+0 2 1 12 * fetch_aviso_fes.py --directory /models --tide "$FES_MODEL" || echo "[fetch-models] échec, modèles existants conservés"
+
+# 15 décembre, 03:00 — précalcul de l'année suivante pour chaque port de MAREE_PORTS
+0 3 15 12 * Y="$(python -c 'import datetime; print(datetime.date.today().year + 1)')"; for p in $MAREE_PORTS; do python -m app.precompute --year "$Y" --port "$p" || echo "[precompute] échec pour $p"; done

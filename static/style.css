@@ -1,0 +1,106 @@
+:root {
+  --blue-deep: #073b4c;
+  --blue: #118ab2;
+  --teal: #06d6a0;
+  --sand: #ffd166;
+  --coral: #ef476f;
+  --bg: #f4f9fb;
+  --text: #0d2b36;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  background: linear-gradient(135deg, var(--blue-deep), var(--blue));
+  color: white;
+  padding: 1.5rem 2rem;
+}
+
+header h1 { margin: 0; font-size: 1.5rem; }
+.subtitle { margin: 0.3rem 0 0; opacity: 0.85; font-size: 0.9rem; }
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.controls {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  box-shadow: 0 2px 8px rgba(7, 59, 76, 0.08);
+}
+
+.field { display: flex; flex-direction: column; gap: 0.35rem; }
+.field label { font-size: 0.85rem; font-weight: 600; color: var(--blue-deep); }
+select, input[type="date"] {
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #cfe3ea;
+  font-size: 0.95rem;
+}
+input[type="range"] { accent-color: var(--blue); }
+
+button#search {
+  grid-column: 1 / -1;
+  background: var(--teal);
+  color: var(--blue-deep);
+  border: none;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+button#search:hover { transform: translateY(-1px); }
+
+.results { display: grid; gap: 0.75rem; }
+#status { color: var(--blue-deep); font-size: 0.9rem; }
+
+.day-card {
+  background: white;
+  border-left: 5px solid var(--teal);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  box-shadow: 0 1px 4px rgba(7, 59, 76, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.day-card.BM { border-left-color: var(--sand); }
+
+.day-card .date { font-weight: 700; min-width: 140px; }
+.day-card .meta { font-size: 0.85rem; color: #4a6572; }
+.day-card .coef {
+  background: var(--blue-deep);
+  color: white;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+footer {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 3rem;
+  font-size: 0.78rem;
+  color: #607d8b;
+}
