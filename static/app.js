@@ -172,6 +172,8 @@ const LEGEND = `
 
 let lastData = null;
 let tableEl = null;
+// Filtres de colonnes à appliquer dès que le tableau existe (préférences chargées avant la 1re recherche)
+let pendingFilters = {};
 
 function readFilters() {
   const f = {};
@@ -289,11 +291,19 @@ function ensureTable() {
     </div>${LEGEND}`;
   tableEl = resultsEl.querySelector("table.windows");
   const thead = tableEl.tHead;
+  setFilterInputs(pendingFilters);
   thead.addEventListener("input", renderRows);
   thead.querySelector(".reset-filters").addEventListener("click", () => {
     for (const el of thead.querySelectorAll("[data-f]")) el.value = "";
     renderRows();
   });
+}
+
+function setFilterInputs(filters) {
+  if (!tableEl) return;
+  for (const el of tableEl.tHead.querySelectorAll("[data-f]")) {
+    el.value = filters[el.dataset.f] ?? "";
+  }
 }
 
 function renderResults(data) {
@@ -347,4 +357,120 @@ searchBtn.addEventListener("click", search);
 startInput.value = todayISO();
 endInput.value = todayISO(13);
 
-loadPorts();
+// ---- Préférences utilisateur (formulaire + filtres de colonnes) ----
+
+const prefsBar = document.getElementById("prefs-bar");
+const prefsSaveBtn = document.getElementById("prefs-save");
+const prefsRestoreBtn = document.getElementById("prefs-restore");
+const prefsStatus = document.getElementById("prefs-status");
+let savedPrefs = null;
+
+const fmtStamp = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" });
+
+function daysBetween(a, b) {
+  return Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
+}
+
+function currentFilters() {
+  if (!tableEl) return { ...pendingFilters };
+  const f = {};
+  for (const el of tableEl.tHead.querySelectorAll("[data-f]")) f[el.dataset.f] = el.value;
+  return f;
+}
+
+function collectPrefs() {
+  const span = daysBetween(startInput.value, endInput.value);
+  return {
+    form: {
+      port_id: portSelect.value ? Number(portSelect.value) : null,
+      span_days: Number.isFinite(span) && span >= 0 ? Math.min(span, 366) : null,
+      tide_phase: tidePhaseSelect.value,
+      max_coefficient: Number(maxCoefInput.value),
+      margin_minutes: Number(marginInput.value),
+      daylight: daylightSelect.value,
+    },
+    filters: currentFilters(),
+  };
+}
+
+function applyPrefs(prefs) {
+  const f = prefs.form || {};
+  if (f.port_id != null && portSelect.querySelector(`option[value="${f.port_id}"]`)) {
+    portSelect.value = String(f.port_id);
+  }
+  if (f.span_days != null) {
+    startInput.value = todayISO();
+    endInput.value = todayISO(f.span_days);
+  }
+  if (f.tide_phase) tidePhaseSelect.value = f.tide_phase;
+  if (f.daylight) daylightSelect.value = f.daylight;
+  if (f.max_coefficient != null) {
+    maxCoefInput.value = f.max_coefficient;
+    coefVal.textContent = maxCoefInput.value;
+  }
+  if (f.margin_minutes != null) {
+    marginInput.value = f.margin_minutes;
+    marginVal.textContent = marginInput.value;
+  }
+  pendingFilters = { ...(prefs.filters || {}) };
+  setFilterInputs(pendingFilters);
+  if (tableEl) renderRows();
+}
+
+function showSavedStamp() {
+  prefsStatus.textContent = savedPrefs?.updated_at
+    ? `Enregistrées le ${fmtStamp.format(new Date(savedPrefs.updated_at))}`
+    : "Aucune préférence enregistrée.";
+}
+
+async function onSessionChange(user) {
+  prefsBar.hidden = !user;
+  savedPrefs = null;
+  prefsRestoreBtn.disabled = true;
+  if (!user) return;
+  try {
+    const prefs = await Session.api("/api/me/preferences");
+    if (prefs.updated_at) {
+      savedPrefs = prefs;
+      prefsRestoreBtn.disabled = false;
+      applyPrefs(prefs);
+      search();
+    }
+    showSavedStamp();
+  } catch (e) {
+    prefsStatus.textContent = `Préférences non chargées : ${e.message}`;
+  }
+}
+
+prefsSaveBtn.addEventListener("click", async () => {
+  prefsSaveBtn.disabled = true;
+  try {
+    savedPrefs = await Session.api("/api/me/preferences", { method: "PUT", body: collectPrefs() });
+    prefsRestoreBtn.disabled = false;
+    showSavedStamp();
+  } catch (e) {
+    prefsStatus.textContent = `Échec de l'enregistrement : ${e.message}`;
+  } finally {
+    prefsSaveBtn.disabled = false;
+  }
+});
+
+prefsRestoreBtn.addEventListener("click", () => {
+  if (!savedPrefs) return;
+  applyPrefs(savedPrefs);
+  search();
+});
+
+(async () => {
+  // les ports d'abord : la préférence port_id doit trouver son option
+  try {
+    await loadPorts();
+  } catch (e) {
+    statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
+  }
+  Session.mountAccount(document.getElementById("account"), [
+    { href: "admin.html", label: "Administration", adminOnly: true },
+  ]);
+  Session.onChange(onSessionChange);
+  await Session.init();
+})();

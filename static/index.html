@@ -8,8 +8,11 @@
 </head>
 <body>
   <header>
-    <h1>🤿 Aide au choix de plongées</h1>
-    <p class="subtitle">Marées (pyTMD) + crépuscule nautique, précalculés sur l'année</p>
+    <div class="brand">
+      <h1>🤿 Aide au choix de plongées</h1>
+      <p class="subtitle">Marées (pyTMD) + crépuscule nautique, précalculés sur l'année</p>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
   </header>
 
   <main>
@@ -57,6 +60,12 @@
       </div>
 
       <button id="search">Chercher les créneaux</button>
+
+      <div class="prefs-bar" id="prefs-bar" hidden>
+        <button type="button" id="prefs-save" class="btn-secondary">Enregistrer mes préférences</button>
+        <button type="button" id="prefs-restore" class="btn-quiet" disabled>Rétablir mes préférences</button>
+        <span id="prefs-status" class="prefs-status" role="status"></span>
+      </div>
     </section>
 
     <section class="results">
@@ -69,6 +78,7 @@
     <p>Données de marée calculées localement (pyTMD, modèle FES2014/2022). Coefficient indicatif, non officiel — se référer à l'annuaire SHOM avant une sortie. Crépuscule nautique calculé par formule astronomique (astral). Vacances scolaires : open data du ministère de l'Éducation nationale (Licence Ouverte).</p>
   </footer>
 
+  <script src="session.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

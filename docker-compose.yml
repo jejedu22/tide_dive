@@ -3,6 +3,7 @@
 #   docker compose run --rm fetch-models                  # 1. télécharger FES depuis AVISO+
 #   docker compose run --rm precompute --year 2026 --port binic   # 2. remplir la base
 #   docker compose up -d --build                          # 3. API + planificateur
+#   docker compose run --rm --entrypoint python api -m app.auth create-admin jerome   # 4. 1er admin
 #
 x-app: &app
   build: .
@@ -14,6 +15,8 @@ x-app: &app
     TIDE_MODEL_DIRECTORY: /models
     PYTMD_CACHE_DIR: /models        # répertoire par défaut de pyTMD 3.x
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
+    COOKIE_SECURE: ${COOKIE_SECURE:-0}          # 1 derrière HTTPS (Traefik)
+    SESSION_DAYS: ${SESSION_DAYS:-30}           # durée d'une session de connexion
   volumes:
     - ./data:/srv/maree/data              # base SQLite (data/plongee.db, chemin relatif de db.py)
     - ${FES_DIR:-./models}:/models:ro
