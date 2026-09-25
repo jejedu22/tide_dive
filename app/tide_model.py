@@ -241,18 +241,13 @@ def find_extrema(
     return extrema
 
 
-def estimate_coefficient(pm_height: float, min_ref: float, max_ref: float) -> float:
-    """
-    Estimation approximative (non officielle) du coefficient de marée
-    (0-120) à partir de la hauteur d'une pleine mer, calée sur les
-    hauteurs extrêmes observées sur l'année pour ce port.
+U_BREST = 3.05  # unité de hauteur à Brest (m) : coef 100 ≈ PM à 3,05 m au-dessus du niveau moyen
 
-    Un vrai coefficient SHOM se calcule différemment (marnage rapporté au
-    marnage de vive-eau moyenne de référence) ; cette estimation sert
-    uniquement à classer les journées entre elles dans l'application, pas
-    à remplacer une source officielle.
+def estimate_coefficient(pm_height_brest_msl: float) -> int:
     """
-    if max_ref == min_ref:
-        return 70.0
-    ratio = (pm_height - min_ref) / (max_ref - min_ref)
-    return round(20 + ratio * 100, 1)
+    Coefficient de marée approché à la manière SHOM :
+    hauteur de la pleine mer à Brest au-dessus du niveau moyen / unité de hauteur.
+    `pm_height_brest_msl` : hauteur PM à Brest, référencée au niveau moyen (sortie FES).
+    """
+    coef = 100 * pm_height_brest_msl / U_BREST
+    return int(round(min(max(coef, 20), 120)))
