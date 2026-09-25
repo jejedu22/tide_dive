@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import calendar_fr, db
 
 # Heure de rendez-vous = étale moins ce délai
 RDV_AVANT_ETALE = timedelta(hours=2)
@@ -51,6 +51,16 @@ def _nearest_pm_coef(dt: datetime, pm_list: list[tuple[datetime, float]]):
     if not pm_list:
         return None
     return min(pm_list, key=lambda p: abs(p[0] - dt))[1]
+
+
+def _day_info(d: date, holidays: dict, vacations: dict) -> dict:
+    """Nature du jour affiché : week-end, jour férié, vacances scolaires."""
+    return {
+        "weekday": d.isoweekday(),          # 1 = lundi … 7 = dimanche
+        "weekend": d.isoweekday() >= 6,
+        "holiday": holidays.get(d),          # libellé du jour férié ou None
+        "school_holiday": vacations.get(d),  # libellé des vacances ou None
+    }
 
 
 def _sun_info(sun) -> dict:
@@ -97,6 +107,12 @@ def api_dive_windows(
         for e in db.get_extrema_range(port_id, (start_utc - pad).isoformat(), (end_utc + pad).isoformat())
         if e["kind"] == "PM" and e["coefficient"] is not None
     ]
+
+    # Calendrier : un jour de marge avant `start` car le RDV (étale − 2 h)
+    # peut tomber la veille d'une étale matinale.
+    cal_start = start - timedelta(days=1)
+    holidays = calendar_fr.public_holidays_range(cal_start, end)
+    vacations = calendar_fr.school_holidays_by_day(cal_start, end)
 
     results = []
     for ex in extrema:
@@ -150,6 +166,7 @@ def api_dive_windows(
                     "date": rdv_dt.date().isoformat(),
                     "time": rdv_dt.strftime("%H:%M"),
                 },
+                "day": _day_info(rdv_dt.date(), holidays, vacations),
                 "sun": _sun_info(sun),
                 "window": {
                     "start": window_start.strftime("%H:%M"),

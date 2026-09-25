@@ -106,8 +106,12 @@ pip install -r requirements.txt
 ```
 
 Télécharger le modèle FES (le script `fetch_aviso_fes.py` est fourni par pyTMD) :
+Télécharger le modèle FES (le script `fetch_aviso_fes.py` est fourni par pyTMD) :
 
 ```bash
+export AVISO_USERNAME=... AVISO_PASSWORD=...
+fetch_aviso_fes.py --directory /data/tide_models --tide FES2014
+
 export AVISO_USERNAME=... AVISO_PASSWORD=...
 fetch_aviso_fes.py --directory /data/tide_models --tide FES2014
 
@@ -128,6 +132,8 @@ uvicorn app.main:app --reload
 # Port du catalogue (nom insensible à la casse)
 python -m app.precompute --port "Saint-Quay-Portrieux" --year 2027
 
+# Point personnalisé : un spot précis plutôt que le port d'attache
+python -m app.precompute --name "Caffa (Erquy)" --lat 48.646 --lon -2.478 --offset-zh 6.2 --year 2027
 # Point personnalisé : un spot précis plutôt que le port d'attache
 python -m app.precompute --name "Caffa (Erquy)" --lat 48.646 --lon -2.478 --offset-zh 6.2 --year 2027
 ```
@@ -215,6 +221,15 @@ data/plongee.db     base générée (non versionnée)
 models/             fichiers FES (non versionnés, licence AVISO+)
 ```
 
+Les fichiers FES sont soumis à la licence AVISO+ : ne pas les redistribuer ni les versionner.
+
+## Pistes
+
+- Valider les sorties sur une année complète contre maree.info / l'annuaire SHOM.
+- Renseigner les `offset_zh_m` manquants depuis les RAM du Shom.
+- Intégrer l'atlas régional Ifremer/PREVIMER ([accès sur demande](https://marc.ifremer.fr/produits/atlas_de_composantes_harmoniques)) : format non lu nativement par pyTMD, seul `tide_model.py` serait à adapter.
+- Ajouter les courants de marée pour qualifier chaque site au-delà du coefficient.
+- Mode « deux plongées dans la journée ».
 Les fichiers FES sont soumis à la licence AVISO+ : ne pas les redistribuer ni les versionner.
 
 ## Pistes

@@ -4,6 +4,8 @@
   --teal: #06d6a0;
   --sand: #ffd166;
   --coral: #ef476f;
+  --violet: #7b5cd6;
+  --weekend-bg: #e6f3f8;
   --bg: #f4f9fb;
   --text: #0d2b36;
 }
@@ -166,6 +168,45 @@ table.windows {
   table.windows { font-size: 0.8rem; }
   .windows th, .windows td { padding: 0.35rem 0.4rem; }
 }
+
+/* --- Nature du jour ------------------------------------------------ */
+
+/* Week-end : fond teinté + date en couleur */
+.day-card.weekend { background: var(--weekend-bg); }
+.day-card.weekend .date { color: var(--blue); }
+
+/* Jour férié : date en corail (prioritaire sur le week-end) */
+.day-card.ferie .date { color: var(--coral); }
+
+/* Vacances : filet violet en haut de carte (cumulable avec le reste) */
+.day-card.vacances { box-shadow: inset 0 3px 0 var(--violet), 0 1px 4px rgba(7, 59, 76, 0.08); }
+
+.badges { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+.badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  color: white;
+}
+.badge-ferie { background: var(--coral); }
+.badge-vacances { background: var(--violet); }
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  font-size: 0.8rem;
+  color: #4a6572;
+}
+.legend li { display: flex; align-items: center; gap: 0.4rem; }
+.swatch { width: 0.9rem; height: 0.9rem; border-radius: 3px; display: inline-block; }
+.swatch-weekend { background: var(--weekend-bg); border: 1px solid var(--blue); }
+.swatch-ferie { background: var(--coral); }
+.swatch-vacances { background: var(--violet); }
 
 footer {
   max-width: 900px;

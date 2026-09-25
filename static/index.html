@@ -61,12 +61,17 @@
 
     <section class="results">
       <p id="status"></p>
+      <ul class="legend" aria-label="Légende">
+        <li><span class="swatch swatch-weekend"></span>Samedi / dimanche</li>
+        <li><span class="swatch swatch-ferie"></span>Jour férié</li>
+        <li><span class="swatch swatch-vacances"></span>Vacances scolaires</li>
+      </ul>
       <div id="results-list"></div>
     </section>
   </main>
 
   <footer>
-    <p>Données de marée calculées localement (pyTMD, modèle FES2014/2022). Coefficient indicatif, non officiel — se référer à l'annuaire SHOM avant une sortie. Crépuscule nautique calculé par formule astronomique (astral).</p>
+    <p>Données de marée calculées localement (pyTMD, modèle FES2014/2022). Coefficient indicatif, non officiel — se référer à l'annuaire SHOM avant une sortie. Crépuscule nautique calculé par formule astronomique (astral). Vacances scolaires : open data du ministère de l'Éducation nationale (Licence Ouverte).</p>
   </footer>
 
   <script src="app.js"></script>
