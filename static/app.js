@@ -36,21 +36,23 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
-// Classes CSS et badges selon la nature du jour (week-end, férié, vacances)
+// Nature du jour (week-end, férié, vacances) : classes de ligne + libellés
 function dayDecorations(day) {
-  if (!day) return { classes: "", badges: "" };
+  if (!day) return { classes: "", notes: "", title: "" };
   const classes = [];
-  const badges = [];
+  const titles = [];
+  let notes = "";
   if (day.weekend) classes.push("weekend");
   if (day.holiday) {
     classes.push("ferie");
-    badges.push(`<span class="badge badge-ferie">${escapeHtml(day.holiday)}</span>`);
+    titles.push(day.holiday);
+    notes += `<span class="ferie-name">${escapeHtml(day.holiday)}</span>`;
   }
   if (day.school_holiday) {
     classes.push("vacances");
-    badges.push(`<span class="badge badge-vacances">${escapeHtml(day.school_holiday)}</span>`);
+    titles.push(day.school_holiday);
   }
-  return { classes: classes.join(" "), badges: badges.join("") };
+  return { classes: classes.join(" "), notes, title: escapeHtml(titles.join(" · ")) };
 }
 
 function show(v) {
@@ -121,6 +123,9 @@ const LEGEND = `
     <span><b>J-1</b> RDV la veille</span>
     <span><span class="coef ve">VE</span> coef ≥ 90</span>
     <span><span class="coef me">ME</span> coef ≤ 50</span>
+    <span><span class="swatch swatch-weekend"></span>samedi/dimanche</span>
+    <span><span class="swatch swatch-ferie"></span>jour férié</span>
+    <span><span class="swatch swatch-vacances"></span>vacances scolaires</span>
   </p>`;
 
 function renderResults(data) {
@@ -134,42 +139,20 @@ function renderResults(data) {
   // Regroupe par jour : date et heures de soleil fusionnées sur les lignes du jour
   const byDay = new Map();
   for (const r of data.results) {
-    const card = document.createElement("div");
-    const deco = dayDecorations(r.day);
-    card.className = `day-card ${r.kind} ${deco.classes}`.trim();
-    const maree = r.kind === "PM" ? "Pleine mer" : "Basse mer";
-    const sun = r.sun || {};
-
-    card.innerHTML = `
-      <div class="rdv">
-        <div class="date">${formatDate(r.rdv.date)}</div>
-        ${deco.badges ? `<div class="badges">${deco.badges}</div>` : ""}
-        <div class="rdv-time"><span>RDV</span> ${r.rdv.time}</div>
-      </div>
-      <dl class="tide">
-        <div><dt>${maree}</dt><dd>${r.time}</dd></div>
-        <div><dt>Hauteur d'eau</dt><dd>${r.height_m != null ? r.height_m.toFixed(2).replace(".", ",") + " m" : "–"}</dd></div>
-        <div><dt>Coefficient</dt><dd class="coef">${show(r.coefficient)}</dd></div>
-      </dl>
-      <dl class="sun">
-        <div><dt>Lever du soleil</dt><dd>${show(sun.sunrise)}</dd></div>
-        <div><dt>Coucher du soleil</dt><dd>${show(sun.sunset)}</dd></div>
-        <div><dt>Aube nautique</dt><dd>${show(sun.nautical_dawn)}</dd></div>
-        <div><dt>Crépuscule nautique</dt><dd>${show(sun.nautical_dusk)}</dd></div>
-      </dl>
-    `;
-    resultsEl.appendChild(card);
+    if (!byDay.has(r.date)) byDay.set(r.date, []);
+    byDay.get(r.date).push(r);
   }
 
   const rows = [];
   for (const [day, items] of byDay) {
     const span = items.length;
     const sun = items[0].sun || {};
+    const deco = dayDecorations(items[0].day);
     items.forEach((r, i) => {
       const first = i === 0;
       rows.push(`
-        <tr class="${first ? "day-start" : ""}">
-          ${first ? `<th scope="row" rowspan="${span}" class="c-date">${formatDay(day)}</th>` : ""}
+        <tr class="${[first ? "day-start" : "", deco.classes].join(" ").trim()}">
+          ${first ? `<th scope="row" rowspan="${span}" class="c-date"${deco.title ? ` title="${deco.title}"` : ""}>${formatDay(day)}${deco.notes}</th>` : ""}
           <td class="c-rdv">${rdvCell(r)}</td>
           <td class="c-tide"><span class="kind ${r.kind}">${r.kind}</span>${r.time}</td>
           <td class="num">${fmtHeight(r.height_m)}</td>

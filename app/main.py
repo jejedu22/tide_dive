@@ -108,11 +108,9 @@ def api_dive_windows(
         if e["kind"] == "PM" and e["coefficient"] is not None
     ]
 
-    # Calendrier : un jour de marge avant `start` car le RDV (étale − 2 h)
-    # peut tomber la veille d'une étale matinale.
-    cal_start = start - timedelta(days=1)
-    holidays = calendar_fr.public_holidays_range(cal_start, end)
-    vacations = calendar_fr.school_holidays_by_day(cal_start, end)
+    # Calendrier du jour de l'étale (date affichée dans le tableau)
+    holidays = calendar_fr.public_holidays_range(start, end)
+    vacations = calendar_fr.school_holidays_by_day(start, end)
 
     results = []
     for ex in extrema:
@@ -166,7 +164,7 @@ def api_dive_windows(
                     "date": rdv_dt.date().isoformat(),
                     "time": rdv_dt.strftime("%H:%M"),
                 },
-                "day": _day_info(rdv_dt.date(), holidays, vacations),
+                "day": _day_info(local_dt.date(), holidays, vacations),
                 "sun": _sun_info(sun),
                 "window": {
                     "start": window_start.strftime("%H:%M"),

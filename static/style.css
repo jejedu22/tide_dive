@@ -171,39 +171,29 @@ table.windows {
 
 /* --- Nature du jour ------------------------------------------------ */
 
-/* Week-end : fond teinté + date en couleur */
-.day-card.weekend { background: var(--weekend-bg); }
-.day-card.weekend .date { color: var(--blue); }
+/* Week-end : lignes teintées, date en bleu */
+.windows tbody tr.weekend { background: var(--weekend-bg); }
+.windows tr.weekend .c-date { color: var(--blue); }
 
-/* Jour férié : date en corail (prioritaire sur le week-end) */
-.day-card.ferie .date { color: var(--coral); }
-
-/* Vacances : filet violet en haut de carte (cumulable avec le reste) */
-.day-card.vacances { box-shadow: inset 0 3px 0 var(--violet), 0 1px 4px rgba(7, 59, 76, 0.08); }
-
-.badges { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
-.badge {
-  font-size: 0.72rem;
+/* Jour férié : date en corail + nom sous la date (prioritaire sur le week-end) */
+.windows tr.ferie .c-date { color: var(--coral); }
+.ferie-name {
+  display: block;
+  font-size: 0.7rem;
   font-weight: 600;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  color: white;
 }
-.badge-ferie { background: var(--coral); }
-.badge-vacances { background: var(--violet); }
 
-.legend {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.2rem;
-  font-size: 0.8rem;
-  color: #4a6572;
+/* Vacances scolaires : filet violet à gauche de la date (libellé en infobulle) */
+.windows tr.vacances .c-date { box-shadow: inset 4px 0 0 var(--violet); }
+
+.swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-right: 0.3em;
+  border-radius: 3px;
+  vertical-align: -0.1em;
 }
-.legend li { display: flex; align-items: center; gap: 0.4rem; }
-.swatch { width: 0.9rem; height: 0.9rem; border-radius: 3px; display: inline-block; }
 .swatch-weekend { background: var(--weekend-bg); border: 1px solid var(--blue); }
 .swatch-ferie { background: var(--coral); }
 .swatch-vacances { background: var(--violet); }
