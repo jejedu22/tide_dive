@@ -72,7 +72,11 @@ services:
     volumes:
       - ./data:/srv/maree/data                 # base SQLite (data/plongee.db, chemin relatif de db.py)
       - ${FES_DIR:-./models}:/models          # écriture pour la mise à jour FES
-    command: ["supercronic", "/etc/crontab.maree"]
+    # Vacances scolaires synchronisées dès le démarrage (sinon seulement le 1er du mois)
+    command:
+      - sh
+      - -c
+      - python -m app.calendar_fr || echo "[vacances] échec au démarrage, nouvelle tentative le 1er du mois"; exec supercronic /etc/crontab.maree
     restart: unless-stopped
     mem_limit: 4g
 
