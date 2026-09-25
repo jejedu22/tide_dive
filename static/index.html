@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide au choix de plongées</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🤿 Aide au choix de plongées</h1>
+    <p class="subtitle">Marées (pyTMD) + crépuscule nautique, précalculés sur l'année</p>
+  </header>
+
+  <main>
+    <section class="controls">
+      <div class="field">
+        <label for="port">Port</label>
+        <select id="port"></select>
+      </div>
+
+      <div class="field">
+        <label for="start">Du</label>
+        <input type="date" id="start">
+      </div>
+      <div class="field">
+        <label for="end">Au</label>
+        <input type="date" id="end">
+      </div>
+
+      <div class="field">
+        <label for="tide_phase">Phase de marée</label>
+        <select id="tide_phase">
+          <option value="both">Étale PM ou BM</option>
+          <option value="PM">Étale de pleine mer</option>
+          <option value="BM">Étale de basse mer</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="max_coefficient">Coefficient max : <span id="coef_val">100</span></label>
+        <input type="range" id="max_coefficient" min="20" max="120" value="100">
+      </div>
+
+      <div class="field">
+        <label for="margin_minutes">Marge autour de l'étale (min) : <span id="margin_val">45</span></label>
+        <input type="range" id="margin_minutes" min="0" max="120" step="5" value="45">
+      </div>
+
+      <div class="field">
+        <label for="daylight">Lumière du jour requise</label>
+        <select id="daylight">
+          <option value="nautical">Crépuscule nautique (marge sécurité)</option>
+          <option value="civil">Lever/coucher civil (plus strict)</option>
+          <option value="none">Aucune contrainte</option>
+        </select>
+      </div>
+
+      <button id="search">Chercher les créneaux</button>
+    </section>
+
+    <section class="results">
+      <p id="status"></p>
+      <div id="results-list"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Données de marée calculées localement (pyTMD, modèle FES2014/2022). Coefficient indicatif, non officiel — se référer à l'annuaire SHOM avant une sortie. Crépuscule nautique calculé par formule astronomique (astral).</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

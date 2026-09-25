@@ -1,0 +1,80 @@
+# Marée — API FastAPI + précalcul annuel des marées/crépuscules
+#
+#   docker compose run --rm fetch-models                  # 1. télécharger FES depuis AVISO+
+#   docker compose run --rm precompute --year 2026 --port binic   # 2. remplir la base
+#   docker compose up -d --build                          # 3. API + planificateur
+#
+x-app: &app
+  build: .
+  image: maree:latest
+  # UID/GID de ton compte sur le serveur (voir .env) pour écrire dans ./data et ./models
+  user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+  environment: &env
+    TZ: Europe/Paris
+    TIDE_MODEL_DIRECTORY: /models
+    PYTMD_CACHE_DIR: /models        # répertoire par défaut de pyTMD 3.x
+  volumes:
+    - ./data:/srv/maree/data              # base SQLite (data/plongee.db, chemin relatif de db.py)
+    - ${FES_DIR:-./models}:/models:ro
+
+# Identifiants AVISO+ (lus par fetch_aviso_fes.py via AVISO_USERNAME / AVISO_PASSWORD)
+x-aviso-env: &aviso-env
+  <<: *env
+  AVISO_USERNAME: ${AVISO_USERNAME:-}
+  AVISO_PASSWORD: ${AVISO_PASSWORD:-}
+  FES_MODEL: ${FES_MODEL:-FES2014}
+  MAREE_PORTS: ${MAREE_PORTS:-binic}
+
+services:
+  api:
+    <<: *app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ports', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # --- Derrière Traefik : retirer "ports" et décommenter ---
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.maree.rule=Host(`maree.localhost`)
+    #   - traefik.http.services.maree.loadbalancer.server.port=8000
+    # networks: [traefik]
+
+  # Téléchargement / mise à jour du modèle FES depuis le FTP AVISO+ (one-shot)
+  # Ne retélécharge que les fichiers plus récents côté serveur.
+  fetch-models:
+    <<: *app
+    profiles: ["tools"]
+    environment: *aviso-env
+    volumes:
+      - ${FES_DIR:-./models}:/models          # écriture nécessaire ici
+    entrypoint: ["fetch_aviso_fes.py", "--directory", "/models"]
+    command: ["--tide", "${FES_MODEL:-FES2014}"]
+
+  # Précalcul manuel : docker compose run --rm precompute --year 2027 --port binic
+  precompute:
+    <<: *app
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "app.precompute"]
+    command: ["--help"]
+    mem_limit: 4g
+
+  # Tâches annuelles automatiques (voir docker/crontab)
+  scheduler:
+    <<: *app
+    environment: *aviso-env
+    volumes:
+      - ./data:/srv/maree/data                 # base SQLite (data/plongee.db, chemin relatif de db.py)
+      - ${FES_DIR:-./models}:/models          # écriture pour la mise à jour FES
+    command: ["supercronic", "/etc/crontab.maree"]
+    restart: unless-stopped
+    mem_limit: 4g
+
+# networks:
+#   traefik:
+#     external: true
