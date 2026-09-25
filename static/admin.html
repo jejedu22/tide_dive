@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administration — Aide au choix de plongées</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>🤿 Administration</h1>
+      <p class="subtitle"><a href="./">Retour aux créneaux de plongée</a></p>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main>
+    <p id="gate" class="gate" hidden></p>
+
+    <section id="admin" class="admin" hidden>
+      <form id="create-user" class="panel create-user" autocomplete="off">
+        <h2>Ajouter un utilisateur</h2>
+        <div class="field">
+          <label for="new-username">Identifiant</label>
+          <input id="new-username" name="username" required pattern="[A-Za-z0-9._\-]{3,32}"
+                 title="3 à 32 caractères : lettres, chiffres, point, tiret, tiret bas">
+        </div>
+        <div class="field">
+          <label for="new-password">Mot de passe (8 caractères min.)</label>
+          <div class="with-action">
+            <input id="new-password" name="password" type="text" required minlength="8" autocomplete="new-password">
+            <button type="button" id="gen-password" class="btn-quiet">Générer</button>
+          </div>
+        </div>
+        <label class="check">
+          <input type="checkbox" name="is_admin"> Administrateur
+        </label>
+        <button type="submit" class="btn-primary">Créer le compte</button>
+        <p id="create-status" class="form-status" role="status"></p>
+      </form>
+
+      <div class="panel">
+        <h2>Utilisateurs</h2>
+        <div class="table-wrap">
+          <table class="users">
+            <thead>
+              <tr>
+                <th scope="col">Identifiant</th>
+                <th scope="col">Rôle</th>
+                <th scope="col">Créé le</th>
+                <th scope="col">Dernière connexion</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <p id="users-status" class="form-status" role="status"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="session.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

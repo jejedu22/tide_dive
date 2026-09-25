@@ -17,13 +17,15 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import calendar_fr, db
+from . import auth, calendar_fr, db
 
 # Heure de rendez-vous = étale moins ce délai
 RDV_AVANT_ETALE = timedelta(hours=2)
 
 app = FastAPI(title="Aide au choix de plongées")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Comptes, préférences et administration (/api/auth, /api/me, /api/admin)
+app.include_router(auth.router)
 
 
 @app.on_event("startup")

@@ -23,7 +23,13 @@ header {
   background: linear-gradient(135deg, var(--blue-deep), var(--blue));
   color: white;
   padding: 1.5rem 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
 }
+header a { color: inherit; }
 
 header h1 { margin: 0; font-size: 1.5rem; }
 .subtitle { margin: 0.3rem 0 0; opacity: 0.85; font-size: 0.9rem; }
@@ -254,4 +260,174 @@ footer {
   padding: 1rem 1.5rem 3rem;
   font-size: 0.78rem;
   color: #607d8b;
+}
+
+/* --- Compte (en-tête) ---------------------------------------------- */
+
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+.account-name { font-weight: 700; margin-right: 0.3rem; }
+.account-btn {
+  font: inherit;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  background: transparent;
+  color: white;
+  text-decoration: none;
+  cursor: pointer;
+}
+.account-btn:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* --- Boutons génériques -------------------------------------------- */
+
+.btn-primary,
+.btn-secondary,
+.btn-quiet,
+.btn-danger {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.btn-primary { background: var(--teal); color: var(--blue-deep); border: none; font-weight: 700; }
+.btn-secondary { background: white; color: var(--blue-deep); border: 2px solid var(--teal); font-weight: 600; }
+.btn-quiet { background: transparent; color: var(--blue-deep); border: 1px solid #cfe3ea; }
+.btn-danger { background: transparent; color: var(--coral); border: 1px solid var(--coral); }
+.btn-quiet:hover:not(:disabled) { background: var(--bg); }
+.btn-danger:hover { background: var(--coral); color: white; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* --- Préférences (sous le bouton de recherche) --------------------- */
+
+.prefs-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px dashed #cfe3ea;
+}
+.prefs-bar[hidden] { display: none; }
+.prefs-status { font-size: 0.8rem; color: #607d8b; }
+
+/* --- Dialogues (connexion, mot de passe) --------------------------- */
+
+.account-dialog {
+  border: none;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: min(24rem, calc(100vw - 2rem));
+  box-shadow: 0 12px 40px rgba(7, 59, 76, 0.25);
+  color: var(--text);
+}
+.account-dialog::backdrop { background: rgba(7, 59, 76, 0.45); }
+.account-dialog h2 { margin: 0 0 1rem; font-size: 1.1rem; color: var(--blue-deep); }
+.account-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--blue-deep);
+}
+.account-dialog input {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.5rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+}
+.dialog-error { min-height: 1.2em; margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--coral); }
+.dialog-hint { margin: -0.4rem 0 0.4rem; font-size: 0.8rem; color: #607d8b; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+/* --- Page d'administration ----------------------------------------- */
+
+.admin { display: grid; gap: 1.5rem; }
+.admin[hidden] { display: none; }
+
+.panel {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(7, 59, 76, 0.08);
+}
+.panel h2 { margin: 0 0 1rem; font-size: 1.05rem; color: var(--blue-deep); }
+.panel .table-wrap { box-shadow: none; border: 1px solid #d8e8ee; }
+
+.create-user {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  align-items: end;
+}
+.create-user h2,
+.create-user .form-status { grid-column: 1 / -1; margin-bottom: 0; }
+.create-user input[type="text"],
+.create-user input:not([type]) {
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #cfe3ea;
+  font-size: 0.95rem;
+  min-width: 0;
+}
+.with-action { display: flex; gap: 0.4rem; }
+.with-action input { flex: 1; }
+.check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; padding-bottom: 0.5rem; }
+.form-status { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--blue-deep); }
+
+table.users { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.users th, .users td { padding: 0.5rem 0.6rem; text-align: left; white-space: nowrap; }
+.users thead th { background: var(--blue-deep); color: white; font-size: 0.8rem; font-weight: 600; }
+.users tbody tr + tr { border-top: 1px solid #d8e8ee; }
+.users tbody th { color: var(--blue-deep); }
+.users .actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+.users .actions button { font-size: 0.78rem; padding: 0.25rem 0.55rem; }
+
+.tag {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #d8e8ee;
+  color: var(--blue-deep);
+}
+.tag-admin { background: var(--sand); }
+
+.gate {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.gate[hidden] { display: none; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

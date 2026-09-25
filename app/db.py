@@ -66,6 +66,32 @@ CREATE TABLE IF NOT EXISTS school_holidays (
     PRIMARY KEY (academy, start_date, description)
 );
 
+-- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre)
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,    -- scrypt, voir auth.py
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_login_at TEXT
+);
+
+-- Sessions : on ne stocke que le SHA-256 du jeton envoyé en cookie
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL        -- ISO8601 UTC
+);
+
+-- Préférences de filtrage : formulaire de recherche + filtres des colonnes (JSON)
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    form_json TEXT NOT NULL DEFAULT '{}',
+    filters_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
 CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
 """
@@ -266,3 +292,108 @@ def school_holidays_coverage(academy: str) -> tuple[int, str | None]:
             (academy,),
         ).fetchone()
     return row["n"], row["last"]
+
+
+# ---------------------------------------------------------------------------
+# Utilisateurs, sessions et préférences
+# ---------------------------------------------------------------------------
+
+_USER_COLUMNS = "id, username, is_admin, created_at, last_login_at"
+
+
+def list_users() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(f"SELECT {_USER_COLUMNS} FROM users ORDER BY username").fetchall()
+
+
+def get_user(user_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def get_user_credentials(username: str) -> sqlite3.Row | None:
+    """Ligne complète (avec hash) pour la vérification du mot de passe."""
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+
+
+def create_user(username: str, password_hash: str, is_admin: bool, created_at: str) -> int:
+    """Lève sqlite3.IntegrityError si le nom existe déjà (insensible à la casse)."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
+            (username, password_hash, int(is_admin), created_at),
+        )
+        return cur.lastrowid
+
+
+def update_user(user_id: int, *, password_hash: str | None = None, is_admin: bool | None = None) -> None:
+    with get_conn() as conn:
+        if password_hash is not None:
+            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+            # un nouveau mot de passe déconnecte toutes les sessions ouvertes
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        if is_admin is not None:
+            conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
+
+
+def delete_user(user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+def count_admins() -> int:
+    with get_conn() as conn:
+        return conn.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1").fetchone()[0]
+
+
+def create_session(token_hash: str, user_id: int, expires_at: str, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))  # ménage
+        conn.execute(
+            "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+            (token_hash, user_id, expires_at),
+        )
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user_id))
+
+
+def get_session_user(token_hash: str, now: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            f"""
+            SELECT {", ".join("u." + c.strip() for c in _USER_COLUMNS.split(","))}
+            FROM sessions s JOIN users u ON u.id = s.user_id
+            WHERE s.token_hash = ? AND s.expires_at > ?
+            """,
+            (token_hash, now),
+        ).fetchone()
+
+
+def delete_session(token_hash: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+
+def get_preferences(user_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
+
+
+def save_preferences(user_id: int, form_json: str, filters_json: str, updated_at: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_preferences (user_id, form_json, filters_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                form_json = excluded.form_json,
+                filters_json = excluded.filters_json,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, form_json, filters_json, updated_at),
+        )
+
+
+def delete_preferences(user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM user_preferences WHERE user_id = ?", (user_id,))

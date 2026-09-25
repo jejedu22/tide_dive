@@ -15,6 +15,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Installation sans Docker](#installation-sans-docker)
 - [Précalcul](#précalcul)
 - [Ports et zéro des cartes](#ports-et-zéro-des-cartes)
+- [Comptes et préférences](#comptes-et-préférences)
 - [API](#api)
 - [Précision et limites](#précision-et-limites)
 - [Structure du projet](#structure-du-projet)
@@ -164,6 +165,32 @@ Source officielle : colonne « NM » des Références Altimétriques Maritimes (
 
 Le coefficient (échelle 20–120) est une notion française définie à Brest. Il n'est pas fourni par pyTMD : il est estimé à partir de la hauteur de chaque PM de Brest au-dessus du niveau moyen, divisée par l'unité de hauteur (`U_BREST = 3,05 m`), **sans** offset. Chaque PM d'un autre port reçoit le coefficient de la PM de Brest la plus proche ; dans l'API, une BM reçoit celui de la PM voisine. Ces coefficients sont **indicatifs**.
 
+## Comptes et préférences
+
+L'application reste utilisable sans compte. Un compte permet d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes.
+
+Il n'y a pas d'inscription libre : les comptes sont créés par un administrateur sur **`/admin.html`** (création, nouveau mot de passe, droits d'administration, suppression). Un administrateur ne peut ni supprimer son propre compte ni retirer ses propres droits, et il reste toujours au moins un administrateur.
+
+Premier administrateur, en ligne de commande :
+
+```bash
+# Docker
+docker compose run --rm --entrypoint python api -m app.auth create-admin jerome
+# Sans Docker
+python -m app.auth create-admin jerome
+
+# Dépannage : changer un mot de passe, lister les comptes
+python -m app.auth set-password jerome
+python -m app.auth list
+```
+
+Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session dans un cookie `HttpOnly` / `SameSite=Lax` dont seule l'empreinte SHA-256 est stockée en base. Changer un mot de passe ferme les sessions ouvertes du compte. **Derrière HTTPS, mettre `COOKIE_SECURE=1`.**
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `COOKIE_SECURE` | `0` | `1` : cookie de session envoyé uniquement en HTTPS |
+| `SESSION_DAYS` | `30` | Durée de validité d'une connexion |
+
 ## API
 
 ### `GET /api/ports`
@@ -189,6 +216,18 @@ curl "http://localhost:8000/api/dive-windows?port_id=1&start=2026-10-01&end=2026
 
 Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur (m, zéro des cartes), le coefficient, l'heure de rendez-vous, la fenêtre de plongée et les horaires solaires du jour. La documentation interactive est disponible sur `/docs`.
 
+### Comptes
+
+| Méthode et route | Accès | Rôle |
+|---|---|---|
+| `POST /api/auth/login` | public | `{username, password}` → cookie de session |
+| `POST /api/auth/logout` | public | ferme la session |
+| `GET /api/auth/me` | public | `{user}` ou `{user: null}` |
+| `POST /api/me/password` | connecté | `{current_password, new_password}` |
+| `GET` / `PUT` / `DELETE /api/me/preferences` | connecté | `{form, filters}` |
+| `GET` / `POST /api/admin/users` | admin | liste / création `{username, password, is_admin}` |
+| `PATCH` / `DELETE /api/admin/users/{id}` | admin | `{password?, is_admin?}` / suppression |
+
 ## Précision et limites
 
 FES est un modèle **océanique global** : il est moins précis dans les ports, baies et zones à géométrie complexe qu'un atlas régional (Ifremer/PREVIMER) ou que les constantes harmoniques du SHOM.
@@ -212,7 +251,11 @@ app/
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m
   db.py             schéma et accès SQLite
+  auth.py           comptes, sessions, préférences, administration (+ CLI)
+  calendar_fr.py    jours fériés et vacances scolaires
 static/             frontend (index.html, app.js, style.css)
+  admin.html/.js    administration des comptes
+  session.js        connexion et appels API, partagé par les deux pages
 docker/crontab      tâches annuelles du scheduler
 Dockerfile
 docker-compose.yml
