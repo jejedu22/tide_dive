@@ -112,6 +112,46 @@ const TABLE_HEAD = `
       <th scope="col"><abbr title="Lever / coucher du soleil">Soleil</abbr></th>
       <th scope="col"><abbr title="Aube / crépuscule nautique (soleil à −12°)">Naut.</abbr></th>
     </tr>
+    <tr class="filters">
+      <th>
+        <select data-f="day" aria-label="Filtrer par type de jour">
+          <option value="">Tous</option>
+          <option value="off">Week-end ou férié</option>
+          <option value="weekend">Week-end</option>
+          <option value="ferie">Férié</option>
+          <option value="vacances">Vacances</option>
+          <option value="semaine">En semaine</option>
+        </select>
+      </th>
+      <th>
+        <div class="range stack">
+          <input type="time" data-f="rdvMin" aria-label="RDV à partir de" title="RDV à partir de">
+          <input type="time" data-f="rdvMax" aria-label="RDV jusqu'à" title="RDV jusqu'à">
+        </div>
+      </th>
+      <th>
+        <select data-f="kind" aria-label="Filtrer par étale">
+          <option value="">Tous</option>
+          <option value="PM">PM</option>
+          <option value="BM">BM</option>
+        </select>
+      </th>
+      <th class="num">
+        <div class="range">
+          <input type="number" data-f="hMin" step="0.1" placeholder="min" aria-label="Hauteur minimale (m)">
+          <input type="number" data-f="hMax" step="0.1" placeholder="max" aria-label="Hauteur maximale (m)">
+        </div>
+      </th>
+      <th class="num">
+        <div class="range">
+          <input type="number" data-f="coefMin" min="20" max="120" step="1" placeholder="min" aria-label="Coefficient minimal">
+          <input type="number" data-f="coefMax" min="20" max="120" step="1" placeholder="max" aria-label="Coefficient maximal">
+        </div>
+      </th>
+      <th colspan="3">
+        <button type="button" class="reset-filters" disabled>Effacer les filtres</button>
+      </th>
+    </tr>
   </thead>`;
 
 const LEGEND = `
@@ -128,17 +168,65 @@ const LEGEND = `
     <span><span class="swatch swatch-vacances"></span>vacances scolaires</span>
   </p>`;
 
-function renderResults(data) {
-  resultsEl.innerHTML = "";
-  if (data.results.length === 0) {
-    statusEl.textContent = "Aucun créneau ne correspond à ces critères sur la période choisie.";
-    return;
-  }
-  statusEl.textContent = `${data.results.length} créneau(x) pour ${data.port}.`;
+// ---- Filtres de la ligne de titre (côté client, sur les résultats déjà chargés) ----
 
+let lastData = null;
+let tableEl = null;
+
+function readFilters() {
+  const f = {};
+  for (const el of tableEl.tHead.querySelectorAll("[data-f]")) {
+    f[el.dataset.f] = el.value;
+    el.classList.toggle("is-active", el.value !== "");
+  }
+  return f;
+}
+
+const toNum = v => (v === "" || v == null ? null : Number(v));
+
+function inRange(v, min, max) {
+  if (min == null && max == null) return true;
+  if (v == null) return false;
+  return (min == null || v >= min) && (max == null || v <= max);
+}
+
+// Comparaison "HH:MM" en chaîne ; si min > max, la plage passe minuit (ex. 20:00 → 02:00)
+function inTimeRange(t, min, max) {
+  if (!min && !max) return true;
+  if (min && max && min > max) return t >= min || t <= max;
+  return (!min || t >= min) && (!max || t <= max);
+}
+
+function matchDay(day, mode) {
+  if (!mode) return true;
+  const d = day || {};
+  switch (mode) {
+    case "weekend":  return !!d.weekend;
+    case "ferie":    return !!d.holiday;
+    case "off":      return !!(d.weekend || d.holiday);
+    case "vacances": return !!d.school_holiday;
+    case "semaine":  return !d.weekend && !d.holiday;
+    default:         return true;
+  }
+}
+
+function applyFilters(results, f) {
+  const hMin = toNum(f.hMin), hMax = toNum(f.hMax);
+  const cMin = toNum(f.coefMin), cMax = toNum(f.coefMax);
+  return results.filter(r =>
+    matchDay(r.day, f.day) &&
+    (!f.kind || r.kind === f.kind) &&
+    inTimeRange(r.rdv.time, f.rdvMin, f.rdvMax) &&
+    inRange(r.height_m, hMin, hMax) &&
+    // on filtre sur la valeur arrondie, celle qui est affichée
+    inRange(r.coefficient != null ? Math.round(r.coefficient) : null, cMin, cMax)
+  );
+}
+
+function buildRows(results) {
   // Regroupe par jour : date et heures de soleil fusionnées sur les lignes du jour
   const byDay = new Map();
-  for (const r of data.results) {
+  for (const r of results) {
     if (!byDay.has(r.date)) byDay.set(r.date, []);
     byDay.get(r.date).push(r);
   }
@@ -163,11 +251,61 @@ function renderResults(data) {
         </tr>`);
     });
   }
+  return rows.join("");
+}
 
+// Vacances absentes de la base ou ne couvrant pas la période : on le dit
+function schoolHolidaysWarning(data) {
+  const sh = data.school_holidays;
+  if (!sh || sh.covered) return "";
+  return sh.periods
+    ? ` Vacances scolaires connues seulement en partie pour cette période (académie de ${sh.academy}).`
+    : ` Vacances scolaires non chargées : lance « python -m app.calendar_fr ».`;
+}
+
+function renderRows() {
+  if (!lastData || !tableEl) return;
+  const f = readFilters();
+  const active = Object.values(f).some(v => v !== "");
+  const all = lastData.results;
+  const shown = active ? applyFilters(all, f) : all;
+
+  tableEl.tHead.querySelector(".reset-filters").disabled = !active;
+  statusEl.textContent = (active
+    ? `${shown.length} créneau(x) sur ${all.length} pour ${lastData.port} avec les filtres.`
+    : `${all.length} créneau(x) pour ${lastData.port}.`) + schoolHolidaysWarning(lastData);
+
+  tableEl.tBodies[0].innerHTML = shown.length
+    ? buildRows(shown)
+    : `<tr><td colspan="8" class="empty">Aucun créneau ne correspond aux filtres. Élargis-les ou efface-les.</td></tr>`;
+}
+
+// Le tableau est construit une seule fois : les filtres restent en place d'une recherche à l'autre
+function ensureTable() {
+  if (tableEl) return;
   resultsEl.innerHTML = `
     <div class="table-wrap">
-      <table class="windows">${TABLE_HEAD}<tbody>${rows.join("")}</tbody></table>
+      <table class="windows">${TABLE_HEAD}<tbody></tbody></table>
     </div>${LEGEND}`;
+  tableEl = resultsEl.querySelector("table.windows");
+  const thead = tableEl.tHead;
+  thead.addEventListener("input", renderRows);
+  thead.querySelector(".reset-filters").addEventListener("click", () => {
+    for (const el of thead.querySelectorAll("[data-f]")) el.value = "";
+    renderRows();
+  });
+}
+
+function renderResults(data) {
+  lastData = data;
+  if (data.results.length === 0) {
+    resultsEl.hidden = true;
+    statusEl.textContent = "Aucun créneau ne correspond à ces critères sur la période choisie.";
+    return;
+  }
+  ensureTable();
+  resultsEl.hidden = false;
+  renderRows();
 }
 
 async function search() {
