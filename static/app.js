@@ -14,6 +14,19 @@ const resultsEl = document.getElementById("results-list");
 maxCoefInput.addEventListener("input", () => coefVal.textContent = maxCoefInput.value);
 marginInput.addEventListener("input", () => marginVal.textContent = marginInput.value);
 
+const fmtDate = new Intl.DateTimeFormat("fr-FR", {
+  weekday: "long", day: "numeric", month: "long", year: "numeric",
+});
+
+function formatDate(iso) {
+  // midi pour éviter tout décalage de jour lié au fuseau
+  return fmtDate.format(new Date(iso + "T12:00:00"));
+}
+
+function show(v) {
+  return v ?? "–";
+}
+
 function todayISO(offsetDays = 0) {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
@@ -40,15 +53,25 @@ function renderResults(data) {
   for (const r of data.results) {
     const card = document.createElement("div");
     card.className = `day-card ${r.kind}`;
-    const coefBadge = r.coefficient != null ? `<span class="coef">coef ${r.coefficient}</span>` : "";
-    const phase = r.kind === "PM" ? "Étale de pleine mer" : "Étale de basse mer";
-    const daylightInfo = r.daylight_bounds
-      ? `jour ${r.daylight_bounds.start}–${r.daylight_bounds.end}`
-      : "";
+    const maree = r.kind === "PM" ? "Pleine mer" : "Basse mer";
+    const sun = r.sun || {};
+
     card.innerHTML = `
-      <div class="date">${r.date} · ${r.time}</div>
-      <div class="meta">${phase} · fenêtre ${r.window.start}–${r.window.end} · hauteur ${r.height_m} m · ${daylightInfo}</div>
-      ${coefBadge}
+      <div class="rdv">
+        <div class="date">${formatDate(r.rdv.date)}</div>
+        <div class="rdv-time"><span>RDV</span> ${r.rdv.time}</div>
+      </div>
+      <dl class="tide">
+        <div><dt>${maree}</dt><dd>${r.time}</dd></div>
+        <div><dt>Hauteur d'eau</dt><dd>${r.height_m != null ? r.height_m.toFixed(2).replace(".", ",") + " m" : "–"}</dd></div>
+        <div><dt>Coefficient</dt><dd class="coef">${show(r.coefficient)}</dd></div>
+      </dl>
+      <dl class="sun">
+        <div><dt>Lever du soleil</dt><dd>${show(sun.sunrise)}</dd></div>
+        <div><dt>Coucher du soleil</dt><dd>${show(sun.sunset)}</dd></div>
+        <div><dt>Aube nautique</dt><dd>${show(sun.nautical_dawn)}</dd></div>
+        <div><dt>Crépuscule nautique</dt><dd>${show(sun.nautical_dusk)}</dd></div>
+      </dl>
     `;
     resultsEl.appendChild(card);
   }

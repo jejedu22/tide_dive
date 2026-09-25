@@ -19,6 +19,9 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 
+# Heure de rendez-vous = étale moins ce délai
+RDV_AVANT_ETALE = timedelta(hours=2)
+
 app = FastAPI(title="Aide au choix de plongées")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -41,6 +44,25 @@ def _local_time(ts_utc_iso: str, tz: ZoneInfo) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(tz)
+
+
+def _nearest_pm_coef(dt: datetime, pm_list: list[tuple[datetime, float]]):
+    """Coefficient de la pleine mer la plus proche dans le temps."""
+    if not pm_list:
+        return None
+    return min(pm_list, key=lambda p: abs(p[0] - dt))[1]
+
+
+def _sun_info(sun) -> dict:
+    """Heures de soleil du jour (déjà en heure locale HH:MM dans la base)."""
+    if sun is None:
+        return {"sunrise": None, "sunset": None, "nautical_dawn": None, "nautical_dusk": None}
+    return {
+        "sunrise": sun["sunrise_local"],
+        "sunset": sun["sunset_local"],
+        "nautical_dawn": sun["nautical_dawn_local"],
+        "nautical_dusk": sun["nautical_dusk_local"],
+    }
 
 
 @app.get("/api/dive-windows")
@@ -67,14 +89,32 @@ def api_dive_windows(
         for r in db.get_sun_times_range(port_id, start.isoformat(), end.isoformat())
     }
 
+    # Pleines mers avec coefficient, sur une plage élargie de 13 h de chaque
+    # côté pour que les BM en bord de période trouvent aussi leur PM voisine.
+    pad = timedelta(hours=13)
+    pm_list = [
+        (_local_time(e["ts_utc"], tz), e["coefficient"])
+        for e in db.get_extrema_range(port_id, (start_utc - pad).isoformat(), (end_utc + pad).isoformat())
+        if e["kind"] == "PM" and e["coefficient"] is not None
+    ]
+
     results = []
     for ex in extrema:
         if tide_phase != "both" and ex["kind"] != tide_phase:
             continue
-        if ex["kind"] == "PM" and ex["coefficient"] is not None and ex["coefficient"] > max_coefficient:
-            continue
 
         local_dt = _local_time(ex["ts_utc"], tz)
+
+        # Basse mer : on prend le coefficient de la pleine mer la plus proche
+        if ex["kind"] == "PM":
+            coefficient = ex["coefficient"]
+        else:
+            coefficient = _nearest_pm_coef(local_dt, pm_list)
+
+        # Filtre coefficient max, appliqué aux PM comme aux BM
+        if coefficient is not None and coefficient > max_coefficient:
+            continue
+
         day_key = local_dt.date().isoformat()
         sun = sun_rows.get(day_key)
 
@@ -97,13 +137,20 @@ def api_dive_windows(
         if daylight != "none" and not in_daylight:
             continue
 
+        rdv_dt = local_dt - RDV_AVANT_ETALE
+
         results.append(
             {
                 "date": day_key,
                 "kind": ex["kind"],
                 "time": local_dt.strftime("%H:%M"),
                 "height_m": round(ex["height_m"], 2),
-                "coefficient": ex["coefficient"],
+                "coefficient": coefficient,
+                "rdv": {
+                    "date": rdv_dt.date().isoformat(),
+                    "time": rdv_dt.strftime("%H:%M"),
+                },
+                "sun": _sun_info(sun),
                 "window": {
                     "start": window_start.strftime("%H:%M"),
                     "end": window_end.strftime("%H:%M"),
