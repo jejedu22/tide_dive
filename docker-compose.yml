@@ -1,9 +1,12 @@
 # Marée — API FastAPI + précalcul annuel des marées/crépuscules
 #
-#   docker compose run --rm fetch-models                  # 1. télécharger FES depuis AVISO+
-#   docker compose run --rm precompute --year 2026 --port binic   # 2. remplir la base
-#   docker compose up -d --build                          # 3. API + planificateur
-#   docker compose run --rm --entrypoint python api -m app.auth create-admin jerome   # 4. 1er admin
+#   docker compose up -d --build                          # 1. API + worker + planificateur
+#   docker compose run --rm --entrypoint python api -m app.auth create-admin jerome   # 2. 1er admin
+#   puis /admin.html : télécharger FES, ajouter les ports, lancer les calculs
+#
+# En ligne de commande (sans passer par l'admin) :
+#   docker compose run --rm fetch-models
+#   docker compose run --rm precompute --year 2026 --port binic
 #
 x-app: &app
   build: .
@@ -27,7 +30,6 @@ x-aviso-env: &aviso-env
   AVISO_USERNAME: ${AVISO_USERNAME:-}
   AVISO_PASSWORD: ${AVISO_PASSWORD:-}
   FES_MODEL: ${FES_MODEL:-FES2014}
-  MAREE_PORTS: ${MAREE_PORTS:-binic}
 
 services:
   api:
@@ -68,20 +70,31 @@ services:
     command: ["--help"]
     mem_limit: 4g
 
-  # Tâches annuelles automatiques (voir docker/crontab)
-  scheduler:
+  # Exécute les tâches mises en file depuis l'administration ou par le planificateur :
+  # précalculs, téléchargement FES, vacances scolaires. Une tâche à la fois.
+  worker:
     <<: *app
     environment: *aviso-env
     volumes:
       - ./data:/srv/maree/data                 # base SQLite (data/plongee.db, chemin relatif de db.py)
       - ${FES_DIR:-./models}:/models          # écriture pour la mise à jour FES
-    # Vacances scolaires synchronisées dès le démarrage (sinon seulement le 1er du mois)
+    command: ["python", "-m", "app.jobs", "worker"]
+    restart: unless-stopped
+    mem_limit: 4g
+    stop_grace_period: 30s                    # laisse le temps d'interrompre proprement la tâche en cours
+
+  # Planificateur (voir docker/crontab) : il ne calcule rien lui-même,
+  # il ajoute des tâches à la file exécutée par le worker.
+  scheduler:
+    <<: *app
+    volumes:
+      - ./data:/srv/maree/data
+    # Vacances scolaires demandées dès le démarrage (sinon seulement le 1er du mois)
     command:
       - sh
       - -c
-      - python -m app.calendar_fr || echo "[vacances] échec au démarrage, nouvelle tentative le 1er du mois"; exec supercronic /etc/crontab.maree
+      - python -m app.jobs enqueue school-holidays; exec supercronic /etc/crontab.maree
     restart: unless-stopped
-    mem_limit: 4g
 
 # networks:
 #   traefik:

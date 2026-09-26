@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS ports (
     name TEXT NOT NULL UNIQUE,
     latitude REAL NOT NULL,
     longitude REAL NOT NULL,
-    timezone TEXT NOT NULL DEFAULT 'Europe/Paris'
+    timezone TEXT NOT NULL DEFAULT 'Europe/Paris',
+    offset_zh_m REAL,                         -- niveau moyen au-dessus du zéro des cartes (NULL = inconnu)
+    auto_precompute INTEGER NOT NULL DEFAULT 1 -- inclus dans le précalcul annuel automatique
 );
 
 CREATE TABLE IF NOT EXISTS tide_heights (
@@ -91,6 +93,32 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     updated_at TEXT NOT NULL
 );
 
+-- File de tâches longues (précalcul, téléchargement FES…), exécutées une par
+-- une par le worker (python -m app.jobs worker). Voir jobs.py.
+CREATE TABLE IF NOT EXISTS jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    exit_code INTEGER,
+    log TEXT NOT NULL DEFAULT ''
+);
+
+-- Une seule ligne (id = 1) : signe de vie du worker
+CREATE TABLE IF NOT EXISTS worker_status (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    heartbeat_at TEXT NOT NULL,
+    current_job_id INTEGER,
+    info_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
 CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
@@ -113,12 +141,33 @@ _SQL_INSERT_SUN = """
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
+        # WAL : l'API continue de lire pendant qu'un précalcul écrit une année entière
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Colonnes ajoutées après coup sur une base existante."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(ports)")}
+    if "offset_zh_m" not in cols:
+        conn.execute("ALTER TABLE ports ADD COLUMN offset_zh_m REAL")
+        # reprend les décalages connus du catalogue pour les ports déjà en base
+        from .ports_catalog import PORTS
+        for p in PORTS:
+            if p.get("offset_zh_m"):
+                conn.execute(
+                    "UPDATE ports SET offset_zh_m = ? WHERE name = ? COLLATE NOCASE AND offset_zh_m IS NULL",
+                    (p["offset_zh_m"], p["name"]),
+                )
+    if "auto_precompute" not in cols:
+        conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
 
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout : attend qu'un autre processus (worker, API) libère le verrou d'écriture
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
@@ -131,26 +180,81 @@ def get_conn():
         conn.close()
 
 
-def upsert_port(name: str, latitude: float, longitude: float, timezone: str = "Europe/Paris") -> int:
+def upsert_port(
+    name: str, latitude: float, longitude: float, timezone: str = "Europe/Paris",
+    offset_zh_m: float | None = None,
+) -> int:
+    """Crée ou met à jour un port par son nom ; un offset None conserve la valeur en base."""
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO ports (name, latitude, longitude, timezone)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO ports (name, latitude, longitude, timezone, offset_zh_m)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 latitude=excluded.latitude,
                 longitude=excluded.longitude,
-                timezone=excluded.timezone
+                timezone=excluded.timezone,
+                offset_zh_m=COALESCE(excluded.offset_zh_m, ports.offset_zh_m)
             """,
-            (name, latitude, longitude, timezone),
+            (name, latitude, longitude, timezone, offset_zh_m),
         )
         row = conn.execute("SELECT id FROM ports WHERE name = ?", (name,)).fetchone()
         return row["id"]
 
 
-def list_ports() -> list[sqlite3.Row]:
+def list_ports(with_data_only: bool = False) -> list[sqlite3.Row]:
+    """Ports en base ; with_data_only : seulement ceux qui ont des marées précalculées."""
+    sql = "SELECT * FROM ports p"
+    if with_data_only:
+        sql += " WHERE EXISTS (SELECT 1 FROM tide_extrema e WHERE e.port_id = p.id)"
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM ports ORDER BY name").fetchall()
+        return conn.execute(sql + " ORDER BY name").fetchall()
+
+
+def create_port(name: str, latitude: float, longitude: float, timezone: str,
+                offset_zh_m: float | None, auto_precompute: bool) -> int:
+    """Lève sqlite3.IntegrityError si le nom existe déjà."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO ports (name, latitude, longitude, timezone, offset_zh_m, auto_precompute) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, latitude, longitude, timezone, offset_zh_m, int(auto_precompute)),
+        )
+        return cur.lastrowid
+
+
+_PORT_FIELDS = {"name", "latitude", "longitude", "timezone", "offset_zh_m", "auto_precompute"}
+
+
+def update_port(port_id: int, **fields) -> None:
+    """Met à jour les champs fournis (clés de _PORT_FIELDS uniquement)."""
+    fields = {k: v for k, v in fields.items() if k in _PORT_FIELDS}
+    if not fields:
+        return
+    if "auto_precompute" in fields:
+        fields["auto_precompute"] = int(fields["auto_precompute"])
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE ports SET {assignments} WHERE id = ?", (*fields.values(), port_id))
+
+
+def delete_port(port_id: int) -> None:
+    """Supprime le port et toutes ses données précalculées (ON DELETE CASCADE)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM ports WHERE id = ?", (port_id,))
+
+
+def years_by_port() -> dict[int, list[int]]:
+    """{port_id: [années]} d'après les extrema (bien plus léger que tide_heights)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT port_id, CAST(substr(ts_utc, 1, 4) AS INTEGER) AS y "
+            "FROM tide_extrema ORDER BY port_id, y"
+        ).fetchall()
+    out: dict[int, list[int]] = {}
+    for r in rows:
+        out.setdefault(r["port_id"], []).append(r["y"])
+    return out
 
 
 def get_port(port_id: int) -> sqlite3.Row | None:
@@ -397,3 +501,119 @@ def save_preferences(user_id: int, form_json: str, filters_json: str, updated_at
 def delete_preferences(user_id: int) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM user_preferences WHERE user_id = ?", (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# File de tâches (voir jobs.py)
+# ---------------------------------------------------------------------------
+
+JOB_LOG_MAX = 200_000  # caractères : on ne garde que la fin du journal
+
+_JOB_COLUMNS = (
+    "id, kind, params_json, status, cancel_requested, created_by, created_at, "
+    "started_at, finished_at, exit_code, length(log) AS log_size"
+)
+
+
+def enqueue_job(kind: str, params_json: str, created_by: str, now: str) -> int | None:
+    """Ajoute une tâche ; None si une tâche identique est déjà en attente ou en cours."""
+    with get_conn() as conn:
+        dup = conn.execute(
+            "SELECT id FROM jobs WHERE kind = ? AND params_json = ? AND status IN ('queued', 'running')",
+            (kind, params_json),
+        ).fetchone()
+        if dup:
+            return None
+        cur = conn.execute(
+            "INSERT INTO jobs (kind, params_json, created_by, created_at) VALUES (?, ?, ?, ?)",
+            (kind, params_json, created_by, now),
+        )
+        return cur.lastrowid
+
+
+def list_jobs(limit: int = 50) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            f"SELECT {_JOB_COLUMNS} FROM jobs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+def get_job(job_id: int, with_log: bool = False) -> sqlite3.Row | None:
+    cols = _JOB_COLUMNS + (", log" if with_log else "")
+    with get_conn() as conn:
+        return conn.execute(f"SELECT {cols} FROM jobs WHERE id = ?", (job_id,)).fetchone()
+
+
+def request_job_cancel(job_id: int, now: str) -> None:
+    """Une tâche en attente est annulée tout de suite ; une tâche en cours l'est par le worker."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE id = ? AND status = 'queued'",
+            (now, job_id),
+        )
+        conn.execute(
+            "UPDATE jobs SET cancel_requested = 1 WHERE id = ? AND status = 'running'", (job_id,)
+        )
+
+
+def claim_next_job(now: str) -> sqlite3.Row | None:
+    """Passe la plus ancienne tâche en attente à 'running' et la renvoie."""
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            UPDATE jobs SET status = 'running', started_at = ?
+            WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1)
+              AND status = 'queued'
+            RETURNING id, kind, params_json, created_by
+            """,
+            (now,),
+        ).fetchone()
+
+
+def append_job_log(job_id: int, text: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET log = substr(log || ?, -?) WHERE id = ?",
+            (text, JOB_LOG_MAX, job_id),
+        )
+
+
+def job_cancel_requested(job_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return bool(row and row["cancel_requested"])
+
+
+def finish_job(job_id: int, status: str, exit_code: int | None, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = ?, exit_code = ?, finished_at = ? WHERE id = ?",
+            (status, exit_code, now, job_id),
+        )
+
+
+def fail_orphan_jobs(now: str, message: str) -> int:
+    """Tâches restées 'running' après un arrêt brutal du worker."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE jobs SET status = 'failed', finished_at = ?, log = log || ? WHERE status = 'running'",
+            (now, message),
+        )
+        return cur.rowcount
+
+
+def worker_heartbeat(now: str, current_job_id: int | None, info_json: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO worker_status (id, heartbeat_at, current_job_id, info_json) VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET heartbeat_at = excluded.heartbeat_at,
+                current_job_id = excluded.current_job_id, info_json = excluded.info_json
+            """,
+            (now, current_job_id, info_json),
+        )
+
+
+def get_worker_status() -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM worker_status WHERE id = 1").fetchone()
