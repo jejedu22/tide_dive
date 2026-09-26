@@ -15,6 +15,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Installation sans Docker](#installation-sans-docker)
 - [Précalcul](#précalcul)
 - [Ports et zéro des cartes](#ports-et-zéro-des-cartes)
+- [Administration des données](#administration-des-données)
 - [Comptes et préférences](#comptes-et-préférences)
 - [API](#api)
 - [Précision et limites](#précision-et-limites)
@@ -48,36 +49,40 @@ Prérequis : Docker + Compose, et un compte gratuit [AVISO+](https://www.aviso.a
 cp .env.example .env
 # Renseigner AVISO_USERNAME / AVISO_PASSWORD, HOST_UID / HOST_GID (sortie de `id -u` / `id -g`)
 
-docker compose build
+docker compose up -d --build
 
-# 1. Télécharger le modèle FES dans ./models (one-shot, plusieurs Go)
-docker compose run --rm fetch-models
-
-# 2. Précalculer une année
-docker compose run --rm precompute --year 2026 --port binic
-docker compose run --rm precompute --year 2026 --port saint-quay-portrieux
-
-# 3. Lancer l'API et le planificateur
-docker compose up -d
+# Premier administrateur
+docker compose run --rm --entrypoint python api -m app.auth create-admin jerome
 ```
 
-Puis ouvrir <http://localhost:8000> (port configurable via `API_PORT`).
+Puis ouvrir <http://localhost:8000/admin.html> (port configurable via `API_PORT`) :
+
+1. onglet **Données et tâches** : lancer le téléchargement du modèle FES (plusieurs Go la première fois) ;
+2. onglet **Ports** : ajouter les ports depuis le catalogue, vérifier leur niveau moyen, puis **Calculer** l'année voulue ;
+3. suivre l'avancement et le journal de chaque tâche dans **Données et tâches**.
+
+Tout reste faisable en ligne de commande, sans passer par l'administration :
+
+```bash
+docker compose run --rm fetch-models
+docker compose run --rm precompute --year 2026 --port binic
+```
 
 ### Services
 
 | Service | Rôle | Lancement |
 |---|---|---|
-| `api` | FastAPI + frontend statique | `docker compose up -d` |
-| `scheduler` | tâches annuelles via [supercronic](https://github.com/aptible/supercronic) | `docker compose up -d` |
-| `fetch-models` | téléchargement / mise à jour FES depuis AVISO+ | profil `tools`, `run --rm` |
-| `precompute` | précalcul manuel | profil `tools`, `run --rm` |
+| `api` | FastAPI + frontend statique + administration | `docker compose up -d` |
+| `worker` | exécute les tâches en file, une à la fois (4 Go max) | `docker compose up -d` |
+| `scheduler` | ajoute les tâches périodiques à la file via [supercronic](https://github.com/aptible/supercronic) | `docker compose up -d` |
+| `fetch-models` | téléchargement FES en direct | profil `tools`, `run --rm` |
+| `precompute` | précalcul en direct | profil `tools`, `run --rm` |
 
-Le `scheduler` exécute `docker/crontab` :
+Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker` exécute, si bien qu'elles apparaissent dans l'administration comme celles lancées à la main. `docker/crontab` :
 
-- **1er décembre, 02:00** : mise à jour du modèle FES (seuls les fichiers plus récents sont retéléchargés ; un échec conserve les modèles existants) ;
-- **15 décembre, 03:00** : précalcul de l'année suivante pour chaque port listé dans `MAREE_PORTS`.
-
-`precompute` et `scheduler` sont limités à 4 Go de mémoire.
+- **1er décembre, 02:00** : mise à jour du modèle FES (seuls les fichiers plus récents sont retéléchargés) ;
+- **15 décembre, 03:00** : précalcul de l'année suivante pour chaque port coché « Recalculer automatiquement chaque année » et doté d'un niveau moyen ;
+- **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires.
 
 ### Variables d'environnement (`.env`)
 
@@ -86,7 +91,6 @@ Le `scheduler` exécute `docker/crontab` :
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
 | `FES_MODEL` | `FES2014` | Modèle à télécharger (`FES2014` ou `FES2022`) |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
-| `MAREE_PORTS` | `binic` | Ports précalculés chaque année, séparés par des espaces |
 | `API_PORT` | `8000` | Port exposé sur l'hôte |
 | `HOST_UID`, `HOST_GID` | `1000` | Utilisateur propriétaire de `./data` et `./models` |
 
@@ -165,6 +169,37 @@ Source officielle : colonne « NM » des Références Altimétriques Maritimes (
 
 Le coefficient (échelle 20–120) est une notion française définie à Brest. Il n'est pas fourni par pyTMD : il est estimé à partir de la hauteur de chaque PM de Brest au-dessus du niveau moyen, divisée par l'unité de hauteur (`U_BREST = 3,05 m`), **sans** offset. Chaque PM d'un autre port reçoit le coefficient de la PM de Brest la plus proche ; dans l'API, une BM reçoit celui de la PM voisine. Ces coefficients sont **indicatifs**.
 
+## Administration des données
+
+La page `/admin.html` (administrateurs) comporte trois onglets.
+
+**Ports** : ajout depuis le catalogue (`app/ports_catalog.py`) ou en saisie libre, modification, suppression (avec toutes les données calculées du port), case « recalcul annuel », et bouton **Calculer** par port et par année, ou pour tous les ports annuels d'un coup. Un port sans niveau moyen au-dessus du zéro des cartes peut être enregistré mais pas calculé. La page de recherche ne propose que les ports ayant au moins une année calculée.
+
+**Données et tâches** : état du modèle FES (taille, date de mise à jour), téléchargement / mise à jour depuis AVISO+, synchronisation des vacances scolaires, et liste des tâches avec statut, durée, journal en direct et annulation.
+
+**Utilisateurs** : voir [Comptes et préférences](#comptes-et-préférences).
+
+### File de tâches
+
+L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs`, et le service `worker` (`python -m app.jobs worker`) les exécute **une par une** en sous-processus, en recopiant leur sortie dans le journal. Un précalcul peut donc occuper ses 4 Go sans toucher au serveur web, et deux calculs ne se marchent pas dessus. Une tâche identique déjà en attente ou en cours n'est pas dupliquée.
+
+- Si le worker est arrêté, un bandeau le signale dans l'administration et les tâches restent en attente.
+- Sans identifiants AVISO+, le téléchargement est refusé avec un message clair (le script de pyTMD attendrait sinon une saisie au clavier).
+- Une tâche tuée par manque de mémoire est signalée comme telle dans son journal.
+- Si le worker redémarre pendant une tâche, celle-ci est marquée en échec : il suffit de la relancer.
+
+La base passe en mode WAL pour que l'API continue de répondre pendant qu'un précalcul écrit une année entière.
+
+```bash
+# Mettre des tâches en file depuis un terminal
+python -m app.jobs enqueue fetch-models --model FES2022
+python -m app.jobs enqueue precompute --port-id 3 --year 2027
+python -m app.jobs enqueue precompute --auto          # tous les ports annuels, année suivante
+python -m app.jobs enqueue school-holidays
+```
+
+**Mise à jour d'une installation existante** : les ports déjà en base reçoivent automatiquement leur niveau moyen depuis le catalogue quand il y est connu, et sont cochés « annuel ». La variable `MAREE_PORTS` n'est plus utilisée : c'est la case de l'administration qui décide.
+
 ## Comptes et préférences
 
 L'application reste utilisable sans compte. Un compte permet d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes.
@@ -228,6 +263,19 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET` / `POST /api/admin/users` | admin | liste / création `{username, password, is_admin}` |
 | `PATCH` / `DELETE /api/admin/users/{id}` | admin | `{password?, is_admin?}` / suppression |
 
+### Administration des données
+
+| Méthode et route | Rôle |
+|---|---|
+| `GET /api/admin/status` | modèle FES, worker, vacances scolaires |
+| `GET` / `POST /api/admin/ports` | liste (avec années calculées) / création |
+| `GET /api/admin/ports/catalog` | ports du catalogue pas encore en base |
+| `PATCH` / `DELETE /api/admin/ports/{id}` | modification / suppression avec ses données |
+| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `fetch_models` (`model`), `school_holidays` |
+| `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
+| `GET /api/admin/jobs/{id}` | détail avec journal |
+| `POST /api/admin/jobs/{id}/cancel` | annulation |
+
 ## Précision et limites
 
 FES est un modèle **océanique global** : il est moins précis dans les ports, baies et zones à géométrie complexe qu'un atlas régional (Ifremer/PREVIMER) ou que les constantes harmoniques du SHOM.
@@ -252,11 +300,13 @@ app/
   ports_catalog.py  ports préréglés et leurs offset_zh_m
   db.py             schéma et accès SQLite
   auth.py           comptes, sessions, préférences, administration (+ CLI)
+  admin.py          API d'administration : ports, tâches, état des données
+  jobs.py           file de tâches et worker (+ CLI enqueue)
   calendar_fr.py    jours fériés et vacances scolaires
 static/             frontend (index.html, app.js, style.css)
   admin.html/.js    administration des comptes
   session.js        connexion et appels API, partagé par les deux pages
-docker/crontab      tâches annuelles du scheduler
+docker/crontab      tâches périodiques mises en file par le scheduler
 Dockerfile
 docker-compose.yml
 .env.example

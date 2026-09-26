@@ -10,6 +10,9 @@ Exemples
     # Port personnalisé (spot précis, pas seulement le port d'attache)
     python -m app.precompute --name "Caffa (Erquy)" --lat 48.646 --lon -2.478 --offset-zh 6.2 --year 2027
 
+    # Port déjà enregistré en base (c'est ce qu'utilise la page d'administration)
+    python -m app.precompute --port-id 3 --year 2027
+
 Ce script :
   1. calcule la hauteur d'eau toute l'année au pas de 10 min via pyTMD
      (modèle FES2014/2022, cf. tide_model.py) ;
@@ -61,6 +64,18 @@ def find_catalog_port(name: str) -> dict | None:
 
 def resolve_port(args) -> tuple[str, float, float, float]:
     """Renvoie (nom, latitude, longitude, offset_zh_m)."""
+    if args.port_id is not None:
+        row = db.get_port(args.port_id)
+        if row is None:
+            raise SystemExit(f"Port #{args.port_id} introuvable en base.")
+        args.timezone = row["timezone"]
+        offset = args.offset_zh if args.offset_zh is not None else row["offset_zh_m"]
+        if offset is None:
+            raise SystemExit(
+                f"Pas de décalage vers le zéro des cartes pour '{row['name']}'. "
+                f"Renseigne-le dans l'administration (onglet Ports) ou passe --offset-zh."
+            )
+        return row["name"], row["latitude"], row["longitude"], float(offset)
     if args.name and args.lat is not None and args.lon is not None:
         name, lat, lon, offset = args.name, args.lat, args.lon, None
     elif args.port:
@@ -71,7 +86,11 @@ def resolve_port(args) -> tuple[str, float, float, float]:
                 f"Utilise --name/--lat/--lon pour un point personnalisé."
             )
         name, lat, lon = p["name"], p["latitude"], p["longitude"]
-        offset = p.get("offset_zh_m")
+        # 0 dans le catalogue = inconnu ; on retombe sur la valeur saisie en base, s'il y en a une
+        offset = p.get("offset_zh_m") or None
+        if offset is None:
+            row = next((r for r in db.list_ports() if r["name"].lower() == name.lower()), None)
+            offset = row["offset_zh_m"] if row else None
     else:
         raise SystemExit("Précise --port (catalogue) ou --name/--lat/--lon (point personnalisé).")
 
@@ -81,7 +100,7 @@ def resolve_port(args) -> tuple[str, float, float, float]:
     if offset is None:
         raise SystemExit(
             f"Pas de décalage vers le zéro des cartes pour '{name}'. "
-            f"Ajoute 'offset_zh_m' à ce port dans ports_catalog.py, ou passe --offset-zh."
+            f"Renseigne-le dans l'administration (onglet Ports), dans ports_catalog.py, ou passe --offset-zh."
         )
     return name, lat, lon, float(offset)
 
@@ -143,6 +162,7 @@ def nearest_coefficient(t, brest_times: list[pd.Timestamp], brest_coefs: list[fl
 def main() -> None:
     parser = argparse.ArgumentParser(description="Précalcule marées + soleil pour un port et une année.")
     parser.add_argument("--port", help="Nom d'un port du catalogue (voir ports_catalog.py)")
+    parser.add_argument("--port-id", type=int, help="Identifiant d'un port déjà en base")
     parser.add_argument("--name", help="Nom libre pour un point personnalisé")
     parser.add_argument("--lat", type=float, help="Latitude du point personnalisé")
     parser.add_argument("--lon", type=float, help="Longitude du point personnalisé")
@@ -157,7 +177,7 @@ def main() -> None:
     db.init_db()
 
     name, lat, lon, offset_zh = resolve_port(args)
-    port_id = db.upsert_port(name, lat, lon, args.timezone)
+    port_id = args.port_id or db.upsert_port(name, lat, lon, args.timezone, offset_zh)
     print(f"[{name}] port_id={port_id} lat={lat} lon={lon} offset_zh={offset_zh:+.2f} m")
 
     # 1. Tous les calculs se font en mémoire ; rien n'est écrit avant la fin.

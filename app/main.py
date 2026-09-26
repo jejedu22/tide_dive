@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, calendar_fr, db
+from . import admin, auth, calendar_fr, db
 
 # Heure de rendez-vous = étale moins ce délai
 RDV_AVANT_ETALE = timedelta(hours=2)
@@ -26,6 +26,8 @@ app = FastAPI(title="Aide au choix de plongées")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 # Comptes, préférences et administration (/api/auth, /api/me, /api/admin)
 app.include_router(auth.router)
+# Administration des données : ports, précalcul, téléchargement FES (/api/admin)
+app.include_router(admin.router)
 
 
 @app.on_event("startup")
@@ -37,7 +39,8 @@ def _startup() -> None:
 def api_list_ports():
     return [
         {"id": p["id"], "name": p["name"], "latitude": p["latitude"], "longitude": p["longitude"]}
-        for p in db.list_ports()
+        # seuls les ports déjà précalculés sont proposés aux utilisateurs
+        for p in db.list_ports(with_data_only=True)
     ]
 
 

@@ -1,10 +1,14 @@
-# 1er décembre, 02:00 — mise à jour du modèle FES depuis AVISO+.
-# Un échec (FTP indisponible) est journalisé mais ne bloque pas le précalcul :
-# les fichiers déjà présents restent utilisables.
-0 2 1 12 * fetch_aviso_fes.py --directory /models --tide "$FES_MODEL" || echo "[fetch-models] échec, modèles existants conservés"
+# Le planificateur ne fait qu'AJOUTER des tâches à la file ; le service
+# `worker` les exécute une par une. Elles apparaissent dans l'administration
+# (onglet « Données et tâches ») avec leur journal, comme celles lancées à la main.
 
-# 15 décembre, 03:00 — précalcul de l'année suivante pour chaque port de MAREE_PORTS
-0 3 15 12 * Y="$(python -c 'import datetime; print(datetime.date.today().year + 1)')"; for p in $MAREE_PORTS; do python -m app.precompute --year "$Y" --port "$p" || echo "[precompute] échec pour $p"; done
+# 1er décembre, 02:00 — mise à jour du modèle FES depuis AVISO+.
+# Un échec est journalisé ; les fichiers déjà présents restent utilisables.
+0 2 1 12 * python -m app.jobs enqueue fetch-models
+
+# 15 décembre, 03:00 — précalcul de l'année suivante pour chaque port
+# coché « Recalculer automatiquement chaque année » dans l'administration.
+0 3 15 12 * python -m app.jobs enqueue precompute --auto
 
 # 1er de chaque mois, 04:00 — vacances scolaires (open data Éducation nationale)
-0 4 1 * * python -m app.calendar_fr || echo "[vacances] échec, données existantes conservées"
+0 4 1 * * python -m app.jobs enqueue school-holidays
