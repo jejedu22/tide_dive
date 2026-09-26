@@ -1,6 +1,6 @@
 """
 API d'administration des données : ports, tâches (précalcul, téléchargement
-FES, vacances scolaires) et état général. Réservée aux administrateurs.
+FES, vacances scolaires) et état général. Réservée aux super administrateurs.
 
 Les tâches ne sont jamais exécutées ici : elles sont mises en file et le
 worker (python -m app.jobs worker) les exécute. Voir jobs.py.
@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from . import calendar_fr, db, jobs
-from .auth import CurrentAdmin
+from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
 router = APIRouter(prefix="/api/admin")

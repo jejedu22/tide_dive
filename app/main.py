@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, db, selections
+from . import admin, auth, calendar_fr, db, selections, structures
 from .slots import RDV_AVANT_ETALE, PM_SEARCH_PAD
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -27,7 +27,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(auth.router)
 # Administration des données : ports, précalcul, téléchargement FES (/api/admin)
 app.include_router(admin.router)
-# Types de créneaux et créneaux choisis par utilisateur (/api/slot-types, /api/me/selections, /api/admin/slot-types)
+# Structures (/api/admin/structures)
+app.include_router(structures.router)
+# Types de créneaux et créneaux choisis par structure (/api/slot-types, /api/selections, /api/admin/slot-types)
 app.include_router(selections.router)
 
 

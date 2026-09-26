@@ -1,5 +1,6 @@
-// « Mes créneaux » : créneaux choisis par l'utilisateur connecté.
-// Changer le type ou retirer un créneau (qui redevient disponible dans la recherche).
+// « Créneaux choisis » : créneaux choisis par la structure de l'utilisateur.
+// Administration de la structure : changer le type, retirer un créneau (qui
+// redevient disponible dans la recherche). Visualisation : lecture seule.
 
 const esc = Session.esc;
 const $ = id => document.getElementById(id);
@@ -15,6 +16,8 @@ const summaryEl = $("summary");
 let types = [];       // types actifs, ordre de l'administration
 let picks = [];
 
+const canPick = () => !!Session.user?.can.pick;
+
 const fmtDay = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
 const formatDay = iso => fmtDay.format(new Date(iso + "T12:00:00"));
 const fmtHeight = v => (v != null ? v.toFixed(2).replace(".", ",") : "–");
@@ -24,7 +27,8 @@ const coefClass = c => (c == null ? "" : c >= 90 ? "ve" : c <= 50 ? "me" : "");
 // Aujourd'hui en heure de Paris (les dates stockées sont locales au port)
 const todayISO = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Paris" }).format(new Date());
 
-function typeSelect(p) {
+function typeCell(p) {
+  if (!canPick()) return `<span class="type-pill" style="--type-color:${esc(p.type.color)}">${esc(p.type.label)}</span>`;
   // un type désactivé reste affiché sur les choix existants, sans pouvoir être rechoisi
   const options = types.map(t =>
     `<option value="${t.id}"${t.id === p.type.id ? " selected" : ""}>${esc(t.label)}</option>`);
@@ -61,9 +65,11 @@ function render() {
     : "";
 
   if (!list.length) {
-    bodyEl.innerHTML = `<tr><td colspan="8" class="empty">${picks.length
+    bodyEl.innerHTML = `<tr><td colspan="9" class="empty">${picks.length
       ? "Aucun créneau avec ces filtres."
-      : `Vous n'avez encore choisi aucun créneau. <a href="./">Chercher des créneaux</a>, puis choisissez un type dans la colonne « Choix ».`}</td></tr>`;
+      : canPick()
+        ? `Aucun créneau choisi pour l'instant. <a href="./">Chercher des créneaux</a>, puis choisissez un type dans la colonne « Choix ».`
+        : "Aucun créneau choisi pour l'instant par votre structure."}</td></tr>`;
     return;
   }
 
@@ -85,8 +91,9 @@ function render() {
           <td class="c-tide"><span class="kind ${p.kind}">${p.kind}</span>${p.time}</td>
           <td class="num">${fmtHeight(p.height_m)}</td>
           <td class="num"><span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></td>
-          <td class="c-type">${typeSelect(p)}</td>
-          <td><button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button></td>
+          <td class="c-type">${typeCell(p)}</td>
+          <td class="c-by">${p.picked_by ? esc(p.picked_by) : `<span class="muted">compte supprimé</span>`}</td>
+          <td class="c-actions">${canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : ""}</td>
         </tr>`);
     });
   }
@@ -107,8 +114,8 @@ async function load() {
   statusEl.textContent = "Chargement…";
   try {
     [types, picks] = await Promise.all([
-      Session.api("/api/slot-types"),
-      Session.api("/api/me/selections"),
+      canPick() ? Session.api("/api/slot-types") : [],
+      Session.api("/api/selections"),
     ]);
   } catch (e) {
     statusEl.textContent = e.message;
@@ -124,7 +131,7 @@ bodyEl.addEventListener("change", async e => {
   const id = Number(sel.closest("tr").dataset.id);
   sel.disabled = true;
   try {
-    const updated = await Session.api(`/api/me/selections/${id}`, { method: "PATCH", body: { type_id: Number(sel.value) } });
+    const updated = await Session.api(`/api/selections/${id}`, { method: "PATCH", body: { type_id: Number(sel.value) } });
     picks = picks.map(p => (p.id === id ? updated : p));
     renderTypeFilter();
     render();
@@ -140,7 +147,7 @@ bodyEl.addEventListener("click", async e => {
   const id = Number(btn.closest("tr").dataset.id);
   btn.disabled = true;
   try {
-    await Session.api(`/api/me/selections/${id}`, { method: "DELETE" });
+    await Session.api(`/api/selections/${id}`, { method: "DELETE" });
   } catch (err) {
     if (err.status !== 404) {
       statusEl.textContent = `Retrait impossible : ${err.message}`;
@@ -156,19 +163,26 @@ bodyEl.addEventListener("click", async e => {
 typeFilter.addEventListener("change", render);
 showPast.addEventListener("change", render);
 
-Session.mountAccount($("account"), [
-  { href: "./", label: "Recherche" },
-  { href: "admin.html", label: "Administration", adminOnly: true },
-]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.admin]);
 Session.onChange(user => {
-  picksEl.hidden = !user;
-  gateEl.hidden = !!user;
+  const member = !!user?.can.view_selections;
+  picksEl.hidden = !member;
+  gateEl.hidden = member;
+  $("structure-name").textContent = member ? `· ${user.structure.name}` : "";
+  document.body.classList.toggle("read-only", member && !user.can.pick);
+  picks = [];
   if (!user) {
-    picks = [];
-    gateEl.innerHTML = `Connectez-vous pour voir vos créneaux choisis. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
+    gateEl.innerHTML = `Connectez-vous pour voir les créneaux choisis par votre structure. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
     $("gate-login").addEventListener("click", Session.openLogin);
     return;
   }
+  if (!member) {
+    gateEl.textContent = `Le compte « ${user.username} » n'est rattaché à aucune structure : il n'a pas de créneaux choisis.`;
+    return;
+  }
+  $("picks-hint").textContent = user.can.pick
+    ? "Liste commune à la structure. Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche."
+    : "Liste commune à la structure, en lecture seule : seuls ses administrateurs choisissent les créneaux. Les heures sont celles calculées au moment du choix.";
   load();
 });
 Session.init();

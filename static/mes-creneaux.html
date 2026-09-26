@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mes créneaux — Aide au choix de plongées</title>
+<title>Créneaux choisis — Aide au choix de plongées</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
     <div class="brand">
-      <h1>🤿 Mes créneaux</h1>
+      <h1>🤿 Créneaux choisis <span id="structure-name" class="h1-sub"></span></h1>
       <p class="subtitle"><a href="./">Retour à la recherche de créneaux</a></p>
     </div>
     <nav class="account" id="account" aria-label="Compte"></nav>
@@ -38,13 +38,14 @@
               <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
               <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
               <th scope="col">Type</th>
-              <th scope="col"><span class="visually-hidden">Actions</span></th>
+              <th scope="col">Choisi par</th>
+              <th scope="col" class="c-actions"><span class="visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody id="picks-body"></tbody>
         </table>
       </div>
-      <p class="hint">Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche.</p>
+      <p class="hint" id="picks-hint"></p>
     </section>
   </main>
 

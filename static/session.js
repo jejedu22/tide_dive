@@ -145,7 +145,7 @@ const Session = (() => {
     });
   }
 
-  // Encart compte dans l'en-tête ; links = [{ href, label, adminOnly }]
+  // Encart compte dans l'en-tête ; links = [{ href, label, show(user) }]
   function mountAccount(el, links = []) {
     const render = u => {
       if (!u) {
@@ -153,10 +153,13 @@ const Session = (() => {
         return;
       }
       const extra = links
-        .filter(l => !l.adminOnly || u.is_admin)
+        .filter(l => !l.show || l.show(u))
         .map(l => `<a class="account-btn" href="${l.href}">${esc(l.label)}</a>`).join("");
+      const where = u.structure
+        ? ` <span class="account-structure" title="${esc(roleLabel(u))}">· ${esc(u.structure.name)}</span>`
+        : "";
       el.innerHTML = `
-        <span class="account-name">${esc(u.username)}</span>
+        <span class="account-name">${esc(u.username)}${where}</span>
         ${extra}
         <button type="button" class="account-btn" data-act="password">Mot de passe</button>
         <button type="button" class="account-btn" data-act="logout">Se déconnecter</button>`;
@@ -171,7 +174,24 @@ const Session = (() => {
     render(user);
   }
 
+  const ROLE_LABELS = { viewer: "Visualisation", manager: "Administration" };
+
+  function roleLabel(u) {
+    const parts = [];
+    if (u.is_admin) parts.push("Super administrateur");
+    if (u.role) parts.push(`${ROLE_LABELS[u.role]} de la structure`);
+    return parts.join(" · ");
+  }
+
+  // Liens d'en-tête communs aux pages
+  const LINKS = {
+    search: { href: "./", label: "Recherche" },
+    picks: { href: "mes-creneaux.html", label: "Créneaux choisis", show: u => u.can.view_selections },
+    admin: { href: "admin.html", label: "Administration", show: u => u.can.admin_area },
+  };
+
   return {
+    ROLE_LABELS, LINKS, roleLabel,
     get user() { return user; },
     onChange: fn => listeners.push(fn),
     init, login, logout, api, esc, openLogin, mountAccount,

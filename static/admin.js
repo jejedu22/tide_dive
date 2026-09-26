@@ -1,5 +1,9 @@
-// Administration : ports, données et tâches (précalcul, FES, vacances), utilisateurs.
-// Toutes les vérifications de droits sont faites côté serveur (/api/admin/*).
+// Administration.
+// - Super administrateur : structures, ports, données et tâches (précalcul, FES,
+//   vacances), et types / comptes de toutes les structures.
+// - Administrateur de structure : types de créneaux et comptes de SA structure.
+// Toutes les vérifications de droits sont faites côté serveur (/api/admin/*) ;
+// ici on ne fait que masquer ce qui n'est pas accessible.
 // Les tâches longues sont exécutées par le worker ; cette page ne fait que
 // les mettre en file et suivre leur avancement.
 
@@ -34,23 +38,64 @@ function flash(html) {
   flashEl.innerHTML = html;
 }
 
+const isSuper = () => !!Session.user?.can.super_admin;
+
+// Petit dialogue de formulaire : body = HTML des champs ; onSubmit(form) lève en cas d'erreur
+function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
+  const d = document.createElement("dialog");
+  d.className = "account-dialog";
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>${esc(title)}</h2>
+      ${body}
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+        <button type="submit" class="btn-primary">${esc(submitLabel)}</button>
+      </div>
+    </form>`;
+  document.body.append(d);
+  const form = d.querySelector("form");
+  d.addEventListener("close", () => d.remove());
+  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = form.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await onSubmit(form);
+      d.close();
+    } catch (err) {
+      d.querySelector(".dialog-error").textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  d.showModal();
+  return form;
+}
+
 // ---------------------------------------------------------------------------
 // Onglets
 // ---------------------------------------------------------------------------
 
-const TABS = ["ports", "donnees", "types", "utilisateurs"];
-let activeTab = "ports";
+const ALL_TABS = ["structures", "ports", "donnees", "types", "utilisateurs"];
+const SUPER_TABS = ["structures", "ports", "donnees"];
+let TABS = ALL_TABS;       // onglets accessibles au compte connecté
+let activeTab = null;
 
 function showTab(name) {
-  if (!TABS.includes(name)) name = "ports";
+  if (!TABS.includes(name)) name = TABS[0];
   activeTab = name;
   for (const btn of document.querySelectorAll("[role=tab]")) {
     btn.setAttribute("aria-selected", String(btn.dataset.tab === name));
   }
-  for (const t of TABS) $(`tab-${t}`).hidden = t !== name;
+  for (const t of ALL_TABS) $(`tab-${t}`).hidden = t !== name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+  if (name === "structures") loadStructures();
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "types") loadTypes();
+  if (name === "utilisateurs") loadUsers();
 }
 
 document.querySelector(".tabs").addEventListener("click", e => {
@@ -264,6 +309,123 @@ function schedulePoll() {
 }
 
 // ---------------------------------------------------------------------------
+// Structures (super administrateur ; un administrateur de structure ne voit que la sienne)
+// ---------------------------------------------------------------------------
+
+let structures = [];
+const structuresBody = $("structures-body");
+const structureForm = $("structure-form");
+
+async function loadStructures() {
+  try {
+    structures = await Session.api("/api/admin/structures");
+  } catch (e) {
+    flash(esc(e.message));
+    return;
+  }
+  renderStructures();
+  renderStructureSelects();
+}
+
+function renderStructures() {
+  structuresBody.innerHTML = structures.length ? structures.map(st => {
+    const members = st.managers + st.viewers;
+    return `
+      <tr data-id="${st.id}">
+        <th scope="row">${esc(st.name)}</th>
+        <td class="num">${st.managers || `<span class="tag job-failed" title="Personne ne peut choisir de créneaux ni gérer cette structure">aucun</span>`}</td>
+        <td class="num">${st.viewers}</td>
+        <td class="num">${st.types}</td>
+        <td class="num">${st.selections}</td>
+        <td class="actions">
+          <button type="button" class="btn-quiet" data-act="members">Membres</button>
+          <button type="button" class="btn-quiet" data-act="types">Types</button>
+          <button type="button" class="btn-quiet" data-act="rename">Renommer</button>
+          <button type="button" class="btn-danger" data-act="delete" ${members ? `disabled title="Encore ${members} membre(s)"` : ""}>Supprimer</button>
+        </td>
+      </tr>`;
+  }).join("")
+    : `<tr><td colspan="6" class="empty">Aucune structure. Créez-en une, puis ajoutez-lui des comptes dans « Utilisateurs ».</td></tr>`;
+}
+
+// Listes déroulantes de structures (types, création de compte, filtre des comptes)
+function renderStructureSelects() {
+  const opts = (selected, extra = "") => extra + structures.map(st =>
+    `<option value="${st.id}"${st.id === selected ? " selected" : ""}>${esc(st.name)}</option>`).join("");
+
+  const typesSel = $("types-structure");
+  const keepTypes = typesScope ?? Session.user?.structure?.id ?? structures[0]?.id ?? null;
+  typesSel.innerHTML = opts(keepTypes);
+  typesScope = typesSel.value ? Number(typesSel.value) : null;
+
+  // création de compte : garde le choix en cours (y compris « Aucune »), sinon la structure du super admin
+  const newSel = $("new-structure");
+  const keepNew = newSel.options.length
+    ? (newSel.value ? Number(newSel.value) : null)
+    : (Session.user?.structure?.id ?? structures[0]?.id ?? null);
+  newSel.innerHTML = opts(keepNew, `<option value="">Aucune (super administrateur seulement)</option>`);
+  syncCreateRole();
+
+  const filter = $("users-filter");
+  const keepFilter = filter.value;
+  filter.innerHTML = `<option value="">Toutes les structures</option>` + opts(null);
+  filter.value = structures.some(st => String(st.id) === keepFilter) ? keepFilter : "";
+}
+
+structureForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const st = $("structure-form-status");
+  st.textContent = "";
+  try {
+    const created = await Session.api("/api/admin/structures", { method: "POST", body: { name: structureForm.name.value.trim() } });
+    st.textContent = `« ${created.name} » créée. Ajoutez-lui au moins un compte en administration.`;
+    structureForm.reset();
+    loadStructures();
+  } catch (err) {
+    st.textContent = err.message;
+  }
+});
+
+structuresBody.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const st = structures.find(x => x.id === Number(btn.closest("tr").dataset.id));
+  switch (btn.dataset.act) {
+    case "members":
+      $("users-filter").value = String(st.id);
+      showTab("utilisateurs");
+      break;
+    case "types":
+      typesScope = st.id;
+      $("types-structure").value = String(st.id);
+      showTab("types");
+      break;
+    case "rename":
+      openDialog({
+        title: `Renommer ${st.name}`,
+        body: `<label>Nom <input name="name" required maxlength="80" value="${esc(st.name)}"></label>`,
+        onSubmit: async form => {
+          await Session.api(`/api/admin/structures/${st.id}`, { method: "PATCH", body: { name: form.name.value.trim() } });
+          loadStructures();
+          if (st.id === Session.user.structure?.id) Session.init();  // nom affiché dans l'en-tête
+        },
+      }).name.select();
+      break;
+    case "delete":
+      if (!confirm(`Supprimer « ${st.name} », ses ${st.types} type(s) et ses ${st.selections} créneau(x) choisi(s) ?`)) return;
+      try {
+        await Session.api(`/api/admin/structures/${st.id}`, { method: "DELETE" });
+        flash(`« ${esc(st.name)} » supprimée.`);
+        if (typesScope === st.id) typesScope = null;
+        loadStructures();
+      } catch (err) {
+        flash(esc(err.message));
+      }
+      break;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Ports
 // ---------------------------------------------------------------------------
 
@@ -456,12 +618,28 @@ $("annual-form").addEventListener("submit", async e => {
 // ---------------------------------------------------------------------------
 
 let slotTypes = [];
+let typesScope = null;   // structure affichée (choix du super administrateur)
 const typesBody = $("types-body");
 const typeForm = $("type-form");
 
+// Super administrateur : structure choisie ; administrateur de structure : la sienne (imposée par l'API)
+const typesQS = () => (isSuper() && typesScope ? `?structure_id=${typesScope}` : "");
+
+$("types-structure").addEventListener("change", e => {
+  typesScope = Number(e.target.value) || null;
+  loadTypes();
+});
+
 async function loadTypes() {
+  const noStructure = isSuper() && !typesScope;
+  typeForm.hidden = noStructure;
+  if (noStructure) {
+    slotTypes = [];
+    typesBody.innerHTML = `<tr><td colspan="5" class="empty">Créez d'abord une structure (onglet « Structures »).</td></tr>`;
+    return;
+  }
   try {
-    slotTypes = await Session.api("/api/admin/slot-types");
+    slotTypes = await Session.api(`/api/admin/slot-types${typesQS()}`);
   } catch (e) {
     flash(esc(e.message));
     return;
@@ -486,7 +664,7 @@ function renderTypes() {
         <button type="button" class="btn-danger" data-act="delete" ${t.uses ? `disabled title="Utilisé : décochez « Proposé » à la place"` : ""}>Supprimer</button>
       </td>
     </tr>`).join("")
-    : `<tr><td colspan="5" class="empty">Aucun type : les utilisateurs ne peuvent pas encore choisir de créneau.</td></tr>`;
+    : `<tr><td colspan="5" class="empty">Aucun type : cette structure ne peut pas encore choisir de créneau.</td></tr>`;
 }
 
 typeForm.addEventListener("submit", async e => {
@@ -494,7 +672,7 @@ typeForm.addEventListener("submit", async e => {
   const st = $("type-form-status");
   st.textContent = "";
   try {
-    const t = await Session.api("/api/admin/slot-types", {
+    const t = await Session.api(`/api/admin/slot-types${typesQS()}`, {
       method: "POST",
       body: { label: typeForm.label.value.trim(), color: typeForm.color.value, active: typeForm.active.checked },
     });
@@ -531,7 +709,7 @@ typesBody.addEventListener("click", async e => {
         const ids = slotTypes.map(x => x.id);
         const i = ids.indexOf(id), j = i + (btn.dataset.act === "up" ? -1 : 1);
         [ids[i], ids[j]] = [ids[j], ids[i]];
-        slotTypes = await Session.api("/api/admin/slot-types/order", { method: "PUT", body: { ids } });
+        slotTypes = await Session.api(`/api/admin/slot-types/order${typesQS()}`, { method: "PUT", body: { ids } });
         renderTypes();
         typesBody.querySelector(`tr[data-id="${id}"] [data-act=${btn.dataset.act}]:not(:disabled)`)?.focus();
         return;
@@ -608,35 +786,62 @@ $("gen-password").addEventListener("click", () => {
 
 let users = [];
 
+const ROLE_LABELS = Session.ROLE_LABELS;
+
+function roleCell(u) {
+  const tags = [];
+  if (u.is_admin) tags.push(`<span class="tag tag-admin">Super admin</span>`);
+  if (u.role) tags.push(`<span class="tag role-${u.role}">${ROLE_LABELS[u.role]}</span>`);
+  return tags.join(" ");
+}
+
 function renderUsers() {
   const me = Session.user;
-  usersBody.innerHTML = users.map(u => {
+  usersBody.innerHTML = users.length ? users.map(u => {
     const self = u.id === me.id;
     return `
       <tr data-id="${u.id}">
         <th scope="row">${esc(u.username)}${self ? ` <span class="tag">vous</span>` : ""}</th>
-        <td>${u.is_admin ? `<span class="tag tag-admin">Admin</span>` : "Utilisateur"}</td>
+        <td>${u.structure ? esc(u.structure.name) : `<span class="muted">–</span>`}</td>
+        <td>${roleCell(u)}</td>
         <td>${stamp(u.created_at)}</td>
         <td>${stamp(u.last_login_at)}</td>
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="password">Nouveau mot de passe</button>
-          ${self ? "" : `
-            <button type="button" class="btn-quiet" data-act="toggle-admin">${u.is_admin ? "Retirer les droits admin" : "Rendre admin"}</button>
-            <button type="button" class="btn-danger" data-act="delete">Supprimer</button>`}
+          ${self && !isSuper() ? "" : `<button type="button" class="btn-quiet" data-act="edit">Modifier</button>`}
+          ${self ? "" : `<button type="button" class="btn-danger" data-act="delete">Supprimer</button>`}
         </td>
       </tr>`;
-  }).join("");
+  }).join("")
+    : `<tr><td colspan="6" class="empty">Aucun compte.</td></tr>`;
   usersStatus.textContent = `${users.length} compte(s).`;
 }
 
 async function loadUsers() {
+  const filter = isSuper() ? $("users-filter").value : "";
   try {
-    users = await Session.api("/api/admin/users");
+    users = await Session.api(`/api/admin/users${filter ? `?structure_id=${filter}` : ""}`);
     renderUsers();
   } catch (e) {
     usersStatus.textContent = e.message;
   }
 }
+
+$("users-filter").addEventListener("change", loadUsers);
+
+// Sans structure (super administrateur seul), pas de rôle de structure
+function syncCreateRole() {
+  const noStructure = isSuper() && createForm.structure_id.value === "";
+  createForm.role.disabled = noStructure;
+  if (noStructure) createForm.is_admin.checked = true;
+}
+createForm.structure_id.addEventListener("change", syncCreateRole);
+createForm.is_admin.addEventListener("change", () => {
+  if (!createForm.is_admin.checked && createForm.structure_id.value === "" && structures.length) {
+    createForm.structure_id.value = String(structures[0].id);
+    syncCreateRole();
+  }
+});
 
 createForm.addEventListener("submit", async e => {
   e.preventDefault();
@@ -644,17 +849,55 @@ createForm.addEventListener("submit", async e => {
   const body = {
     username: createForm.username.value.trim(),
     password: createForm.password.value,
-    is_admin: createForm.is_admin.checked,
+    role: createForm.role.value,
   };
+  if (isSuper()) {
+    body.is_admin = createForm.is_admin.checked;
+    body.structure_id = createForm.structure_id.value ? Number(createForm.structure_id.value) : null;
+  }
   try {
     const u = await Session.api("/api/admin/users", { method: "POST", body });
-    createStatus.textContent = `Compte « ${u.username} » créé. Transmettez-lui son mot de passe : il ne sera plus affiché.`;
-    createForm.reset();
-    await loadUsers();
+    createStatus.textContent = `Compte « ${u.username} » créé${u.structure ? ` dans « ${u.structure.name} »` : ""}. Transmettez-lui son mot de passe : il ne sera plus affiché.`;
+    createForm.username.value = "";
+    createForm.password.value = "";
+    await Promise.all([loadUsers(), isSuper() ? loadStructures() : null]);
   } catch (err) {
     createStatus.textContent = err.message;
   }
 });
+
+// Modifier un compte : rôle (et, pour le super administrateur, structure et droit de super administrateur)
+function editUser(user) {
+  const self = user.id === Session.user.id;
+  const sup = isSuper();
+  const structOpts = `<option value="">Aucune</option>` + structures.map(st =>
+    `<option value="${st.id}"${st.id === user.structure?.id ? " selected" : ""}>${esc(st.name)}</option>`).join("");
+  const roleOpts = Object.entries(ROLE_LABELS).map(([v, l]) =>
+    `<option value="${v}"${v === (user.role || "viewer") ? " selected" : ""}>${l}</option>`).join("");
+  const form = openDialog({
+    title: `Modifier ${user.username}`,
+    body: `
+      ${sup ? `<label>Structure <select name="structure_id">${structOpts}</select></label>` : ""}
+      <label>Rôle dans la structure <select name="role"${self && !sup ? " disabled" : ""}>${roleOpts}</select></label>
+      ${sup ? `<label class="check"><input type="checkbox" name="is_admin"${user.is_admin ? " checked" : ""}${self ? " disabled" : ""}> Super administrateur</label>` : ""}
+      <p class="dialog-hint">${sup ? "Un compte sans structure doit être super administrateur. Ses créneaux déjà choisis restent à son ancienne structure." : "Administration : choisit les créneaux et gère la structure. Visualisation : voit les créneaux choisis."}</p>`,
+    onSubmit: async f => {
+      const body = { role: f.role.value };
+      if (sup) {
+        body.structure_id = f.structure_id.value ? Number(f.structure_id.value) : null;
+        if (!self) body.is_admin = f.is_admin.checked;
+      }
+      await Session.api(`/api/admin/users/${user.id}`, { method: "PATCH", body });
+      await Promise.all([loadUsers(), sup ? loadStructures() : null]);
+      if (self) Session.init();  // ses propres droits ont pu changer
+    },
+  });
+  if (sup) {
+    const sync = () => { form.role.disabled = form.structure_id.value === ""; };
+    form.structure_id.addEventListener("change", sync);
+    sync();
+  }
+}
 
 // Dialogue « nouveau mot de passe » (le mot de passe est affiché pour être transmis)
 function askNewPassword(user) {
@@ -701,15 +944,15 @@ usersBody.addEventListener("click", async e => {
       case "password":
         askNewPassword(user);
         return;
-      case "toggle-admin":
-        await Session.api(`/api/admin/users/${user.id}`, { method: "PATCH", body: { is_admin: !user.is_admin } });
-        break;
+      case "edit":
+        editUser(user);
+        return;
       case "delete":
-        if (!confirm(`Supprimer le compte « ${user.username} », ses préférences et ses créneaux choisis ?`)) return;
+        if (!confirm(`Supprimer le compte « ${user.username} » et ses préférences ? Les créneaux qu'il a choisis restent à sa structure.`)) return;
         await Session.api(`/api/admin/users/${user.id}`, { method: "DELETE" });
         break;
     }
-    await loadUsers();
+    await Promise.all([loadUsers(), isSuper() ? loadStructures() : null]);
   } catch (err) {
     usersStatus.textContent = err.message;
   }
@@ -719,26 +962,39 @@ usersBody.addEventListener("click", async e => {
 // Démarrage
 // ---------------------------------------------------------------------------
 
-function onSessionChange(user) {
-  const allowed = !!user && user.is_admin;
+async function onSessionChange(user) {
+  const allowed = !!user?.can.admin_area;
   adminEl.hidden = !allowed;
   gateEl.hidden = allowed;
   clearTimeout(pollTimer);
   if (!user) {
     gateEl.innerHTML = `Connectez-vous avec un compte administrateur. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
     $("gate-login").addEventListener("click", Session.openLogin);
-  } else if (!user.is_admin) {
-    gateEl.textContent = `Le compte « ${user.username} » n'a pas accès à l'administration.`;
-  } else {
+    return;
+  }
+  if (!allowed) {
+    gateEl.textContent = `Le compte « ${user.username} » est en visualisation : il n'a pas accès à l'administration.`;
+    return;
+  }
+  const sup = isSuper();
+  TABS = sup ? ALL_TABS : ALL_TABS.filter(t => !SUPER_TABS.includes(t));
+  for (const el of document.querySelectorAll("[data-super]")) el.hidden = !sup;
+  $("worker-banner").hidden = true;
+  // administrateur de structure : sa structure, sans choix possible
+  $("types-structure").hidden = !sup;
+  $("types-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("types-structure").previousElementSibling.hidden = !sup;
+  $("types-structure-name").hidden = sup;
+
+  await loadStructures();
+  if (sup) {
     loadPorts();
-    loadTypes();
-    loadUsers();
     loadStatus();
     loadJobs().then(schedulePoll);
-    showTab(location.hash.slice(1));
   }
+  showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [{ href: "mes-creneaux.html", label: "Mes créneaux" }]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.picks]);
 Session.onChange(onSessionChange);
 Session.init();

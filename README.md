@@ -16,7 +16,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Précalcul](#précalcul)
 - [Ports et zéro des cartes](#ports-et-zéro-des-cartes)
 - [Administration des données](#administration-des-données)
-- [Comptes et préférences](#comptes-et-préférences)
+- [Comptes, structures et préférences](#comptes-structures-et-préférences)
 - [Créneaux choisis](#créneaux-choisis)
 - [API](#api)
 - [Précision et limites](#précision-et-limites)
@@ -201,13 +201,25 @@ python -m app.jobs enqueue school-holidays
 
 **Mise à jour d'une installation existante** : les ports déjà en base reçoivent automatiquement leur niveau moyen depuis le catalogue quand il y est connu, et sont cochés « annuel ». La variable `MAREE_PORTS` n'est plus utilisée : c'est la case de l'administration qui décide.
 
-## Comptes et préférences
+## Comptes, structures et préférences
 
-L'application reste utilisable sans compte. Un compte permet d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes.
+L'application reste utilisable sans compte. Un compte permet d'accéder aux créneaux choisis par sa **structure** et d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes.
 
-Il n'y a pas d'inscription libre : les comptes sont créés par un administrateur sur **`/admin.html`** (création, nouveau mot de passe, droits d'administration, suppression). Un administrateur ne peut ni supprimer son propre compte ni retirer ses propres droits, et il reste toujours au moins un administrateur.
+### Structures et rôles
 
-Premier administrateur, en ligne de commande :
+Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de créneaux** et sa liste de **créneaux choisis**. Chaque compte appartient à une structure avec l'un de ces rôles :
+
+| Rôle | Peut |
+|---|---|
+| **Visualisation** | voir la liste des créneaux choisis par sa structure (et les voir grisés dans la recherche) |
+| **Administration** | en plus : choisir et retirer les créneaux de la structure, gérer ses membres (création, rôle, mot de passe, suppression) et ses types de créneaux |
+| **Super administrateur** | tout : structures, ports, données et tâches, comptes et types de toutes les structures. Peut aussi appartenir à une structure (il y a alors les droits d'administration) |
+
+Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html`**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
+
+**Mise à jour d'une base existante** : au premier démarrage, les comptes, types et créneaux existants sont rattachés à une structure « Structure principale » ; les super administrateurs y sont en administration, **les autres comptes en visualisation** (à promouvoir si besoin). Si plusieurs comptes avaient choisi le même créneau, seul le premier choix est conservé.
+
+Premier super administrateur (sans structure), en ligne de commande :
 
 ```bash
 # Docker
@@ -229,15 +241,17 @@ Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session
 
 ## Créneaux choisis
 
-Un utilisateur connecté peut **choisir des créneaux** dans le tableau de recherche : la colonne « Choix » propose une liste déroulante de **types** (ex. « Sortie bateau », « Formation N2 »). Le créneau choisi est aussitôt **grisé** dans le tableau, avec son type ; la croix annule le choix. Le filtre de la colonne permet de n'afficher que les créneaux choisis ou non choisis.
+Un administrateur de structure peut **choisir des créneaux** pour sa structure dans le tableau de recherche : la colonne « Choix » propose une liste déroulante de **types** (ex. « Sortie bateau », « Formation N2 »). Le créneau choisi est aussitôt **grisé** dans le tableau, avec son type ; la croix annule le choix. Le filtre de la colonne permet de n'afficher que les créneaux choisis ou non choisis.
 
-La page **`/mes-creneaux.html`** (lien « Mes créneaux » dans l'en-tête) liste ses créneaux par date : filtre par type, créneaux passés masqués par défaut, changement de type, retrait (le créneau redevient disponible dans la recherche).
+Les membres en visualisation voient les créneaux déjà choisis grisés, avec leur type, sans pouvoir les modifier.
+
+La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
 Règles :
 
-- les choix sont **propres à chaque utilisateur** : deux utilisateurs peuvent choisir le même créneau, mais un utilisateur ne peut pas choisir deux fois le même (contrainte `UNIQUE (user_id, port_id, ts_utc)` en base) ;
+- les choix sont **propres à chaque structure** et communs à ses membres : deux structures peuvent choisir le même créneau, mais une structure ne peut pas le choisir deux fois (contrainte `UNIQUE (structure_id, port_id, ts_utc)` en base) ; supprimer un compte ne supprime pas les créneaux qu'il a choisis ;
 - un créneau est identifié par son port et l'horodatage UTC de l'étale ; heure, hauteur, coefficient et RDV sont **recalculés par le serveur** au moment du choix puis figés ;
-- la liste des types est gérée dans **`/admin.html` → Types de créneaux** : libellé, couleur, ordre, « proposé » ou non. Un type non proposé reste affiché sur les choix existants ; un type utilisé ne peut pas être supprimé.
+- chaque structure a sa liste de types, gérée dans **`/admin.html` → Types de créneaux** : libellé, couleur, ordre, « proposé » ou non. Un type non proposé reste affiché sur les choix existants ; un type utilisé ne peut pas être supprimé.
 
 Tant qu'aucun type n'existe, la colonne « Choix » affiche « aucun type ».
 
@@ -275,24 +289,33 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET /api/auth/me` | public | `{user}` ou `{user: null}` |
 | `POST /api/me/password` | connecté | `{current_password, new_password}` |
 | `GET` / `PUT` / `DELETE /api/me/preferences` | connecté | `{form, filters}` |
-| `GET` / `POST /api/admin/users` | admin | liste / création `{username, password, is_admin}` |
-| `PATCH` / `DELETE /api/admin/users/{id}` | admin | `{password?, is_admin?}` / suppression |
+| `GET` / `POST /api/admin/users` | admin. structure / super admin | liste (`?structure_id=` pour le super admin) / création `{username, password, role, structure_id?, is_admin?}` |
+| `PATCH` / `DELETE /api/admin/users/{id}` | admin. structure / super admin | `{password?, role?, structure_id?, is_admin?}` / suppression |
+| `GET /api/admin/structures` | admin. structure / super admin | structures avec effectifs (la sienne seulement pour un admin. de structure) |
+| `POST /api/admin/structures` | super admin | `{name}` |
+| `PATCH` / `DELETE /api/admin/structures/{id}` | super admin | `{name}` / suppression (409 s'il reste des membres) |
+
+`GET /api/auth/me` renvoie aussi `structure`, `role` et `can` (`super_admin`, `admin_area`, `manage_structure`, `pick`, `view_selections`). `structure_id` et `is_admin` ne sont modifiables que par un super administrateur ; un administrateur de structure agit toujours sur la sienne.
 
 ### Créneaux choisis
 
 | Route | Accès | Description |
 |---|---|---|
-| `GET /api/slot-types` | connecté | types proposés (actifs), dans l'ordre |
-| `GET /api/me/selections` | connecté | créneaux choisis ; `?upcoming=true` : à partir d'aujourd'hui |
-| `POST /api/me/selections` | connecté | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi |
-| `PATCH` / `DELETE /api/me/selections/{id}` | connecté | `{type_id}` / retrait |
-| `GET` / `POST /api/admin/slot-types` | admin | liste (avec nombre d'usages) / création `{label, color, active}` |
-| `PATCH` / `DELETE /api/admin/slot-types/{id}` | admin | modification / suppression (409 si utilisé) |
-| `PUT /api/admin/slot-types/order` | admin | `{ids}` : nouvel ordre complet |
+| `GET /api/slot-types` | connecté | types proposés (actifs) de sa structure, dans l'ordre |
+| `GET /api/selections` | membre d'une structure | créneaux de la structure ; `?upcoming=true` : à partir d'aujourd'hui |
+| `POST /api/selections` | admin. structure | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi par la structure |
+| `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id}` / retrait |
+| `GET` / `POST /api/admin/slot-types` | admin. structure / super admin | liste (avec nombre d'usages) / création `{label, color, active}` |
+| `PATCH` / `DELETE /api/admin/slot-types/{id}` | admin. structure / super admin | modification / suppression (409 si utilisé) |
+| `PUT /api/admin/slot-types/order` | admin. structure / super admin | `{ids}` : nouvel ordre complet |
+
+Routes `/api/admin/slot-types` : un super administrateur précise la structure par `?structure_id=` (à défaut, la sienne).
 
 Chaque résultat de `/api/dive-windows` contient `port_id` et `ts_utc`, la clé à envoyer pour choisir le créneau.
 
 ### Administration des données
+
+Réservée au super administrateur.
 
 | Méthode et route | Rôle |
 |---|---|
@@ -328,16 +351,17 @@ app/
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m
   db.py             schéma et accès SQLite
-  auth.py           comptes, sessions, préférences, administration (+ CLI)
+  auth.py           comptes, sessions, rôles, préférences, administration des comptes (+ CLI)
+  structures.py     API des structures (super administrateur)
   admin.py          API d'administration : ports, tâches, état des données
-  selections.py     types de créneaux et créneaux choisis par utilisateur
+  selections.py     types de créneaux et créneaux choisis, par structure
   slots.py          description d'une étale (coefficient, RDV), partagée
   jobs.py           file de tâches et worker (+ CLI enqueue)
   calendar_fr.py    jours fériés et vacances scolaires
 static/             frontend (index.html, app.js, style.css)
-  admin.html/.js    administration (ports, données, types de créneaux, comptes)
-  mes-creneaux.*    créneaux choisis par l'utilisateur connecté
-  session.js        connexion et appels API, partagé par les deux pages
+  admin.html/.js    administration (structures, ports, données, types de créneaux, comptes)
+  mes-creneaux.*    créneaux choisis par la structure de l'utilisateur connecté
+  session.js        connexion, droits et appels API, partagé par les pages
 docker/crontab      tâches périodiques mises en file par le scheduler
 Dockerfile
 docker-compose.yml
@@ -346,15 +370,6 @@ data/plongee.db     base générée (non versionnée)
 models/             fichiers FES (non versionnés, licence AVISO+)
 ```
 
-Les fichiers FES sont soumis à la licence AVISO+ : ne pas les redistribuer ni les versionner.
-
-## Pistes
-
-- Valider les sorties sur une année complète contre maree.info / l'annuaire SHOM.
-- Renseigner les `offset_zh_m` manquants depuis les RAM du Shom.
-- Intégrer l'atlas régional Ifremer/PREVIMER ([accès sur demande](https://marc.ifremer.fr/produits/atlas_de_composantes_harmoniques)) : format non lu nativement par pyTMD, seul `tide_model.py` serait à adapter.
-- Ajouter les courants de marée pour qualifier chaque site au-delà du coefficient.
-- Mode « deux plongées dans la journée ».
 Les fichiers FES sont soumis à la licence AVISO+ : ne pas les redistribuer ni les versionner.
 
 ## Pistes

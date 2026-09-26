@@ -222,7 +222,7 @@ function matchDay(day, mode) {
 }
 
 function matchPick(r, mode) {
-  if (!mode || !Session.user) return true;
+  if (!mode || !Session.user?.can.view_selections) return true;
   return mode === "picked" ? isPicked(r) : !isPicked(r);
 }
 
@@ -290,11 +290,11 @@ function renderRows() {
   const shown = active ? applyFilters(all, f) : all;
 
   tableEl.tHead.querySelector(".reset-filters").disabled = !active;
-  const nPicked = Session.user ? all.filter(isPicked).length : 0;
+  const nPicked = Session.user?.can.view_selections ? all.filter(isPicked).length : 0;
   statusEl.textContent = (active
     ? `${shown.length} créneau(x) sur ${all.length} pour ${lastData.port} avec les filtres.`
     : `${all.length} créneau(x) pour ${lastData.port}.`)
-    + (nPicked ? ` Vous en avez choisi ${nPicked}.` : "")
+    + (nPicked ? ` ${Session.user.structure.name} en a choisi ${nPicked}.` : "")
     + schoolHolidaysWarning(lastData);
 
   tableEl.tBodies[0].innerHTML = shown.length
@@ -379,9 +379,10 @@ searchBtn.addEventListener("click", search);
 startInput.value = todayISO();
 endInput.value = todayISO(13);
 
-// ---- Créneaux choisis (par utilisateur, typés via la liste de l'administration) ----
+// ---- Créneaux choisis (par structure, typés via la liste de la structure) ----
+// Administration de la structure : choisit et retire. Visualisation : voit seulement.
 
-let slotTypes = [];                 // types actifs, dans l'ordre de l'administration
+let slotTypes = [];                 // types actifs de la structure, dans l'ordre de l'administration
 let picks = new Map();              // "port_id|ts_utc" → créneau choisi
 
 const slotKey = r => `${r.port_id}|${r.ts_utc}`;
@@ -393,13 +394,17 @@ function typePill(t) {
 }
 
 function pickCell(picked) {
-  if (!Session.user) return "";
+  const u = Session.user;
+  if (!u?.can.view_selections) return "";
   if (picked) {
-    return `${typePill(picked.type)}
-      <button type="button" class="unpick" data-unpick="${picked.id}" title="Retirer ce choix" aria-label="Retirer ce choix">×</button>`;
+    const by = picked.picked_by ? ` title="Choisi par ${escapeHtml(picked.picked_by)}"` : "";
+    return `<span${by}>${typePill(picked.type)}</span>` + (u.can.pick
+      ? `<button type="button" class="unpick" data-unpick="${picked.id}" title="Retirer ce choix" aria-label="Retirer ce choix">×</button>`
+      : "");
   }
+  if (!u.can.pick) return "";
   if (!slotTypes.length) {
-    return `<span class="muted" title="L'administrateur doit d'abord créer des types de créneaux">aucun type</span>`;
+    return `<span class="muted" title="Créez d'abord des types de créneaux dans l'administration">aucun type</span>`;
   }
   return `<select data-pick aria-label="Choisir ce créneau avec un type">
       <option value="">Choisir…</option>
@@ -410,11 +415,11 @@ function pickCell(picked) {
 async function loadPicks(user) {
   slotTypes = [];
   picks = new Map();
-  if (user) {
+  if (user?.can.view_selections) {
     try {
       const [types, sels] = await Promise.all([
-        Session.api("/api/slot-types"),
-        Session.api("/api/me/selections"),
+        user.can.pick ? Session.api("/api/slot-types") : [],
+        Session.api("/api/selections"),
       ]);
       slotTypes = types;
       picks = new Map(sels.map(s => [slotKey(s), s]));
@@ -432,7 +437,7 @@ async function onPickChange(e) {
   if (!r) return;
   sel.disabled = true;
   try {
-    const s = await Session.api("/api/me/selections", {
+    const s = await Session.api("/api/selections", {
       method: "POST",
       body: { port_id: r.port_id, ts_utc: r.ts_utc, type_id: Number(sel.value) },
     });
@@ -453,7 +458,7 @@ async function onUnpickClick(e) {
   if (!btn) return;
   btn.disabled = true;
   try {
-    await Session.api(`/api/me/selections/${btn.dataset.unpick}`, { method: "DELETE" });
+    await Session.api(`/api/selections/${btn.dataset.unpick}`, { method: "DELETE" });
   } catch (err) {
     if (err.status !== 404) {
       statusEl.textContent = `Retrait impossible : ${err.message}`;
@@ -532,7 +537,7 @@ function showSavedStamp() {
 }
 
 async function onSessionChange(user) {
-  resultsEl.closest(".results").classList.toggle("can-pick", !!user);
+  resultsEl.closest(".results").classList.toggle("can-pick", !!user?.can.view_selections);
   await loadPicks(user);
   prefsBar.hidden = !user;
   savedPrefs = null;
@@ -578,10 +583,7 @@ prefsRestoreBtn.addEventListener("click", () => {
   } catch (e) {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
   }
-  Session.mountAccount(document.getElementById("account"), [
-    { href: "mes-creneaux.html", label: "Mes créneaux" },
-    { href: "admin.html", label: "Administration", adminOnly: true },
-  ]);
+  Session.mountAccount(document.getElementById("account"), [Session.LINKS.picks, Session.LINKS.admin]);
   Session.onChange(onSessionChange);
   await Session.init();
 })();

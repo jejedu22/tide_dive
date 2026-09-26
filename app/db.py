@@ -68,14 +68,28 @@ CREATE TABLE IF NOT EXISTS school_holidays (
     PRIMARY KEY (academy, start_date, description)
 );
 
--- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre)
+-- Structures (clubs, groupes) : chacune a ses membres, ses types de créneaux
+-- et sa liste de créneaux choisis. Créées par un super administrateur.
+CREATE TABLE IF NOT EXISTS structures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at TEXT NOT NULL
+);
+
+-- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
+-- is_admin = super administrateur (toute l'application, toutes les structures).
+-- structure_role : 'viewer' (visualisation) ou 'manager' (administration de la
+-- structure : choix des créneaux, membres, types). Un compte qui n'est pas
+-- super administrateur appartient toujours à une structure (vérifié par l'API).
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,    -- scrypt, voir auth.py
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_login_at TEXT
+    last_login_at TEXT,
+    structure_id INTEGER REFERENCES structures(id) ON DELETE RESTRICT,
+    structure_role TEXT CHECK (structure_role IN ('viewer', 'manager'))
 );
 
 -- Sessions : on ne stocke que le SHA-256 du jeton envoyé en cookie
@@ -118,23 +132,26 @@ CREATE TABLE IF NOT EXISTS worker_status (
     info_json TEXT NOT NULL DEFAULT '{}'
 );
 
--- Types de créneaux (liste déroulante paramétrée par l'administrateur)
+-- Types de créneaux d'une structure (liste déroulante paramétrée par ses administrateurs)
 CREATE TABLE IF NOT EXISTS slot_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    label TEXT NOT NULL COLLATE NOCASE,
     color TEXT NOT NULL DEFAULT '#118ab2',  -- #rrggbb, pastille dans les listes
     position INTEGER NOT NULL DEFAULT 0,    -- ordre d'affichage
-    active INTEGER NOT NULL DEFAULT 1       -- 0 : plus proposé, mais conservé sur les choix existants
+    active INTEGER NOT NULL DEFAULT 1,      -- 0 : plus proposé, mais conservé sur les choix existants
+    UNIQUE (structure_id, label)
 );
 
--- Créneaux choisis par un utilisateur. Un créneau = une étale (port + horodatage
--- UTC de l'extremum). UNIQUE(user_id, port_id, ts_utc) : un utilisateur ne peut
--- pas choisir deux fois le même créneau ; deux utilisateurs le peuvent.
+-- Créneaux choisis par une structure. Un créneau = une étale (port + horodatage
+-- UTC de l'extremum). UNIQUE(structure_id, port_id, ts_utc) : une structure ne
+-- peut pas choisir deux fois le même créneau ; deux structures le peuvent.
 -- Les champs d'affichage sont figés au moment du choix : un recalcul de l'année
 -- ne fait pas disparaître la sélection.
 CREATE TABLE IF NOT EXISTS slot_selections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- qui l'a choisi (NULL : compte supprimé)
     port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
     ts_utc TEXT NOT NULL,                   -- = tide_extrema.ts_utc
     type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
@@ -146,14 +163,20 @@ CREATE TABLE IF NOT EXISTS slot_selections (
     height_m REAL NOT NULL,
     coefficient REAL,
     created_at TEXT NOT NULL,
-    UNIQUE (user_id, port_id, ts_utc)
+    UNIQUE (structure_id, port_id, ts_utc)
 );
-
-CREATE INDEX IF NOT EXISTS idx_selections_user ON slot_selections(user_id, local_date);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
 CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
+"""
+
+# Index sur des colonnes ajoutées par _migrate : créés après la migration,
+# sinon ils échoueraient sur une base existante.
+INDEXES_AFTER_MIGRATION = """
+CREATE INDEX IF NOT EXISTS idx_selections_structure ON slot_selections(structure_id, local_date);
+CREATE INDEX IF NOT EXISTS idx_slot_types_structure ON slot_types(structure_id, position);
+CREATE INDEX IF NOT EXISTS idx_users_structure ON users(structure_id);
 """
 
 _SQL_INSERT_HEIGHTS = (
@@ -177,6 +200,137 @@ def init_db() -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
+    _migrate_structures()
+    with get_conn() as conn:
+        conn.executescript(INDEXES_AFTER_MIGRATION)
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+DEFAULT_STRUCTURE_NAME = "Structure principale"
+
+
+def _migrate_structures() -> None:
+    """
+    Passage des créneaux « par utilisateur » aux créneaux « par structure ».
+
+    Sur une base antérieure aux structures :
+      - crée « Structure principale » s'il existe des comptes, types ou choix ;
+      - y rattache les comptes : super administrateurs en administration,
+        autres comptes en visualisation (moindre privilège : à promouvoir
+        ensuite depuis l'administration) ;
+      - reconstruit slot_types et slot_selections (SQLite ne sait pas modifier
+        une contrainte UNIQUE) ; si plusieurs comptes avaient choisi le même
+        créneau, seul le premier choix est conservé.
+
+    Tout se fait en une transaction, clés étrangères suspendues le temps de la
+    reconstruction (procédure recommandée par SQLite), puis vérifiées.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    try:
+        user_cols = _columns(conn, "users")
+        types_old = "structure_id" not in _columns(conn, "slot_types")
+        sels_old = "structure_id" not in _columns(conn, "slot_selections")
+        if {"structure_id", "structure_role"} <= user_cols and not types_old and not sels_old:
+            return
+
+        conn.execute("PRAGMA foreign_keys = OFF")  # sans effet dans une transaction : avant BEGIN
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if "structure_id" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN structure_id INTEGER REFERENCES structures(id) ON DELETE RESTRICT")
+            if "structure_role" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN structure_role TEXT CHECK (structure_role IN ('viewer', 'manager'))")
+
+            n_users = conn.execute("SELECT COUNT(*) FROM users WHERE structure_id IS NULL").fetchone()[0]
+            n_types = conn.execute("SELECT COUNT(*) FROM slot_types").fetchone()[0] if types_old else 0
+            n_sels = conn.execute("SELECT COUNT(*) FROM slot_selections").fetchone()[0] if sels_old else 0
+
+            default_id = None
+            if n_types or n_sels or (n_users and "structure_id" not in user_cols):
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                row = conn.execute(
+                    "SELECT id FROM structures WHERE name = ? COLLATE NOCASE", (DEFAULT_STRUCTURE_NAME,)
+                ).fetchone()
+                default_id = row["id"] if row else conn.execute(
+                    "INSERT INTO structures (name, created_at) VALUES (?, ?)", (DEFAULT_STRUCTURE_NAME, now)
+                ).lastrowid
+                if "structure_id" not in user_cols:
+                    conn.execute(
+                        "UPDATE users SET structure_id = ?, "
+                        "structure_role = CASE WHEN is_admin = 1 THEN 'manager' ELSE 'viewer' END "
+                        "WHERE structure_id IS NULL",
+                        (default_id,),
+                    )
+
+            if types_old:
+                conn.execute("""
+                    CREATE TABLE slot_types_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+                        label TEXT NOT NULL COLLATE NOCASE,
+                        color TEXT NOT NULL DEFAULT '#118ab2',
+                        position INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        UNIQUE (structure_id, label)
+                    )""")
+                conn.execute(
+                    "INSERT INTO slot_types_new (id, structure_id, label, color, position, active) "
+                    "SELECT id, ?, label, color, position, active FROM slot_types",
+                    (default_id,),
+                )
+                conn.execute("DROP TABLE slot_types")
+                conn.execute("ALTER TABLE slot_types_new RENAME TO slot_types")
+
+            if sels_old:
+                conn.execute("""
+                    CREATE TABLE slot_selections_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+                        picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+                        ts_utc TEXT NOT NULL,
+                        type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
+                        kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
+                        local_date TEXT NOT NULL,
+                        local_time TEXT NOT NULL,
+                        rdv_date TEXT NOT NULL,
+                        rdv_time TEXT NOT NULL,
+                        height_m REAL NOT NULL,
+                        coefficient REAL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE (structure_id, port_id, ts_utc)
+                    )""")
+                # un seul choix par créneau : le plus ancien (plus petit id)
+                conn.execute(
+                    """
+                    INSERT INTO slot_selections_new
+                        (id, structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date,
+                         local_time, rdv_date, rdv_time, height_m, coefficient, created_at)
+                    SELECT id, ?, user_id, port_id, ts_utc, type_id, kind, local_date,
+                           local_time, rdv_date, rdv_time, height_m, coefficient, created_at
+                    FROM slot_selections
+                    WHERE id IN (SELECT MIN(id) FROM slot_selections GROUP BY port_id, ts_utc)
+                    """,
+                    (default_id,),
+                )
+                conn.execute("DROP TABLE slot_selections")
+                conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
+
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"Migration structures : clés étrangères invalides {[tuple(p) for p in problems[:5]]}")
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -431,20 +585,73 @@ def school_holidays_coverage(academy: str) -> tuple[int, str | None]:
 
 
 # ---------------------------------------------------------------------------
+# Structures
+# ---------------------------------------------------------------------------
+
+_STRUCTURE_SELECT = """
+    SELECT st.*,
+        (SELECT COUNT(*) FROM users u WHERE u.structure_id = st.id AND u.structure_role = 'manager') AS managers,
+        (SELECT COUNT(*) FROM users u WHERE u.structure_id = st.id AND u.structure_role = 'viewer') AS viewers,
+        (SELECT COUNT(*) FROM slot_types t WHERE t.structure_id = st.id) AS types,
+        (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id) AS selections
+    FROM structures st
+"""
+
+
+def list_structures() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(_STRUCTURE_SELECT + " ORDER BY st.name").fetchall()
+
+
+def get_structure(structure_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(_STRUCTURE_SELECT + " WHERE st.id = ?", (structure_id,)).fetchone()
+
+
+def create_structure(name: str, created_at: str) -> int:
+    """Lève sqlite3.IntegrityError si le nom existe déjà (insensible à la casse)."""
+    with get_conn() as conn:
+        return conn.execute(
+            "INSERT INTO structures (name, created_at) VALUES (?, ?)", (name, created_at)
+        ).lastrowid
+
+
+def rename_structure(structure_id: int, name: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE structures SET name = ? WHERE id = ?", (name, structure_id))
+
+
+def delete_structure(structure_id: int) -> None:
+    """Types et créneaux choisis suivent (CASCADE). Lève sqlite3.IntegrityError
+    s'il reste des membres (ON DELETE RESTRICT sur users.structure_id)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM structures WHERE id = ?", (structure_id,))
+
+
+# ---------------------------------------------------------------------------
 # Utilisateurs, sessions et préférences
 # ---------------------------------------------------------------------------
 
-_USER_COLUMNS = "id, username, is_admin, created_at, last_login_at"
+_USER_SELECT = """
+    SELECT u.id, u.username, u.is_admin, u.structure_id, u.structure_role,
+           u.created_at, u.last_login_at, st.name AS structure_name
+    FROM users u LEFT JOIN structures st ON st.id = u.structure_id
+"""
 
 
-def list_users() -> list[sqlite3.Row]:
+def list_users(structure_id: int | None = None) -> list[sqlite3.Row]:
+    """Tous les comptes, ou ceux d'une structure."""
+    sql, params = _USER_SELECT, []
+    if structure_id is not None:
+        sql += " WHERE u.structure_id = ?"
+        params.append(structure_id)
     with get_conn() as conn:
-        return conn.execute(f"SELECT {_USER_COLUMNS} FROM users ORDER BY username").fetchall()
+        return conn.execute(sql + " ORDER BY u.username", params).fetchall()
 
 
 def get_user(user_id: int) -> sqlite3.Row | None:
     with get_conn() as conn:
-        return conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)).fetchone()
+        return conn.execute(_USER_SELECT + " WHERE u.id = ?", (user_id,)).fetchone()
 
 
 def get_user_credentials(username: str) -> sqlite3.Row | None:
@@ -453,17 +660,24 @@ def get_user_credentials(username: str) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
 
-def create_user(username: str, password_hash: str, is_admin: bool, created_at: str) -> int:
+def create_user(username: str, password_hash: str, is_admin: bool, created_at: str,
+                structure_id: int | None = None, structure_role: str | None = None) -> int:
     """Lève sqlite3.IntegrityError si le nom existe déjà (insensible à la casse)."""
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
-            (username, password_hash, int(is_admin), created_at),
+            "INSERT INTO users (username, password_hash, is_admin, created_at, structure_id, structure_role) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (username, password_hash, int(is_admin), created_at, structure_id, structure_role),
         )
         return cur.lastrowid
 
 
-def update_user(user_id: int, *, password_hash: str | None = None, is_admin: bool | None = None) -> None:
+_UNSET = object()
+
+
+def update_user(user_id: int, *, password_hash: str | None = None, is_admin: bool | None = None,
+                structure_id=_UNSET, structure_role=_UNSET) -> None:
+    """structure_id / structure_role : absents = inchangés, None = retirés."""
     with get_conn() as conn:
         if password_hash is not None:
             conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
@@ -471,6 +685,10 @@ def update_user(user_id: int, *, password_hash: str | None = None, is_admin: boo
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         if is_admin is not None:
             conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
+        if structure_id is not _UNSET:
+            conn.execute("UPDATE users SET structure_id = ? WHERE id = ?", (structure_id, user_id))
+        if structure_role is not _UNSET:
+            conn.execute("UPDATE users SET structure_role = ? WHERE id = ?", (structure_role, user_id))
 
 
 def delete_user(user_id: int) -> None:
@@ -496,11 +714,7 @@ def create_session(token_hash: str, user_id: int, expires_at: str, now: str) -> 
 def get_session_user(token_hash: str, now: str) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute(
-            f"""
-            SELECT {", ".join("u." + c.strip() for c in _USER_COLUMNS.split(","))}
-            FROM sessions s JOIN users u ON u.id = s.user_id
-            WHERE s.token_hash = ? AND s.expires_at > ?
-            """,
+            _USER_SELECT + " JOIN sessions s ON s.user_id = u.id WHERE s.token_hash = ? AND s.expires_at > ?",
             (token_hash, now),
         ).fetchone()
 
@@ -655,16 +869,16 @@ def get_worker_status() -> sqlite3.Row | None:
 # Types de créneaux et créneaux choisis
 # ---------------------------------------------------------------------------
 
-def list_slot_types(active_only: bool = False) -> list[sqlite3.Row]:
-    """Types triés dans l'ordre choisi par l'administrateur, avec leur nombre d'usages."""
+def list_slot_types(structure_id: int, active_only: bool = False) -> list[sqlite3.Row]:
+    """Types d'une structure, dans l'ordre choisi par ses administrateurs, avec leur nombre d'usages."""
     sql = """
         SELECT t.*, (SELECT COUNT(*) FROM slot_selections s WHERE s.type_id = t.id) AS uses
-        FROM slot_types t
+        FROM slot_types t WHERE t.structure_id = ?
     """
     if active_only:
-        sql += " WHERE t.active = 1"
+        sql += " AND t.active = 1"
     with get_conn() as conn:
-        return conn.execute(sql + " ORDER BY t.position, t.label").fetchall()
+        return conn.execute(sql + " ORDER BY t.position, t.label", (structure_id,)).fetchall()
 
 
 def get_slot_type(type_id: int) -> sqlite3.Row | None:
@@ -676,13 +890,15 @@ def get_slot_type(type_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def create_slot_type(label: str, color: str, active: bool) -> int:
-    """Ajouté en fin de liste. Lève sqlite3.IntegrityError si le libellé existe déjà."""
+def create_slot_type(structure_id: int, label: str, color: str, active: bool) -> int:
+    """Ajouté en fin de liste. Lève sqlite3.IntegrityError si le libellé existe déjà dans la structure."""
     with get_conn() as conn:
-        pos = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM slot_types").fetchone()[0]
+        pos = conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM slot_types WHERE structure_id = ?", (structure_id,)
+        ).fetchone()[0]
         cur = conn.execute(
-            "INSERT INTO slot_types (label, color, position, active) VALUES (?, ?, ?, ?)",
-            (label, color, pos, int(active)),
+            "INSERT INTO slot_types (structure_id, label, color, position, active) VALUES (?, ?, ?, ?, ?)",
+            (structure_id, label, color, pos, int(active)),
         )
         return cur.lastrowid
 
@@ -701,11 +917,11 @@ def update_slot_type(type_id: int, **fields) -> None:
         conn.execute(f"UPDATE slot_types SET {assignments} WHERE id = ?", (*fields.values(), type_id))
 
 
-def reorder_slot_types(ids: list[int]) -> None:
+def reorder_slot_types(structure_id: int, ids: list[int]) -> None:
     with get_conn() as conn:
         conn.executemany(
-            "UPDATE slot_types SET position = ? WHERE id = ?",
-            [(i, type_id) for i, type_id in enumerate(ids)],
+            "UPDATE slot_types SET position = ? WHERE id = ? AND structure_id = ?",
+            [(i, type_id, structure_id) for i, type_id in enumerate(ids)],
         )
 
 
@@ -716,17 +932,19 @@ def delete_slot_type(type_id: int) -> None:
 
 
 _SELECTION_SQL = """
-    SELECT s.*, p.name AS port_name, t.label AS type_label, t.color AS type_color, t.active AS type_active
+    SELECT s.*, p.name AS port_name, t.label AS type_label, t.color AS type_color, t.active AS type_active,
+           u.username AS picked_by_name
     FROM slot_selections s
     JOIN ports p ON p.id = s.port_id
     JOIN slot_types t ON t.id = s.type_id
+    LEFT JOIN users u ON u.id = s.picked_by
 """
 
 
-def list_selections(user_id: int, from_date: str | None = None) -> list[sqlite3.Row]:
-    """Créneaux choisis par un utilisateur, par date ; from_date : à partir de ce jour (inclus)."""
-    sql = _SELECTION_SQL + " WHERE s.user_id = ?"
-    params: list = [user_id]
+def list_selections(structure_id: int, from_date: str | None = None) -> list[sqlite3.Row]:
+    """Créneaux choisis par une structure, par date ; from_date : à partir de ce jour (inclus)."""
+    sql = _SELECTION_SQL + " WHERE s.structure_id = ?"
+    params: list = [structure_id]
     if from_date:
         sql += " AND s.local_date >= ?"
         params.append(from_date)
@@ -734,10 +952,10 @@ def list_selections(user_id: int, from_date: str | None = None) -> list[sqlite3.
         return conn.execute(sql + " ORDER BY s.local_date, s.local_time", params).fetchall()
 
 
-def get_selection(user_id: int, selection_id: int) -> sqlite3.Row | None:
+def get_selection(structure_id: int, selection_id: int) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute(
-            _SELECTION_SQL + " WHERE s.user_id = ? AND s.id = ?", (user_id, selection_id)
+            _SELECTION_SQL + " WHERE s.structure_id = ? AND s.id = ?", (structure_id, selection_id)
         ).fetchone()
 
 
@@ -748,35 +966,37 @@ def get_extremum(port_id: int, ts_utc: str) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def create_selection(user_id: int, port_id: int, ts_utc: str, type_id: int, snapshot: dict, now: str) -> int:
-    """Lève sqlite3.IntegrityError si l'utilisateur a déjà choisi ce créneau."""
+def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: str, type_id: int,
+                     snapshot: dict, now: str) -> int:
+    """Lève sqlite3.IntegrityError si la structure a déjà choisi ce créneau."""
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO slot_selections
-                (user_id, port_id, ts_utc, type_id, kind, local_date, local_time,
+                (structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, local_time,
                  rdv_date, rdv_time, height_m, coefficient, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                user_id, port_id, ts_utc, type_id, snapshot["kind"], snapshot["date"], snapshot["time"],
-                snapshot["rdv_date"], snapshot["rdv_time"], snapshot["height_m"], snapshot["coefficient"], now,
+                structure_id, picked_by, port_id, ts_utc, type_id, snapshot["kind"], snapshot["date"],
+                snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"], snapshot["height_m"],
+                snapshot["coefficient"], now,
             ),
         )
         return cur.lastrowid
 
 
-def update_selection_type(user_id: int, selection_id: int, type_id: int) -> None:
+def update_selection_type(structure_id: int, selection_id: int, type_id: int) -> None:
     with get_conn() as conn:
         conn.execute(
-            "UPDATE slot_selections SET type_id = ? WHERE id = ? AND user_id = ?",
-            (type_id, selection_id, user_id),
+            "UPDATE slot_selections SET type_id = ? WHERE id = ? AND structure_id = ?",
+            (type_id, selection_id, structure_id),
         )
 
 
-def delete_selection(user_id: int, selection_id: int) -> bool:
+def delete_selection(structure_id: int, selection_id: int) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
-            "DELETE FROM slot_selections WHERE id = ? AND user_id = ?", (selection_id, user_id)
+            "DELETE FROM slot_selections WHERE id = ? AND structure_id = ?", (selection_id, structure_id)
         )
         return cur.rowcount > 0

@@ -21,13 +21,48 @@
     <div id="admin" class="admin" hidden>
       <p id="worker-banner" class="banner" role="alert" hidden></p>
 
+      <!-- data-super : réservé au super administrateur (masqué pour un administrateur de structure) -->
       <div class="tabs" role="tablist" aria-label="Sections">
-        <button type="button" role="tab" data-tab="ports" aria-selected="true">Ports</button>
-        <button type="button" role="tab" data-tab="donnees" aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
+        <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
+        <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
+        <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
         <button type="button" role="tab" data-tab="types" aria-selected="false">Types de créneaux</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
       </div>
       <p id="flash" class="flash" role="status"></p>
+
+      <!-- ============ Structures ============ -->
+      <section id="tab-structures" class="tab-panel" role="tabpanel" hidden>
+        <form id="structure-form" class="panel inline-panel" autocomplete="off">
+          <h2>Ajouter une structure</h2>
+          <div class="inline-form">
+            <label for="structure-name">Nom</label>
+            <input id="structure-name" name="name" required maxlength="80" placeholder="ex. Club de plongée de Binic">
+            <button type="submit" class="btn-primary">Créer</button>
+            <span id="structure-form-status" class="form-status" role="status"></span>
+          </div>
+        </form>
+
+        <div class="panel">
+          <h2>Structures</h2>
+          <div class="table-wrap">
+            <table class="users structures">
+              <thead>
+                <tr>
+                  <th scope="col">Structure</th>
+                  <th scope="col" class="num">Administration</th>
+                  <th scope="col" class="num">Visualisation</th>
+                  <th scope="col" class="num">Types</th>
+                  <th scope="col" class="num">Créneaux choisis</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="structures-body"></tbody>
+            </table>
+          </div>
+          <p class="hint">Chaque structure a ses membres, ses types de créneaux et sa liste de créneaux choisis. Les membres en <strong>administration</strong> choisissent les créneaux et gèrent les membres et les types de leur structure ; ceux en <strong>visualisation</strong> voient la liste des créneaux choisis. Une structure ne peut être supprimée qu'une fois vide de membres ; ses types et créneaux choisis sont alors supprimés avec elle.</p>
+        </div>
+      </section>
 
       <!-- ============ Ports ============ -->
       <section id="tab-ports" class="tab-panel" role="tabpanel">
@@ -142,6 +177,11 @@
 
       <!-- ============ Types de créneaux ============ -->
       <section id="tab-types" class="tab-panel" role="tabpanel" hidden>
+        <p class="scope-bar">
+          <label for="types-structure">Structure</label>
+          <select id="types-structure"></select>
+          <strong id="types-structure-name"></strong>
+        </p>
         <form id="type-form" class="panel type-form" autocomplete="off">
           <h2>Ajouter un type de créneau</h2>
           <div class="field">
@@ -158,7 +198,7 @@
         </form>
 
         <div class="panel">
-          <h2>Liste déroulante proposée aux utilisateurs</h2>
+          <h2>Liste déroulante proposée aux administrateurs de la structure</h2>
           <div class="table-wrap">
             <table class="users types">
               <thead>
@@ -173,7 +213,7 @@
               <tbody id="types-body"></tbody>
             </table>
           </div>
-          <p class="hint">Un type non proposé disparaît de la liste des utilisateurs mais reste affiché sur les créneaux déjà choisis. Un type utilisé ne peut pas être supprimé : décochez « Proposé ».</p>
+          <p class="hint">Un type non proposé disparaît de la liste de choix mais reste affiché sur les créneaux déjà choisis. Un type utilisé ne peut pas être supprimé : décochez « Proposé ».</p>
         </div>
       </section>
 
@@ -193,20 +233,38 @@
               <button type="button" id="gen-password" class="btn-quiet">Générer</button>
             </div>
           </div>
-          <label class="check">
-            <input type="checkbox" name="is_admin"> Administrateur
+          <div class="field" data-super>
+            <label for="new-structure">Structure</label>
+            <select id="new-structure" name="structure_id"></select>
+          </div>
+          <div class="field">
+            <label for="new-role">Rôle dans la structure</label>
+            <select id="new-role" name="role">
+              <option value="viewer">Visualisation</option>
+              <option value="manager">Administration</option>
+            </select>
+          </div>
+          <label class="check" data-super>
+            <input type="checkbox" name="is_admin"> Super administrateur
           </label>
           <button type="submit" class="btn-primary">Créer le compte</button>
           <p id="create-status" class="form-status" role="status"></p>
         </form>
 
         <div class="panel">
-          <h2>Utilisateurs</h2>
+          <div class="panel-head">
+            <h2>Utilisateurs</h2>
+            <p class="inline-form" data-super>
+              <label for="users-filter">Structure</label>
+              <select id="users-filter"></select>
+            </p>
+          </div>
           <div class="table-wrap">
             <table class="users">
               <thead>
                 <tr>
                   <th scope="col">Identifiant</th>
+                  <th scope="col">Structure</th>
                   <th scope="col">Rôle</th>
                   <th scope="col">Créé le</th>
                   <th scope="col">Dernière connexion</th>
@@ -217,6 +275,7 @@
             </table>
           </div>
           <p id="users-status" class="form-status" role="status"></p>
+          <p class="hint"><strong>Administration</strong> : choisit les créneaux de la structure, gère ses membres et ses types. <strong>Visualisation</strong> : voit la liste des créneaux choisis.</p>
         </div>
       </section>
     </div>
