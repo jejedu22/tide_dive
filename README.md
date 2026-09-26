@@ -17,6 +17,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Ports et zéro des cartes](#ports-et-zéro-des-cartes)
 - [Administration des données](#administration-des-données)
 - [Comptes et préférences](#comptes-et-préférences)
+- [Créneaux choisis](#créneaux-choisis)
 - [API](#api)
 - [Précision et limites](#précision-et-limites)
 - [Structure du projet](#structure-du-projet)
@@ -226,6 +227,20 @@ Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session
 | `COOKIE_SECURE` | `0` | `1` : cookie de session envoyé uniquement en HTTPS |
 | `SESSION_DAYS` | `30` | Durée de validité d'une connexion |
 
+## Créneaux choisis
+
+Un utilisateur connecté peut **choisir des créneaux** dans le tableau de recherche : la colonne « Choix » propose une liste déroulante de **types** (ex. « Sortie bateau », « Formation N2 »). Le créneau choisi est aussitôt **grisé** dans le tableau, avec son type ; la croix annule le choix. Le filtre de la colonne permet de n'afficher que les créneaux choisis ou non choisis.
+
+La page **`/mes-creneaux.html`** (lien « Mes créneaux » dans l'en-tête) liste ses créneaux par date : filtre par type, créneaux passés masqués par défaut, changement de type, retrait (le créneau redevient disponible dans la recherche).
+
+Règles :
+
+- les choix sont **propres à chaque utilisateur** : deux utilisateurs peuvent choisir le même créneau, mais un utilisateur ne peut pas choisir deux fois le même (contrainte `UNIQUE (user_id, port_id, ts_utc)` en base) ;
+- un créneau est identifié par son port et l'horodatage UTC de l'étale ; heure, hauteur, coefficient et RDV sont **recalculés par le serveur** au moment du choix puis figés ;
+- la liste des types est gérée dans **`/admin.html` → Types de créneaux** : libellé, couleur, ordre, « proposé » ou non. Un type non proposé reste affiché sur les choix existants ; un type utilisé ne peut pas être supprimé.
+
+Tant qu'aucun type n'existe, la colonne « Choix » affiche « aucun type ».
+
 ## API
 
 ### `GET /api/ports`
@@ -262,6 +277,20 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET` / `PUT` / `DELETE /api/me/preferences` | connecté | `{form, filters}` |
 | `GET` / `POST /api/admin/users` | admin | liste / création `{username, password, is_admin}` |
 | `PATCH` / `DELETE /api/admin/users/{id}` | admin | `{password?, is_admin?}` / suppression |
+
+### Créneaux choisis
+
+| Route | Accès | Description |
+|---|---|---|
+| `GET /api/slot-types` | connecté | types proposés (actifs), dans l'ordre |
+| `GET /api/me/selections` | connecté | créneaux choisis ; `?upcoming=true` : à partir d'aujourd'hui |
+| `POST /api/me/selections` | connecté | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi |
+| `PATCH` / `DELETE /api/me/selections/{id}` | connecté | `{type_id}` / retrait |
+| `GET` / `POST /api/admin/slot-types` | admin | liste (avec nombre d'usages) / création `{label, color, active}` |
+| `PATCH` / `DELETE /api/admin/slot-types/{id}` | admin | modification / suppression (409 si utilisé) |
+| `PUT /api/admin/slot-types/order` | admin | `{ids}` : nouvel ordre complet |
+
+Chaque résultat de `/api/dive-windows` contient `port_id` et `ts_utc`, la clé à envoyer pour choisir le créneau.
 
 ### Administration des données
 
@@ -301,10 +330,13 @@ app/
   db.py             schéma et accès SQLite
   auth.py           comptes, sessions, préférences, administration (+ CLI)
   admin.py          API d'administration : ports, tâches, état des données
+  selections.py     types de créneaux et créneaux choisis par utilisateur
+  slots.py          description d'une étale (coefficient, RDV), partagée
   jobs.py           file de tâches et worker (+ CLI enqueue)
   calendar_fr.py    jours fériés et vacances scolaires
 static/             frontend (index.html, app.js, style.css)
-  admin.html/.js    administration des comptes
+  admin.html/.js    administration (ports, données, types de créneaux, comptes)
+  mes-creneaux.*    créneaux choisis par l'utilisateur connecté
   session.js        connexion et appels API, partagé par les deux pages
 docker/crontab      tâches périodiques mises en file par le scheduler
 Dockerfile

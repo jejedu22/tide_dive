@@ -24,6 +24,7 @@
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" data-tab="ports" aria-selected="true">Ports</button>
         <button type="button" role="tab" data-tab="donnees" aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
+        <button type="button" role="tab" data-tab="types" aria-selected="false">Types de créneaux</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
       </div>
       <p id="flash" class="flash" role="status"></p>
@@ -136,6 +137,43 @@
             </div>
             <pre id="job-log-text" tabindex="0"></pre>
           </div>
+        </div>
+      </section>
+
+      <!-- ============ Types de créneaux ============ -->
+      <section id="tab-types" class="tab-panel" role="tabpanel" hidden>
+        <form id="type-form" class="panel type-form" autocomplete="off">
+          <h2>Ajouter un type de créneau</h2>
+          <div class="field">
+            <label for="type-label">Libellé</label>
+            <input id="type-label" name="label" type="text" required maxlength="40" placeholder="ex. Sortie bateau">
+          </div>
+          <div class="field">
+            <label for="type-color">Couleur</label>
+            <input id="type-color" name="color" type="color" value="#118ab2">
+          </div>
+          <label class="check"><input type="checkbox" name="active" checked> Proposé</label>
+          <button type="submit" class="btn-primary">Ajouter</button>
+          <p id="type-form-status" class="form-status" role="status"></p>
+        </form>
+
+        <div class="panel">
+          <h2>Liste déroulante proposée aux utilisateurs</h2>
+          <div class="table-wrap">
+            <table class="users types">
+              <thead>
+                <tr>
+                  <th scope="col">Ordre</th>
+                  <th scope="col">Libellé</th>
+                  <th scope="col">Proposé</th>
+                  <th scope="col" class="num">Utilisé</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="types-body"></tbody>
+            </table>
+          </div>
+          <p class="hint">Un type non proposé disparaît de la liste des utilisateurs mais reste affiché sur les créneaux déjà choisis. Un type utilisé ne peut pas être supprimé : décochez « Proposé ».</p>
         </div>
       </section>
 

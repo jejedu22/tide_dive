@@ -17,10 +17,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, db
-
-# Heure de rendez-vous = étale moins ce délai
-RDV_AVANT_ETALE = timedelta(hours=2)
+from . import admin, auth, calendar_fr, db, selections
+from .slots import RDV_AVANT_ETALE, PM_SEARCH_PAD
+from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
 app = FastAPI(title="Aide au choix de plongées")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -28,6 +27,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(auth.router)
 # Administration des données : ports, précalcul, téléchargement FES (/api/admin)
 app.include_router(admin.router)
+# Types de créneaux et créneaux choisis par utilisateur (/api/slot-types, /api/me/selections, /api/admin/slot-types)
+app.include_router(selections.router)
 
 
 @app.on_event("startup")
@@ -42,20 +43,6 @@ def api_list_ports():
         # seuls les ports déjà précalculés sont proposés aux utilisateurs
         for p in db.list_ports(with_data_only=True)
     ]
-
-
-def _local_time(ts_utc_iso: str, tz: ZoneInfo) -> datetime:
-    dt = datetime.fromisoformat(ts_utc_iso)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-    return dt.astimezone(tz)
-
-
-def _nearest_pm_coef(dt: datetime, pm_list: list[tuple[datetime, float]]):
-    """Coefficient de la pleine mer la plus proche dans le temps."""
-    if not pm_list:
-        return None
-    return min(pm_list, key=lambda p: abs(p[0] - dt))[1]
 
 
 def _day_info(d: date, holidays: dict, vacations: dict) -> dict:
@@ -106,7 +93,7 @@ def api_dive_windows(
 
     # Pleines mers avec coefficient, sur une plage élargie de 13 h de chaque
     # côté pour que les BM en bord de période trouvent aussi leur PM voisine.
-    pad = timedelta(hours=13)
+    pad = PM_SEARCH_PAD
     pm_list = [
         (_local_time(e["ts_utc"], tz), e["coefficient"])
         for e in db.get_extrema_range(port_id, (start_utc - pad).isoformat(), (end_utc + pad).isoformat())
@@ -160,6 +147,9 @@ def api_dive_windows(
 
         results.append(
             {
+                # clé du créneau (port_id + ts_utc), utilisée pour le choisir
+                "port_id": port_id,
+                "ts_utc": ex["ts_utc"],
                 "date": day_key,
                 "kind": ex["kind"],
                 "time": local_dt.strftime("%H:%M"),

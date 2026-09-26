@@ -578,3 +578,138 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* --- Créneaux choisis ------------------------------------------------ */
+
+:root { --picked-bg: #eef1f2; --picked-text: #9aabb2; }
+
+/* colonne « Choix » : seulement pour un utilisateur connecté */
+.results:not(.can-pick) .c-pick,
+.results:not(.can-pick) .c-pick-head { display: none; }
+
+.windows .c-pick { white-space: nowrap; }
+.windows .c-pick select {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 4px;
+  max-width: 11rem;
+}
+
+/* Ligne déjà choisie par l'utilisateur : grisée. La date et les heures de
+   soleil (fusionnées sur plusieurs lignes) gardent leur couleur. */
+.windows tbody tr.is-picked > td:not(.c-sun):not(.c-pick) {
+  background: var(--picked-bg);
+  color: var(--picked-text);
+}
+.windows tr.is-picked .kind,
+.windows tr.is-picked .coef { filter: grayscale(1); opacity: 0.55; }
+.windows tr.is-picked .c-pick { background: var(--picked-bg); }
+.swatch-picked { background: var(--picked-bg); border: 1px solid var(--picked-text); }
+
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.05rem 0.5rem 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--type-color) 45%, white);
+  background: color-mix(in srgb, var(--type-color) 12%, white);
+  color: var(--blue-deep);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.type-pill::before {
+  content: "";
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--type-color);
+}
+
+.unpick {
+  margin-left: 0.25rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: #607d8b;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.unpick:hover:not(:disabled) { border-color: var(--coral); color: var(--coral); }
+
+/* --- Page « Mes créneaux » ------------------------------------------- */
+
+.picks-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  font-size: 0.88rem;
+}
+.picks-bar select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+}
+.picks-summary { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.picks-summary b { margin-left: 0.25em; }
+
+table.picks .c-type select {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 6px;
+  border-left: 4px solid var(--type-color, #cfe3ea);
+}
+table.picks tr.past > :not(.c-date) { color: var(--picked-text); }
+table.picks .c-port { color: #4a6572; }
+
+/* --- Administration : types de créneaux ------------------------------ */
+
+.type-form {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) auto auto auto;
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+.type-form h2, .type-form .form-status { grid-column: 1 / -1; margin-bottom: 0; }
+.type-form input[type="text"] {
+  font: inherit;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+  min-width: 0;
+}
+input[type="color"] {
+  width: 2.6rem;
+  height: 2.2rem;
+  padding: 0.1rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+  background: white;
+}
+.types .order { display: inline-flex; gap: 0.2rem; }
+.types .order button { font-size: 0.75rem; padding: 0.15rem 0.4rem; }
+.types tr.inactive th, .types tr.inactive td:not(.actions) { color: var(--picked-text); }
+
+@media (max-width: 600px) {
+  .type-form { grid-template-columns: 1fr auto; }
+}
+.btn-small { font-size: 0.78rem; padding: 0.25rem 0.55rem; }
+.results[hidden] { display: none; }
+
+/* 9 colonnes avec « Choix » : un peu plus large, et le tableau défile dans
+   son cadre au lieu d'élargir la page (min-width: 0 sur l'élément de grille) */
+main:not(.admin-main), footer { max-width: 1100px; }
+.results, .results > * { min-width: 0; }
+.windows .filters select[data-f="day"] { max-width: 7.5rem; }
+.windows .c-pick select { max-width: 8.5rem; }
+.picks-bar .check { padding-bottom: 0; }

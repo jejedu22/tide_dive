@@ -111,6 +111,7 @@ const TABLE_HEAD = `
       <th scope="col"><abbr title="Fenêtre de plongée : étale ± marge">Fenêtre</abbr></th>
       <th scope="col"><abbr title="Lever / coucher du soleil">Soleil</abbr></th>
       <th scope="col"><abbr title="Aube / crépuscule nautique (soleil à −12°)">Naut.</abbr></th>
+      <th scope="col" class="c-pick-head">Choix</th>
     </tr>
     <tr class="filters">
       <th>
@@ -151,6 +152,13 @@ const TABLE_HEAD = `
       <th colspan="3">
         <button type="button" class="reset-filters" disabled>Effacer les filtres</button>
       </th>
+      <th class="c-pick-head">
+        <select data-f="pick" aria-label="Filtrer par choix">
+          <option value="">Tous</option>
+          <option value="free">Non choisis</option>
+          <option value="picked">Choisis</option>
+        </select>
+      </th>
     </tr>
   </thead>`;
 
@@ -166,6 +174,7 @@ const LEGEND = `
     <span><span class="swatch swatch-weekend"></span>samedi/dimanche</span>
     <span><span class="swatch swatch-ferie"></span>jour férié</span>
     <span><span class="swatch swatch-vacances"></span>vacances scolaires</span>
+    <span><span class="swatch swatch-picked"></span>créneau déjà choisi</span>
   </p>`;
 
 // ---- Filtres de la ligne de titre (côté client, sur les résultats déjà chargés) ----
@@ -212,10 +221,16 @@ function matchDay(day, mode) {
   }
 }
 
+function matchPick(r, mode) {
+  if (!mode || !Session.user) return true;
+  return mode === "picked" ? isPicked(r) : !isPicked(r);
+}
+
 function applyFilters(results, f) {
   const hMin = toNum(f.hMin), hMax = toNum(f.hMax);
   const cMin = toNum(f.coefMin), cMax = toNum(f.coefMax);
   return results.filter(r =>
+    matchPick(r, f.pick) &&
     matchDay(r.day, f.day) &&
     (!f.kind || r.kind === f.kind) &&
     inTimeRange(r.rdv.time, f.rdvMin, f.rdvMax) &&
@@ -240,8 +255,9 @@ function buildRows(results) {
     const deco = dayDecorations(items[0].day);
     items.forEach((r, i) => {
       const first = i === 0;
+      const picked = pickedFor(r);
       rows.push(`
-        <tr class="${[first ? "day-start" : "", deco.classes].join(" ").trim()}">
+        <tr class="${[first ? "day-start" : "", deco.classes, picked ? "is-picked" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}">
           ${first ? `<th scope="row" rowspan="${span}" class="c-date"${deco.title ? ` title="${deco.title}"` : ""}>${formatDay(day)}${deco.notes}</th>` : ""}
           <td class="c-rdv">${rdvCell(r)}</td>
           <td class="c-tide"><span class="kind ${r.kind}">${r.kind}</span>${r.time}</td>
@@ -250,6 +266,7 @@ function buildRows(results) {
           <td class="c-win">${r.window.start}–${r.window.end}</td>
           ${first ? `<td rowspan="${span}" class="c-sun">${pair(sun.sunrise, sun.sunset)}</td>` : ""}
           ${first ? `<td rowspan="${span}" class="c-sun">${pair(sun.nautical_dawn, sun.nautical_dusk)}</td>` : ""}
+          <td class="c-pick">${pickCell(picked)}</td>
         </tr>`);
     });
   }
@@ -273,13 +290,16 @@ function renderRows() {
   const shown = active ? applyFilters(all, f) : all;
 
   tableEl.tHead.querySelector(".reset-filters").disabled = !active;
+  const nPicked = Session.user ? all.filter(isPicked).length : 0;
   statusEl.textContent = (active
     ? `${shown.length} créneau(x) sur ${all.length} pour ${lastData.port} avec les filtres.`
-    : `${all.length} créneau(x) pour ${lastData.port}.`) + schoolHolidaysWarning(lastData);
+    : `${all.length} créneau(x) pour ${lastData.port}.`)
+    + (nPicked ? ` Vous en avez choisi ${nPicked}.` : "")
+    + schoolHolidaysWarning(lastData);
 
   tableEl.tBodies[0].innerHTML = shown.length
     ? buildRows(shown)
-    : `<tr><td colspan="8" class="empty">Aucun créneau ne correspond aux filtres. Élargis-les ou efface-les.</td></tr>`;
+    : `<tr><td colspan="9" class="empty">Aucun créneau ne correspond aux filtres. Élargis-les ou efface-les.</td></tr>`;
 }
 
 // Le tableau est construit une seule fois : les filtres restent en place d'une recherche à l'autre
@@ -293,6 +313,8 @@ function ensureTable() {
   const thead = tableEl.tHead;
   setFilterInputs(pendingFilters);
   thead.addEventListener("input", renderRows);
+  tableEl.tBodies[0].addEventListener("change", onPickChange);
+  tableEl.tBodies[0].addEventListener("click", onUnpickClick);
   thead.querySelector(".reset-filters").addEventListener("click", () => {
     for (const el of thead.querySelectorAll("[data-f]")) el.value = "";
     renderRows();
@@ -356,6 +378,92 @@ searchBtn.addEventListener("click", search);
 
 startInput.value = todayISO();
 endInput.value = todayISO(13);
+
+// ---- Créneaux choisis (par utilisateur, typés via la liste de l'administration) ----
+
+let slotTypes = [];                 // types actifs, dans l'ordre de l'administration
+let picks = new Map();              // "port_id|ts_utc" → créneau choisi
+
+const slotKey = r => `${r.port_id}|${r.ts_utc}`;
+const pickedFor = r => picks.get(slotKey(r)) || null;
+const isPicked = r => picks.has(slotKey(r));
+
+function typePill(t) {
+  return `<span class="type-pill" style="--type-color:${escapeHtml(t.color)}">${escapeHtml(t.label)}</span>`;
+}
+
+function pickCell(picked) {
+  if (!Session.user) return "";
+  if (picked) {
+    return `${typePill(picked.type)}
+      <button type="button" class="unpick" data-unpick="${picked.id}" title="Retirer ce choix" aria-label="Retirer ce choix">×</button>`;
+  }
+  if (!slotTypes.length) {
+    return `<span class="muted" title="L'administrateur doit d'abord créer des types de créneaux">aucun type</span>`;
+  }
+  return `<select data-pick aria-label="Choisir ce créneau avec un type">
+      <option value="">Choisir…</option>
+      ${slotTypes.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join("")}
+    </select>`;
+}
+
+async function loadPicks(user) {
+  slotTypes = [];
+  picks = new Map();
+  if (user) {
+    try {
+      const [types, sels] = await Promise.all([
+        Session.api("/api/slot-types"),
+        Session.api("/api/me/selections"),
+      ]);
+      slotTypes = types;
+      picks = new Map(sels.map(s => [slotKey(s), s]));
+    } catch (e) {
+      statusEl.textContent = `Créneaux choisis non chargés : ${e.message}`;
+    }
+  }
+  if (tableEl) renderRows();
+}
+
+async function onPickChange(e) {
+  const sel = e.target.closest("select[data-pick]");
+  if (!sel || !sel.value) return;
+  const r = lastData.results.find(x => slotKey(x) === sel.closest("tr").dataset.key);
+  if (!r) return;
+  sel.disabled = true;
+  try {
+    const s = await Session.api("/api/me/selections", {
+      method: "POST",
+      body: { port_id: r.port_id, ts_utc: r.ts_utc, type_id: Number(sel.value) },
+    });
+    picks.set(slotKey(s), s);
+  } catch (err) {
+    statusEl.textContent = `Choix impossible : ${err.message}`;
+    // déjà choisi (autre onglet) : on resynchronise pour griser la ligne
+    if (err.status === 409) return loadPicks(Session.user);
+    sel.disabled = false;
+    sel.value = "";
+    return;
+  }
+  renderRows();
+}
+
+async function onUnpickClick(e) {
+  const btn = e.target.closest("button[data-unpick]");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await Session.api(`/api/me/selections/${btn.dataset.unpick}`, { method: "DELETE" });
+  } catch (err) {
+    if (err.status !== 404) {
+      statusEl.textContent = `Retrait impossible : ${err.message}`;
+      btn.disabled = false;
+      return;
+    }
+  }
+  for (const [k, s] of picks) if (String(s.id) === btn.dataset.unpick) picks.delete(k);
+  renderRows();
+}
 
 // ---- Préférences utilisateur (formulaire + filtres de colonnes) ----
 
@@ -424,6 +532,8 @@ function showSavedStamp() {
 }
 
 async function onSessionChange(user) {
+  resultsEl.closest(".results").classList.toggle("can-pick", !!user);
+  await loadPicks(user);
   prefsBar.hidden = !user;
   savedPrefs = null;
   prefsRestoreBtn.disabled = true;
@@ -469,6 +579,7 @@ prefsRestoreBtn.addEventListener("click", () => {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
   }
   Session.mountAccount(document.getElementById("account"), [
+    { href: "mes-creneaux.html", label: "Mes créneaux" },
     { href: "admin.html", label: "Administration", adminOnly: true },
   ]);
   Session.onChange(onSessionChange);

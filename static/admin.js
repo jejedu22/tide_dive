@@ -38,7 +38,7 @@ function flash(html) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const TABS = ["ports", "donnees", "utilisateurs"];
+const TABS = ["ports", "donnees", "types", "utilisateurs"];
 let activeTab = "ports";
 
 function showTab(name) {
@@ -50,6 +50,7 @@ function showTab(name) {
   for (const t of TABS) $(`tab-${t}`).hidden = t !== name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "donnees") { loadStatus(); loadJobs(); }
+  if (name === "types") loadTypes();
 }
 
 document.querySelector(".tabs").addEventListener("click", e => {
@@ -451,6 +452,141 @@ $("annual-form").addEventListener("submit", async e => {
 });
 
 // ---------------------------------------------------------------------------
+// Types de créneaux (liste déroulante des utilisateurs)
+// ---------------------------------------------------------------------------
+
+let slotTypes = [];
+const typesBody = $("types-body");
+const typeForm = $("type-form");
+
+async function loadTypes() {
+  try {
+    slotTypes = await Session.api("/api/admin/slot-types");
+  } catch (e) {
+    flash(esc(e.message));
+    return;
+  }
+  renderTypes();
+}
+
+function renderTypes() {
+  typesBody.innerHTML = slotTypes.length ? slotTypes.map((t, i) => `
+    <tr data-id="${t.id}" class="${t.active ? "" : "inactive"}">
+      <td>
+        <span class="order">
+          <button type="button" class="btn-quiet" data-act="up" ${i === 0 ? "disabled" : ""} aria-label="Monter ${esc(t.label)}">▲</button>
+          <button type="button" class="btn-quiet" data-act="down" ${i === slotTypes.length - 1 ? "disabled" : ""} aria-label="Descendre ${esc(t.label)}">▼</button>
+        </span>
+      </td>
+      <th scope="row"><span class="type-pill" style="--type-color:${esc(t.color)}">${esc(t.label)}</span></th>
+      <td><input type="checkbox" data-act="active" ${t.active ? "checked" : ""} aria-label="Proposer ${esc(t.label)}"></td>
+      <td class="num">${t.uses}</td>
+      <td class="actions">
+        <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
+        <button type="button" class="btn-danger" data-act="delete" ${t.uses ? `disabled title="Utilisé : décochez « Proposé » à la place"` : ""}>Supprimer</button>
+      </td>
+    </tr>`).join("")
+    : `<tr><td colspan="5" class="empty">Aucun type : les utilisateurs ne peuvent pas encore choisir de créneau.</td></tr>`;
+}
+
+typeForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const st = $("type-form-status");
+  st.textContent = "";
+  try {
+    const t = await Session.api("/api/admin/slot-types", {
+      method: "POST",
+      body: { label: typeForm.label.value.trim(), color: typeForm.color.value, active: typeForm.active.checked },
+    });
+    st.textContent = `« ${t.label} » ajouté.`;
+    typeForm.label.value = "";
+    typeForm.label.focus();
+    loadTypes();
+  } catch (err) {
+    st.textContent = err.message;
+  }
+});
+
+typesBody.addEventListener("change", async e => {
+  if (e.target.dataset.act !== "active") return;
+  const id = Number(e.target.closest("tr").dataset.id);
+  try {
+    await Session.api(`/api/admin/slot-types/${id}`, { method: "PATCH", body: { active: e.target.checked } });
+    loadTypes();
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    flash(esc(err.message));
+  }
+});
+
+typesBody.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = Number(btn.closest("tr").dataset.id);
+  const t = slotTypes.find(x => x.id === id);
+  try {
+    switch (btn.dataset.act) {
+      case "up":
+      case "down": {
+        const ids = slotTypes.map(x => x.id);
+        const i = ids.indexOf(id), j = i + (btn.dataset.act === "up" ? -1 : 1);
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+        slotTypes = await Session.api("/api/admin/slot-types/order", { method: "PUT", body: { ids } });
+        renderTypes();
+        typesBody.querySelector(`tr[data-id="${id}"] [data-act=${btn.dataset.act}]:not(:disabled)`)?.focus();
+        return;
+      }
+      case "edit":
+        editType(t);
+        return;
+      case "delete":
+        if (!confirm(`Supprimer le type « ${t.label} » ?`)) return;
+        await Session.api(`/api/admin/slot-types/${id}`, { method: "DELETE" });
+        loadTypes();
+        return;
+    }
+  } catch (err) {
+    flash(esc(err.message));
+    loadTypes();
+  }
+});
+
+function editType(t) {
+  const d = document.createElement("dialog");
+  d.className = "account-dialog";
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>Modifier le type</h2>
+      <label>Libellé <input name="label" required maxlength="40" value="${esc(t.label)}"></label>
+      <label>Couleur <input name="color" type="color" value="${esc(t.color)}"></label>
+      <p class="dialog-hint">${t.uses ? `Le nouveau libellé s'appliquera aux ${t.uses} créneau(x) déjà choisi(s).` : ""}</p>
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+        <button type="submit" class="btn-primary">Enregistrer</button>
+      </div>
+    </form>`;
+  document.body.append(d);
+  const form = d.querySelector("form");
+  d.addEventListener("close", () => d.remove());
+  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      await Session.api(`/api/admin/slot-types/${t.id}`, {
+        method: "PATCH",
+        body: { label: form.label.value.trim(), color: form.color.value },
+      });
+      d.close();
+      loadTypes();
+    } catch (err) {
+      d.querySelector(".dialog-error").textContent = err.message;
+    }
+  });
+  d.showModal();
+}
+
+// ---------------------------------------------------------------------------
 // Utilisateurs
 // ---------------------------------------------------------------------------
 
@@ -569,7 +705,7 @@ usersBody.addEventListener("click", async e => {
         await Session.api(`/api/admin/users/${user.id}`, { method: "PATCH", body: { is_admin: !user.is_admin } });
         break;
       case "delete":
-        if (!confirm(`Supprimer le compte « ${user.username} » et ses préférences ?`)) return;
+        if (!confirm(`Supprimer le compte « ${user.username} », ses préférences et ses créneaux choisis ?`)) return;
         await Session.api(`/api/admin/users/${user.id}`, { method: "DELETE" });
         break;
     }
@@ -595,6 +731,7 @@ function onSessionChange(user) {
     gateEl.textContent = `Le compte « ${user.username} » n'a pas accès à l'administration.`;
   } else {
     loadPorts();
+    loadTypes();
     loadUsers();
     loadStatus();
     loadJobs().then(schedulePoll);
@@ -602,6 +739,6 @@ function onSessionChange(user) {
   }
 }
 
-Session.mountAccount(document.getElementById("account"));
+Session.mountAccount(document.getElementById("account"), [{ href: "mes-creneaux.html", label: "Mes créneaux" }]);
 Session.onChange(onSessionChange);
 Session.init();

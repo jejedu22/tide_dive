@@ -174,6 +174,7 @@ class FilterPrefs(BaseModel):
     hMax: _FilterValue = ""
     coefMin: _FilterValue = ""
     coefMax: _FilterValue = ""
+    pick: Literal["", "free", "picked"] = ""
 
 
 class Preferences(BaseModel):

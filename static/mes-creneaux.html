@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mes créneaux — Aide au choix de plongées</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>🤿 Mes créneaux</h1>
+      <p class="subtitle"><a href="./">Retour à la recherche de créneaux</a></p>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main>
+    <p id="gate" class="gate" hidden></p>
+
+    <section id="picks" class="results" hidden>
+      <div class="panel picks-bar">
+        <label>Type
+          <select id="type-filter"><option value="">Tous les types</option></select>
+        </label>
+        <label class="check"><input type="checkbox" id="show-past"> Afficher les créneaux passés</label>
+        <ul id="summary" class="picks-summary" aria-label="Répartition par type"></ul>
+      </div>
+      <p id="status" role="status"></p>
+      <div class="table-wrap">
+        <table class="windows picks">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col"><abbr title="Heure de rendez-vous (étale − 2 h)">RDV</abbr></th>
+              <th scope="col">Port</th>
+              <th scope="col"><abbr title="Étale de pleine mer (PM) ou de basse mer (BM)">Étale</abbr></th>
+              <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
+              <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
+              <th scope="col">Type</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="picks-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche.</p>
+    </section>
+  </main>
+
+  <script src="session.js"></script>
+  <script src="mes-creneaux.js"></script>
+</body>
+</html>

@@ -118,6 +118,38 @@ CREATE TABLE IF NOT EXISTS worker_status (
     info_json TEXT NOT NULL DEFAULT '{}'
 );
 
+-- Types de créneaux (liste déroulante paramétrée par l'administrateur)
+CREATE TABLE IF NOT EXISTS slot_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    color TEXT NOT NULL DEFAULT '#118ab2',  -- #rrggbb, pastille dans les listes
+    position INTEGER NOT NULL DEFAULT 0,    -- ordre d'affichage
+    active INTEGER NOT NULL DEFAULT 1       -- 0 : plus proposé, mais conservé sur les choix existants
+);
+
+-- Créneaux choisis par un utilisateur. Un créneau = une étale (port + horodatage
+-- UTC de l'extremum). UNIQUE(user_id, port_id, ts_utc) : un utilisateur ne peut
+-- pas choisir deux fois le même créneau ; deux utilisateurs le peuvent.
+-- Les champs d'affichage sont figés au moment du choix : un recalcul de l'année
+-- ne fait pas disparaître la sélection.
+CREATE TABLE IF NOT EXISTS slot_selections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    ts_utc TEXT NOT NULL,                   -- = tide_extrema.ts_utc
+    type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
+    kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
+    local_date TEXT NOT NULL,               -- YYYY-MM-DD, jour local de l'étale
+    local_time TEXT NOT NULL,               -- HH:MM
+    rdv_date TEXT NOT NULL,
+    rdv_time TEXT NOT NULL,
+    height_m REAL NOT NULL,
+    coefficient REAL,
+    created_at TEXT NOT NULL,
+    UNIQUE (user_id, port_id, ts_utc)
+);
+
+CREATE INDEX IF NOT EXISTS idx_selections_user ON slot_selections(user_id, local_date);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
@@ -617,3 +649,134 @@ def worker_heartbeat(now: str, current_job_id: int | None, info_json: str) -> No
 def get_worker_status() -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM worker_status WHERE id = 1").fetchone()
+
+
+# ---------------------------------------------------------------------------
+# Types de créneaux et créneaux choisis
+# ---------------------------------------------------------------------------
+
+def list_slot_types(active_only: bool = False) -> list[sqlite3.Row]:
+    """Types triés dans l'ordre choisi par l'administrateur, avec leur nombre d'usages."""
+    sql = """
+        SELECT t.*, (SELECT COUNT(*) FROM slot_selections s WHERE s.type_id = t.id) AS uses
+        FROM slot_types t
+    """
+    if active_only:
+        sql += " WHERE t.active = 1"
+    with get_conn() as conn:
+        return conn.execute(sql + " ORDER BY t.position, t.label").fetchall()
+
+
+def get_slot_type(type_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT t.*, (SELECT COUNT(*) FROM slot_selections s WHERE s.type_id = t.id) AS uses "
+            "FROM slot_types t WHERE t.id = ?",
+            (type_id,),
+        ).fetchone()
+
+
+def create_slot_type(label: str, color: str, active: bool) -> int:
+    """Ajouté en fin de liste. Lève sqlite3.IntegrityError si le libellé existe déjà."""
+    with get_conn() as conn:
+        pos = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM slot_types").fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO slot_types (label, color, position, active) VALUES (?, ?, ?, ?)",
+            (label, color, pos, int(active)),
+        )
+        return cur.lastrowid
+
+
+_SLOT_TYPE_FIELDS = {"label", "color", "active"}
+
+
+def update_slot_type(type_id: int, **fields) -> None:
+    fields = {k: v for k, v in fields.items() if k in _SLOT_TYPE_FIELDS}
+    if not fields:
+        return
+    if "active" in fields:
+        fields["active"] = int(fields["active"])
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE slot_types SET {assignments} WHERE id = ?", (*fields.values(), type_id))
+
+
+def reorder_slot_types(ids: list[int]) -> None:
+    with get_conn() as conn:
+        conn.executemany(
+            "UPDATE slot_types SET position = ? WHERE id = ?",
+            [(i, type_id) for i, type_id in enumerate(ids)],
+        )
+
+
+def delete_slot_type(type_id: int) -> None:
+    """Lève sqlite3.IntegrityError si des créneaux choisis utilisent ce type."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM slot_types WHERE id = ?", (type_id,))
+
+
+_SELECTION_SQL = """
+    SELECT s.*, p.name AS port_name, t.label AS type_label, t.color AS type_color, t.active AS type_active
+    FROM slot_selections s
+    JOIN ports p ON p.id = s.port_id
+    JOIN slot_types t ON t.id = s.type_id
+"""
+
+
+def list_selections(user_id: int, from_date: str | None = None) -> list[sqlite3.Row]:
+    """Créneaux choisis par un utilisateur, par date ; from_date : à partir de ce jour (inclus)."""
+    sql = _SELECTION_SQL + " WHERE s.user_id = ?"
+    params: list = [user_id]
+    if from_date:
+        sql += " AND s.local_date >= ?"
+        params.append(from_date)
+    with get_conn() as conn:
+        return conn.execute(sql + " ORDER BY s.local_date, s.local_time", params).fetchall()
+
+
+def get_selection(user_id: int, selection_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            _SELECTION_SQL + " WHERE s.user_id = ? AND s.id = ?", (user_id, selection_id)
+        ).fetchone()
+
+
+def get_extremum(port_id: int, ts_utc: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM tide_extrema WHERE port_id = ? AND ts_utc = ?", (port_id, ts_utc)
+        ).fetchone()
+
+
+def create_selection(user_id: int, port_id: int, ts_utc: str, type_id: int, snapshot: dict, now: str) -> int:
+    """Lève sqlite3.IntegrityError si l'utilisateur a déjà choisi ce créneau."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO slot_selections
+                (user_id, port_id, ts_utc, type_id, kind, local_date, local_time,
+                 rdv_date, rdv_time, height_m, coefficient, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id, port_id, ts_utc, type_id, snapshot["kind"], snapshot["date"], snapshot["time"],
+                snapshot["rdv_date"], snapshot["rdv_time"], snapshot["height_m"], snapshot["coefficient"], now,
+            ),
+        )
+        return cur.lastrowid
+
+
+def update_selection_type(user_id: int, selection_id: int, type_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE slot_selections SET type_id = ? WHERE id = ? AND user_id = ?",
+            (type_id, selection_id, user_id),
+        )
+
+
+def delete_selection(user_id: int, selection_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM slot_selections WHERE id = ? AND user_id = ?", (selection_id, user_id)
+        )
+        return cur.rowcount > 0
