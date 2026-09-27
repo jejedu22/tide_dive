@@ -1007,11 +1007,11 @@ function editUser(user) {
   }
 }
 
-// ---- Mot de passe : lien par e-mail ou mot de passe provisoire ----
+// ---- Mot de passe : envoi par e-mail ou mot de passe provisoire saisi ----
 
 function askPassword(user) {
   const canMail = mailOn() && !!user.email;
-  const linkLabel = user.pending_invite ? "Renvoyer l'invitation par e-mail" : "Envoyer un lien de réinitialisation par e-mail";
+  const linkLabel = user.pending_invite ? "Renvoyer l'invitation par e-mail" : "Envoyer un mot de passe provisoire par e-mail";
   const why = !mailOn() ? "envoi d'e-mails non configuré" : !user.email ? "pas d'adresse e-mail" : "";
   const form = openDialog({
     title: `Mot de passe de ${user.display_name}`,
@@ -1019,8 +1019,8 @@ function askPassword(user) {
     body: `
       <label class="check"><input type="radio" name="mode" value="link"${canMail ? " checked" : " disabled"}>
         ${linkLabel}${why ? ` <span class="muted">(${why})</span>` : ""}</label>
-      ${canMail ? `<p class="dialog-hint">À ${esc(user.email)}. ${user.pending_invite ? "Le lien précédent est remplacé." : "Le mot de passe actuel reste valable tant que le lien n'est pas utilisé."}</p>` : ""}
-      <label class="check"><input type="radio" name="mode" value="temp"${canMail ? "" : " checked"}> Définir un mot de passe provisoire</label>
+      ${canMail ? `<p class="dialog-hint">À ${esc(user.email)}. ${user.pending_invite ? "Le lien précédent est remplacé." : "Le mot de passe actuel reste valable tant que le provisoire n'est pas utilisé."}</p>` : ""}
+      <label class="check"><input type="radio" name="mode" value="temp"${canMail ? "" : " checked"}> Saisir un mot de passe provisoire</label>
       <div class="temp-block">
         <label>Mot de passe provisoire
           <input name="password" type="text" autocomplete="new-password" spellcheck="false" value="${esc(Session.generatePassword())}">
@@ -1032,7 +1032,7 @@ function askPassword(user) {
       if (f.mode.value === "link") {
         const r = await Session.api(`/api/admin/users/${user.id}/send-link`, { method: "POST" });
         usersStatus.textContent = r.sent === "invite"
-          ? `Invitation renvoyée à ${r.email}.` : `Lien de réinitialisation envoyé à ${r.email}.`;
+          ? `Invitation renvoyée à ${r.email}.` : `Mot de passe provisoire envoyé à ${r.email}.`;
       } else {
         await Session.api(`/api/admin/users/${user.id}`, {
           method: "PATCH", body: { password: f.password.value, must_change_password: f.must_change.checked },
@@ -1221,7 +1221,7 @@ async function onSessionChange(user) {
   clearTimeout(pollTimer);
   if (!user) {
     gateEl.innerHTML = `Connectez-vous avec un compte administrateur. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
-    $("gate-login").addEventListener("click", Session.openLogin);
+    $("gate-login").addEventListener("click", () => Session.openLogin());
     return;
   }
   if (!allowed) {

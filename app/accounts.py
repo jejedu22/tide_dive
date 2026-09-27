@@ -17,7 +17,7 @@ import sqlite3
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
-from . import db, mailer
+from . import db, mailer, passwords
 
 INVITE_TTL = timedelta(days=int(os.environ.get("INVITE_DAYS", "7")))
 RESET_TTL = timedelta(minutes=int(os.environ.get("RESET_TOKEN_MINUTES", "60")))
@@ -215,21 +215,26 @@ Si vous ne vous attendiez pas à ce message, vous pouvez l'ignorer.
     return row["email"], f"{app} : votre compte a été créé", body
 
 
-def reset_message(row: sqlite3.Row, token: str) -> tuple[str, str, str]:
+def temp_password_message(row: sqlite3.Row, temp_password: str) -> tuple[str, str, str]:
     app = mailer.APP_NAME
     body = f"""{_greeting(row)}
 
-Une réinitialisation du mot de passe de votre compte {app} ({row['username']}) a été demandée.
+Une réinitialisation du mot de passe de votre compte {app} a été demandée.
 
-Pour choisir un nouveau mot de passe, ouvrez ce lien (valable {_duration(RESET_TTL)}, utilisable une seule fois) :
-{mailer.link('mot-de-passe.html#token=' + token)}
+Votre identifiant : {row['username']}
+Mot de passe provisoire : {temp_password}
 
-Si vous n'êtes pas à l'origine de cette demande, ignorez ce message : votre mot de passe actuel reste valable.
+Il est valable {_duration(RESET_TTL)}. À la connexion, il vous sera demandé de
+choisir votre propre mot de passe.
+{mailer.link('/')}
+
+Si vous n'êtes pas à l'origine de cette demande, ignorez ce message : votre
+mot de passe actuel reste valable et le mot de passe provisoire expirera seul.
 
 -- 
 {app}
 """
-    return row["email"], f"{app} : réinitialisation de votre mot de passe", body
+    return row["email"], f"{app} : votre mot de passe provisoire", body
 
 
 def send_invitation(user_id: int, inviter: str | None = None) -> None:
@@ -238,6 +243,17 @@ def send_invitation(user_id: int, inviter: str | None = None) -> None:
     mailer.send(*invite_message(row, issue_token(user_id, "invite"), inviter))
 
 
-def send_reset(user_id: int) -> None:
+def send_temp_password(user_id: int) -> None:
+    """
+    Mot de passe oublié : génère un mot de passe provisoire et l'envoie.
+    Le mot de passe actuel reste valable ; le provisoire ne devient celui du
+    compte qu'à sa première utilisation (voir auth.login). Lève mailer.MailError :
+    dans ce cas rien n'est enregistré.
+    """
+    from .auth import hash_password   # import local : auth importe ce module
+
     row = db.get_user(user_id)
-    mailer.send(*reset_message(row, issue_token(user_id, "reset")))
+    temp = passwords.generate()
+    sent = now()
+    mailer.send(*temp_password_message(row, temp))
+    db.set_temp_password(user_id, hash_password(temp), iso(sent), iso(sent + RESET_TTL))

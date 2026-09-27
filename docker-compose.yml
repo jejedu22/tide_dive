@@ -8,6 +8,10 @@
 #   docker compose run --rm fetch-models
 #   docker compose run --rm precompute --year 2026 --port binic
 #
+# Tester les e-mails (invitations, mot de passe oublié) avec MailDev :
+#   docker compose --profile dev up -d      # + boîte de réception sur http://localhost:1080
+#   avec dans .env : MAIL_BACKEND=smtp, SMTP_HOST=maildev, SMTP_PORT=1025, SMTP_SECURITY=none
+#
 x-app: &app
   build: .
   image: maree:latest
@@ -108,6 +112,26 @@ services:
       - -c
       - python -m app.jobs enqueue school-holidays; exec supercronic /etc/crontab.maree
     restart: unless-stopped
+
+  # Serveur SMTP de développement : capture tous les e-mails envoyés (rien ne
+  # part réellement) et les affiche dans une boîte de réception web.
+  # Démarré seulement avec le profil dev : docker compose --profile dev up -d
+  maildev:
+    image: maildev/maildev:2.2.1
+    profiles: ["dev"]
+    environment:
+      TZ: Europe/Paris
+      MAILDEV_SMTP_PORT: 1025
+      MAILDEV_WEB_PORT: 1080
+    ports:
+      - "${MAILDEV_WEB_PORT:-1080}:1080"   # interface web (le port SMTP 1025 reste interne)
+    restart: unless-stopped
+    # --- Derrière Traefik : retirer "ports" et décommenter ---
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.maildev.rule=Host(`maildev.localhost`)
+    #   - traefik.http.services.maildev.loadbalancer.server.port=1080
+    # networks: [default, traefik]
 
 # networks:
 #   traefik:

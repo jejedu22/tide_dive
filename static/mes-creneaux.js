@@ -300,7 +300,7 @@ Session.onChange(user => {
   picks = [];
   if (!user) {
     gateEl.innerHTML = `Connectez-vous pour voir les créneaux choisis par votre structure. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
-    $("gate-login").addEventListener("click", Session.openLogin);
+    $("gate-login").addEventListener("click", () => Session.openLogin());
     return;
   }
   if (!member) {

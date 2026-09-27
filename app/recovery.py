@@ -1,13 +1,23 @@
 """
-Mot de passe oublié et invitations, par lien à usage unique envoyé par e-mail.
+Mot de passe oublié (mot de passe provisoire par e-mail) et invitations
+(lien à usage unique par e-mail).
 
-Parcours :
+Mot de passe oublié :
   1. POST /api/auth/forgot-password {login}   (identifiant ou e-mail)
      → 202 dans tous les cas, même si le compte n'existe pas : la réponse ne
        révèle pas quels comptes existent. La recherche et l'envoi se font
        après la réponse (tâche de fond), pour que la durée de la requête ne
-       le révèle pas non plus. Un lien au plus toutes les 2 minutes par compte.
-  2. L'e-mail contient https://…/mot-de-passe.html#token=…
+       le révèle pas non plus. Un envoi au plus toutes les 2 minutes par compte.
+  2. L'e-mail contient un mot de passe provisoire, valable RESET_TOKEN_MINUTES.
+     Il s'AJOUTE au mot de passe actuel sans le remplacer : quelqu'un qui
+     demanderait la réinitialisation du compte d'un autre ne peut pas le bloquer.
+  3. À la connexion avec le mot de passe provisoire (auth.login), celui-ci
+     devient le mot de passe du compte, marqué « à changer » : l'utilisateur
+     doit en choisir un nouveau avant de faire quoi que ce soit d'autre.
+     Se connecter avec l'ancien mot de passe annule le provisoire.
+
+Invitation (compte créé par un administrateur sans mot de passe) :
+  1. L'e-mail contient https://…/mot-de-passe.html#token=…
      Le jeton est dans le fragment (#) : le navigateur ne l'envoie jamais au
      serveur dans l'URL, il n'apparaît donc ni dans les logs du reverse proxy
      ni dans l'en-tête Referer.
@@ -15,9 +25,8 @@ Parcours :
      compte concerné, puis POST /api/auth/reset-password {token, new_password}.
      Le mot de passe est changé, toutes les sessions et tous les liens du
      compte sont invalidés, et une nouvelle session est ouverte.
-
-Une invitation (compte créé par un administrateur sans mot de passe) suit
-le même parcours avec un lien valable plus longtemps (INVITE_DAYS).
+  Le lien est valable INVITE_DAYS. (Les liens « reset » envoyés avant le passage
+  au mot de passe provisoire restent utilisables jusqu'à leur expiration.)
 
 Seul le SHA-256 des jetons est stocké (table user_tokens).
 """
@@ -56,11 +65,11 @@ def _send_reset_if_possible(login: str) -> None:
     row = db.get_user_credentials(login.strip())
     if row is None or not row["email"]:
         return
-    last = db.last_token_at(row["id"], "reset")
+    last = row["temp_password_sent_at"]
     if last and datetime.fromisoformat(last) > now() - FORGOT_COOLDOWN:
         return
     try:
-        accounts.send_reset(row["id"])
+        accounts.send_temp_password(row["id"])
     except mailer.MailError as e:
         print(f"[mot de passe oublié] envoi impossible pour le compte #{row['id']} : {e}", file=sys.stderr, flush=True)
 
@@ -72,7 +81,7 @@ def forgot_password(body: ForgotIn, background: BackgroundTasks):
             status.HTTP_404_NOT_FOUND, "Réinitialisation par e-mail indisponible : contactez un administrateur.",
         )
     background.add_task(_send_reset_if_possible, body.login)
-    return {"detail": "Si un compte correspond, un e-mail contenant un lien vient de lui être envoyé."}
+    return {"detail": "Si un compte correspond, un e-mail contenant un mot de passe provisoire vient de lui être envoyé."}
 
 
 _INVALID = "Ce lien n'est plus valable : il a expiré ou a déjà servi."
@@ -112,7 +121,7 @@ def reset_password(body: ResetIn, response: Response):
 
 @router.post("/admin/users/{user_id}/send-link")
 def admin_send_link(user_id: int, actor: CurrentManager):
-    """Renvoie l'invitation (compte sans mot de passe) ou envoie un lien de réinitialisation."""
+    """Renvoie l'invitation (compte sans mot de passe) ou envoie un mot de passe provisoire."""
     target = target_or_404(actor, user_id)
     require_mail()
     if not target["email"]:
@@ -122,8 +131,8 @@ def admin_send_link(user_id: int, actor: CurrentManager):
             accounts.send_invitation(user_id, inviter=display_name(actor))
             kind = "invite"
         else:
-            accounts.send_reset(user_id)
-            kind = "reset"
+            accounts.send_temp_password(user_id)
+            kind = "temp_password"
     except mailer.MailError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Envoi impossible : {e}")
     return {"sent": kind, "email": target["email"]}

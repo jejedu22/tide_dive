@@ -238,7 +238,7 @@ Politique appliquée à tout nouveau mot de passe (recommandation CNIL pour un m
 
 Depuis la liste, le bouton **Mot de passe…** renvoie l'invitation, envoie un lien de réinitialisation ou définit un nouveau mot de passe provisoire. Des étiquettes signalent les invitations en attente ou expirées et les mots de passe provisoires.
 
-**Mot de passe oublié** : lien dans la fenêtre de connexion. L'utilisateur saisit son identifiant ou son adresse e-mail et reçoit un lien valable `RESET_TOKEN_MINUTES` (60 min), utilisable une fois. La réponse est la même que le compte existe ou non, la recherche et l'envoi ont lieu après la réponse, et un compte ne reçoit pas plus d'un lien toutes les 2 minutes.
+**Mot de passe oublié** : lien dans la fenêtre de connexion. L'utilisateur saisit son identifiant ou son adresse e-mail et reçoit un **mot de passe provisoire** valable `RESET_TOKEN_MINUTES` (60 min). Il s'ajoute au mot de passe actuel sans le remplacer (une demande faite par quelqu'un d'autre ne bloque pas le compte) ; à la première connexion avec lui, il devient le mot de passe du compte et l'utilisateur doit immédiatement en choisir un nouveau. Se connecter avec l'ancien mot de passe annule le provisoire. La réponse est la même que le compte existe ou non, la recherche et l'envoi ont lieu après la réponse, et un compte ne reçoit pas plus d'un envoi toutes les 2 minutes. Un administrateur peut aussi déclencher cet envoi depuis la liste des comptes.
 
 Les liens pointent vers `/mot-de-passe.html#token=…` : le jeton est dans le fragment, donc jamais envoyé au serveur dans l'URL (absent des logs du reverse proxy et de l'en-tête Referer). Seule son empreinte SHA-256 est stockée ; il est invalidé dès que le mot de passe change. Choisir un mot de passe par ce lien ferme toutes les sessions du compte et connecte le navigateur.
 
@@ -275,6 +275,15 @@ Invitations et mot de passe oublié nécessitent l'envoi d'e-mails. Sans configu
 | `RESET_TOKEN_MINUTES` | `60` | Validité d'un lien de réinitialisation |
 
 Pour essayer sans serveur SMTP : `MAIL_BACKEND=console` et `APP_BASE_URL=http://localhost:8000`, puis `docker compose logs -f api` pour lire les e-mails et leurs liens.
+
+Pour les voir comme dans une vraie boîte de réception, le service **MailDev** (profil `dev`) capture tout ce que l'application envoie, sans rien délivrer :
+
+```bash
+# .env : MAIL_BACKEND=smtp, APP_BASE_URL=http://localhost:8000,
+#        SMTP_HOST=maildev, SMTP_PORT=1025, SMTP_SECURITY=none, SMTP_USER= , SMTP_PASSWORD=
+docker compose --profile dev up -d
+# puis http://localhost:1080 (MAILDEV_WEB_PORT)
+```
 
 ### Ligne de commande
 
@@ -424,7 +433,7 @@ app/
   auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
   accounts.py       profil (normalisation), identifiant proposé, jetons et e-mails de compte
   passwords.py      politique de mots de passe et génération
-  recovery.py       mot de passe oublié, invitations (liens à usage unique)
+  recovery.py       mot de passe oublié (provisoire par e-mail), invitations (liens à usage unique)
   user_import.py    import CSV de comptes
   mailer.py         envoi d'e-mails (SMTP ou console)
   structures.py     API des structures (super administrateur)

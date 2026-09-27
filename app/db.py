@@ -97,7 +97,14 @@ CREATE TABLE IF NOT EXISTS users (
     phone TEXT,
     -- 1 : mot de passe provisoire, à changer à la prochaine connexion
     must_change_password INTEGER NOT NULL DEFAULT 0,
-    password_changed_at TEXT
+    password_changed_at TEXT,
+    -- Mot de passe oublié : mot de passe provisoire envoyé par e-mail (scrypt).
+    -- Il s'ajoute au mot de passe actuel sans le remplacer : une demande faite
+    -- par un tiers ne bloque donc pas le compte. À sa première utilisation il
+    -- devient le mot de passe du compte (must_change_password = 1).
+    temp_password_hash TEXT,
+    temp_password_expires_at TEXT,  -- ISO8601 UTC
+    temp_password_sent_at TEXT      -- anti-rafale (un envoi toutes les 2 min)
 );
 
 -- Jetons à usage unique envoyés par e-mail : invitation (définir son premier
@@ -391,6 +398,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("phone", "TEXT"),
         ("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
         ("password_changed_at", "TEXT"),
+        ("temp_password_hash", "TEXT"),
+        ("temp_password_expires_at", "TEXT"),
+        ("temp_password_sent_at", "TEXT"),
     ):
         if col not in user_cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
@@ -799,6 +809,7 @@ def update_user(user_id: int, *, password_hash: str | None = None, is_admin: boo
             # et invalide les liens d'invitation / de réinitialisation en cours
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             conn.execute("DELETE FROM user_tokens WHERE user_id = ?", (user_id,))
+            conn.execute(_CLEAR_TEMP, (user_id,))
         if must_change_password is not None:
             conn.execute(
                 "UPDATE users SET must_change_password = ? WHERE id = ?", (int(must_change_password), user_id)
@@ -894,8 +905,35 @@ def last_token_at(user_id: int, purpose: str) -> str | None:
 
 
 def delete_user_tokens(user_id: int) -> None:
+    """Liens et mot de passe provisoire en cours (ex. changement d'adresse e-mail)."""
     with get_conn() as conn:
         conn.execute("DELETE FROM user_tokens WHERE user_id = ?", (user_id,))
+        conn.execute(_CLEAR_TEMP, (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# Mot de passe provisoire (mot de passe oublié, voir recovery.py)
+# ---------------------------------------------------------------------------
+
+_CLEAR_TEMP = (
+    "UPDATE users SET temp_password_hash = NULL, temp_password_expires_at = NULL, "
+    "temp_password_sent_at = NULL WHERE id = ?"
+)
+
+
+def set_temp_password(user_id: int, password_hash: str, sent_at: str, expires_at: str) -> None:
+    """Remplace le mot de passe provisoire en cours ; le mot de passe actuel est conservé."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET temp_password_hash = ?, temp_password_sent_at = ?, temp_password_expires_at = ? "
+            "WHERE id = ?",
+            (password_hash, sent_at, expires_at, user_id),
+        )
+
+
+def clear_temp_password(user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(_CLEAR_TEMP, (user_id,))
 
 
 def get_preferences(user_id: int) -> sqlite3.Row | None:

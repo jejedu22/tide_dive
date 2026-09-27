@@ -41,7 +41,7 @@ async function start() {
   try {
     info = await Session.api("/api/auth/token-info", { method: "POST", body: { token } });
   } catch (err) {
-    showInvalid(err.message + (Session.config.password_reset ? " Vous pouvez en demander un nouveau." : " Demandez-en un nouveau à votre administrateur."));
+    showInvalid(err.message + (Session.config.password_reset ? " Vous pouvez recevoir un mot de passe provisoire par e-mail." : " Demandez-en un nouveau à votre administrateur."));
     return;
   }
   const invite = info.purpose === "invite";

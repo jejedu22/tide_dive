@@ -10,8 +10,8 @@ Comptes utilisateurs, sessions, profil et préférences de filtrage.
   politique de passwords.py (12 caractères, 4 types de caractères…).
 - Mot de passe provisoire (défini par un administrateur) : à changer à la
   connexion suivante ; tant que ce n'est pas fait, l'API refuse tout le reste.
-- Invitation / mot de passe oublié : liens à usage unique envoyés par e-mail
-  (recovery.py).
+- Invitation : lien à usage unique envoyé par e-mail ; mot de passe oublié :
+  mot de passe provisoire envoyé par e-mail (recovery.py).
 - Session = jeton aléatoire dans un cookie HttpOnly ; la base ne garde que
   son SHA-256, une fuite de la base ne permet donc pas d'usurper une session.
 - L'application reste utilisable sans compte : la connexion sert à retrouver
@@ -356,12 +356,28 @@ def open_session(response: Response, user_id: int) -> str:
     return token
 
 
+def _valid_temp_hash(row: sqlite3.Row) -> str | None:
+    """Hash du mot de passe provisoire en cours (mot de passe oublié), s'il n'a pas expiré."""
+    if not row["temp_password_hash"] or not row["temp_password_expires_at"]:
+        return None
+    return row["temp_password_hash"] if row["temp_password_expires_at"] > _iso(_now()) else None
+
+
 @router.post("/auth/login")
 def login(creds: Credentials, response: Response):
     row = db.get_user_credentials(creds.username.strip())
     ok = verify_password(creds.password, row["password_hash"] if row else _DUMMY_HASH)
-    if row is None or not ok:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Identifiant ou mot de passe incorrect")
+    if row is not None and ok:
+        if row["temp_password_hash"]:
+            db.clear_temp_password(row["id"])   # mot de passe retrouvé : le provisoire ne sert plus
+    else:
+        temp_hash = _valid_temp_hash(row) if row is not None else None
+        if temp_hash is None or not verify_password(creds.password, temp_hash):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Identifiant ou mot de passe incorrect")
+        # Première utilisation du mot de passe provisoire : il devient celui du
+        # compte, à changer avant tout (must_change_password). update_user ferme
+        # les autres sessions et efface liens et mot de passe provisoire.
+        db.update_user(row["id"], password_hash=temp_hash, must_change_password=True, now=_iso(_now()))
     open_session(response, row["id"])
     return {"user": _public_user(db.get_user(row["id"]))}
 
@@ -384,6 +400,7 @@ def auth_config():
     """Ce que le frontend doit savoir avant connexion : politique, mot de passe oublié."""
     return {
         "password_reset": mailer.enabled(),
+        "password_reset_minutes": int(accounts.RESET_TTL.total_seconds() // 60),
         "password_policy": passwords.policy(),
     }
 

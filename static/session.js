@@ -9,6 +9,7 @@ const Session = (() => {
   // complété par /api/auth/config au démarrage
   let config = {
     password_reset: false,
+    password_reset_minutes: 60,
     password_policy: { min_length: 12, max_length: 128, classes: [] },
   };
 
@@ -246,12 +247,12 @@ const Session = (() => {
     d.querySelector("button").focus();
   }
 
-  function openLogin() {
+  function openLogin(prefill = "") {
     openForm({
       title: "Connexion",
       submitLabel: "Se connecter",
       fields: [
-        { name: "username", label: "Identifiant ou adresse e-mail", autocomplete: "username" },
+        { name: "username", label: "Identifiant ou adresse e-mail", autocomplete: "username", value: prefill },
         { name: "password", label: "Mot de passe", type: "password", autocomplete: "current-password" },
       ],
       extra: config.password_reset
@@ -267,17 +268,26 @@ const Session = (() => {
   function openForgot(prefill = "") {
     openForm({
       title: "Mot de passe oublié",
-      intro: `<p class="dialog-hint">Indiquez votre identifiant ou votre adresse e-mail : vous recevrez un lien pour choisir un nouveau mot de passe.</p>`,
-      submitLabel: "Recevoir un lien",
+      intro: `<p class="dialog-hint">Indiquez votre identifiant ou votre adresse e-mail : vous recevrez un mot de passe provisoire, à remplacer par le vôtre dès la connexion.</p>`,
+      submitLabel: "Recevoir un mot de passe provisoire",
       fields: [{ name: "login", label: "Identifiant ou adresse e-mail", autocomplete: "username", value: prefill }],
       onSubmit: async v => {
-        await api("/api/auth/forgot-password", { method: "POST", body: { login: v.login.trim() } });
+        const login = v.login.trim();
+        await api("/api/auth/forgot-password", { method: "POST", body: { login } });
         openMessage("E-mail envoyé",
-          `<p>Si un compte correspond à « ${esc(v.login.trim())} », un e-mail contenant un lien vient de lui être envoyé.</p>
-           <p class="dialog-hint">Le lien est valable une heure. Pensez à regarder dans les indésirables.</p>`);
+          `<p>Si un compte correspond à « ${esc(login)} », un e-mail contenant un mot de passe provisoire vient de lui être envoyé.</p>
+           <p class="dialog-hint">Il est valable ${esc(durationLabel(config.password_reset_minutes))} ; votre mot de passe actuel reste valable en attendant. Pensez à regarder dans les indésirables.</p>
+           <p><button type="button" class="btn-secondary" data-back-login>Se connecter</button></p>`);
+        document.querySelector("dialog[open] [data-back-login]")?.addEventListener("click", () => openLogin(login));
         return true;  // le dialogue affiche déjà le message
       },
     });
+  }
+
+  function durationLabel(minutes = 60) {
+    if (minutes % 1440 === 0) return `${minutes / 1440} jour${minutes > 1440 ? "s" : ""}`;
+    if (minutes % 60 === 0) return `${minutes / 60} heure${minutes > 60 ? "s" : ""}`;
+    return `${minutes} minutes`;
   }
 
   function attachChecklist(form, inputName = "new_password", confirmName = "confirm") {
