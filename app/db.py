@@ -171,9 +171,20 @@ CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc
 CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
 """
 
-# Index sur des colonnes ajoutées par _migrate : créés après la migration,
-# sinon ils échoueraient sur une base existante.
+# Créés après la migration des structures : index sur des colonnes ajoutées
+# par _migrate (ils échoueraient sur une base existante), et tables qui
+# référencent slot_selections (reconstruite par _migrate_structures).
 INDEXES_AFTER_MIGRATION = """
+-- Inscriptions des membres d'une structure sur ses créneaux choisis.
+-- Un membre (visualisation ou administration) s'inscrit une fois par créneau.
+-- Retirer le créneau ou supprimer le compte retire l'inscription (CASCADE).
+CREATE TABLE IF NOT EXISTS slot_registrations (
+    selection_id INTEGER NOT NULL REFERENCES slot_selections(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (selection_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_selections_structure ON slot_selections(structure_id, local_date);
 CREATE INDEX IF NOT EXISTS idx_slot_types_structure ON slot_types(structure_id, position);
 CREATE INDEX IF NOT EXISTS idx_users_structure ON users(structure_id);
@@ -687,6 +698,14 @@ def update_user(user_id: int, *, password_hash: str | None = None, is_admin: boo
             conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
         if structure_id is not _UNSET:
             conn.execute("UPDATE users SET structure_id = ? WHERE id = ?", (structure_id, user_id))
+            # changement (ou retrait) de structure : ses inscriptions ailleurs tombent,
+            # sauf pour un super administrateur, qui passe d'une structure à l'autre
+            conn.execute(
+                "DELETE FROM slot_registrations WHERE user_id = ? AND selection_id IN "
+                "(SELECT id FROM slot_selections WHERE structure_id IS NOT ?) "
+                "AND NOT EXISTS (SELECT 1 FROM users WHERE id = ? AND is_admin = 1)",
+                (user_id, structure_id, user_id),
+            )
         if structure_role is not _UNSET:
             conn.execute("UPDATE users SET structure_role = ? WHERE id = ?", (structure_role, user_id))
 
@@ -998,5 +1017,43 @@ def delete_selection(structure_id: int, selection_id: int) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
             "DELETE FROM slot_selections WHERE id = ? AND structure_id = ?", (selection_id, structure_id)
+        )
+        return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Inscriptions sur les créneaux choisis
+# ---------------------------------------------------------------------------
+
+def list_registrations(structure_id: int, selection_id: int | None = None) -> list[sqlite3.Row]:
+    """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription."""
+    sql = """
+        SELECT r.selection_id, r.user_id, r.created_at, u.username
+        FROM slot_registrations r
+        JOIN slot_selections s ON s.id = r.selection_id
+        JOIN users u ON u.id = r.user_id
+        WHERE s.structure_id = ?
+    """
+    params: list = [structure_id]
+    if selection_id is not None:
+        sql += " AND r.selection_id = ?"
+        params.append(selection_id)
+    with get_conn() as conn:
+        return conn.execute(sql + " ORDER BY r.created_at, u.username", params).fetchall()
+
+
+def add_registration(selection_id: int, user_id: int, now: str) -> None:
+    """Lève sqlite3.IntegrityError si le compte est déjà inscrit."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO slot_registrations (selection_id, user_id, created_at) VALUES (?, ?, ?)",
+            (selection_id, user_id, now),
+        )
+
+
+def delete_registration(selection_id: int, user_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM slot_registrations WHERE selection_id = ? AND user_id = ?", (selection_id, user_id)
         )
         return cur.rowcount > 0

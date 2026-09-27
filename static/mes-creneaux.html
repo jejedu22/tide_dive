@@ -10,7 +10,7 @@
   <header>
     <div class="brand">
       <h1>🤿 Créneaux choisis <span id="structure-name" class="h1-sub"></span></h1>
-      <p class="subtitle"><a href="./">Retour à la recherche de créneaux</a></p>
+      <p class="subtitle"><a href="index.html">Retour à la recherche de créneaux</a></p>
     </div>
     <nav class="account" id="account" aria-label="Compte"></nav>
   </header>
@@ -23,6 +23,7 @@
         <label>Type
           <select id="type-filter"><option value="">Tous les types</option></select>
         </label>
+        <label class="check"><input type="checkbox" id="only-mine"> Seulement mes inscriptions</label>
         <label class="check"><input type="checkbox" id="show-past"> Afficher les créneaux passés</label>
         <ul id="summary" class="picks-summary" aria-label="Répartition par type"></ul>
       </div>
@@ -38,6 +39,7 @@
               <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
               <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
               <th scope="col">Type</th>
+              <th scope="col">Inscrits</th>
               <th scope="col">Choisi par</th>
               <th scope="col" class="c-actions"><span class="visually-hidden">Actions</span></th>
             </tr>

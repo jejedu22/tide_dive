@@ -6,6 +6,9 @@ Créneaux choisis par les structures, et types de créneaux.
 - Un administrateur de la structure choisit un créneau de la recherche en lui
   donnant un type. Un créneau = une étale, identifiée par (port_id, ts_utc).
 - Les membres en visualisation voient la liste des créneaux de leur structure.
+- Tout membre (visualisation ou administration) peut s'inscrire sur un
+  créneau à venir de sa structure, et s'en désinscrire ; les administrateurs
+  de la structure peuvent aussi retirer l'inscription d'un autre membre.
 - Une structure ne peut pas choisir deux fois le même créneau (contrainte
   UNIQUE en base) ; deux structures peuvent choisir le même.
 - Les infos affichées (heure, hauteur, coefficient, RDV) sont recalculées
@@ -98,7 +101,22 @@ def _type_out(row: sqlite3.Row) -> dict:
     }
 
 
-def _selection_out(row: sqlite3.Row) -> dict:
+def _today() -> str:
+    """Aujourd'hui en heure de Paris (les dates des créneaux sont locales au port)."""
+    return datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
+
+
+def _registrations_by_selection(structure_id: int, selection_id: int | None = None) -> dict[int, list[dict]]:
+    out: dict[int, list[dict]] = {}
+    for r in db.list_registrations(structure_id, selection_id):
+        out.setdefault(r["selection_id"], []).append(
+            {"user_id": r["user_id"], "username": r["username"], "created_at": r["created_at"]}
+        )
+    return out
+
+
+def _selection_out(row: sqlite3.Row, registrations: list[dict] | None = None, me_id: int | None = None) -> dict:
+    registrations = registrations or []
     return {
         "id": row["id"],
         "structure_id": row["structure_id"],
@@ -119,7 +137,18 @@ def _selection_out(row: sqlite3.Row) -> dict:
         },
         "picked_by": row["picked_by_name"],   # None : compte supprimé depuis
         "created_at": row["created_at"],
+        "registrations": registrations,
+        "registered": me_id is not None and any(r["user_id"] == me_id for r in registrations),
+        "past": row["local_date"] < _today(),
     }
+
+
+def _one_out(structure_id: int, selection_id: int, me_id: int) -> dict:
+    row = db.get_selection(structure_id, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    regs = _registrations_by_selection(structure_id, selection_id).get(selection_id, [])
+    return _selection_out(row, regs, me_id)
 
 
 def _active_type_or_422(type_id: int, structure_id: int) -> sqlite3.Row:
@@ -144,9 +173,10 @@ def list_active_types(user: CurrentUser):
 @router.get("/selections")
 def list_structure_selections(user: CurrentMember, upcoming: bool = False):
     """Créneaux choisis par la structure ; upcoming=true : à partir d'aujourd'hui (heure de Paris)."""
-    from_date = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat() if upcoming else None
-    rows = db.list_selections(user["structure_id"], from_date)
-    return [_selection_out(r) for r in rows]
+    sid = user["structure_id"]
+    rows = db.list_selections(sid, _today() if upcoming else None)
+    regs = _registrations_by_selection(sid)
+    return [_selection_out(r, regs.get(r["id"]), user["id"]) for r in rows]
 
 
 @router.post("/selections", status_code=201)
@@ -168,7 +198,7 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
         )
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est déjà choisi par votre structure")
-    return _selection_out(db.get_selection(sid, sel_id))
+    return _one_out(sid, sel_id, user["id"])
 
 
 @router.patch("/selections/{selection_id}")
@@ -178,7 +208,7 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     _active_type_or_422(body.type_id, sid)
     db.update_selection_type(sid, selection_id, body.type_id)
-    return _selection_out(db.get_selection(sid, selection_id))
+    return _one_out(sid, selection_id, user["id"])
 
 
 @router.delete("/selections/{selection_id}", status_code=204)
@@ -186,6 +216,50 @@ def delete_selection(selection_id: int, user: CurrentPicker):
     # filtré par structure : impossible de retirer le choix d'une autre structure
     if not db.delete_selection(user["structure_id"], selection_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+
+
+# ---------------------------------------------------------------------------
+# Inscriptions des membres sur les créneaux de leur structure
+# ---------------------------------------------------------------------------
+
+def _upcoming_selection_or_error(structure_id: int, selection_id: int) -> sqlite3.Row:
+    row = db.get_selection(structure_id, selection_id)  # filtré par structure
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["local_date"] < _today():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est passé : les inscriptions sont closes")
+    return row
+
+
+@router.post("/selections/{selection_id}/registration")
+def register(selection_id: int, user: CurrentMember):
+    """S'inscrire sur un créneau à venir de sa structure (tout membre, y compris en visualisation)."""
+    sid = user["structure_id"]
+    _upcoming_selection_or_error(sid, selection_id)
+    try:
+        db.add_registration(selection_id, user["id"], _now_iso())
+    except sqlite3.IntegrityError:
+        pass  # déjà inscrit (double clic, deux onglets) : l'état voulu est atteint
+    return _one_out(sid, selection_id, user["id"])
+
+
+@router.delete("/selections/{selection_id}/registration")
+def unregister(selection_id: int, user: CurrentMember):
+    """Se désinscrire d'un créneau à venir."""
+    sid = user["structure_id"]
+    _upcoming_selection_or_error(sid, selection_id)
+    db.delete_registration(selection_id, user["id"])  # déjà désinscrit : idem
+    return _one_out(sid, selection_id, user["id"])
+
+
+@router.delete("/selections/{selection_id}/registrations/{user_id}")
+def remove_registration(selection_id: int, user_id: int, actor: CurrentPicker):
+    """Administration de la structure : retirer l'inscription d'un membre (même sur un créneau passé)."""
+    sid = actor["structure_id"]
+    if db.get_selection(sid, selection_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    db.delete_registration(selection_id, user_id)
+    return _one_out(sid, selection_id, actor["id"])
 
 
 # ---------------------------------------------------------------------------

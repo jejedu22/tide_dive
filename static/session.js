@@ -55,8 +55,18 @@ const Session = (() => {
     return user;
   }
 
+  // Page où envoyer l'utilisateur juste après sa connexion : fonction(user) -> URL ou null.
+  // Réglée par la page (la recherche envoie les membres vers leurs créneaux choisis).
+  let redirectAfterLogin = null;
+
   async function login(username, password) {
-    setUser((await api("/api/auth/login", { method: "POST", body: { username, password } })).user);
+    const u = (await api("/api/auth/login", { method: "POST", body: { username, password } })).user;
+    const target = redirectAfterLogin?.(u);
+    if (target) {
+      location.assign(target);  // pas de setUser : inutile de recharger la page qu'on quitte
+      return;
+    }
+    setUser(u);
   }
 
   async function logout() {
@@ -145,6 +155,40 @@ const Session = (() => {
     });
   }
 
+  // Super administrateur : structures proposées dans le sélecteur de l'en-tête
+  let structures = null;      // null : pas encore chargées
+  let structuresLoading = null;
+
+  function loadStructures() {
+    structuresLoading ??= api("/api/admin/structures")
+      .then(list => { structures = list; })
+      .catch(() => { structures = []; })
+      .finally(() => { structuresLoading = null; });
+    return structuresLoading;
+  }
+
+  const accountRenders = [];
+
+  // Liste à jour fournie par la page d'administration (création, renommage, suppression)
+  function setStructures(list) {
+    structures = list;
+    for (const r of accountRenders) r(user);
+  }
+
+  async function switchStructure(structureId) {
+    const res = await api("/api/me/structure", { method: "PUT", body: { structure_id: structureId } });
+    setUser(res.user);
+  }
+
+  function structureSelect(u) {
+    const list = structures || (u.structure ? [u.structure] : []);
+    const opts = [`<option value=""${u.structure ? "" : " selected"}>Aucune structure</option>`]
+      .concat(list.map(st =>
+        `<option value="${st.id}"${st.id === u.structure?.id ? " selected" : ""}>${esc(st.name)}</option>`));
+    return ` <select class="account-structure-select" data-act="structure" aria-label="Ma structure"
+      title="Changer de structure (super administrateur)">${opts.join("")}</select>`;
+  }
+
   // Encart compte dans l'en-tête ; links = [{ href, label, show(user) }]
   function mountAccount(el, links = []) {
     const render = u => {
@@ -155,9 +199,12 @@ const Session = (() => {
       const extra = links
         .filter(l => !l.show || l.show(u))
         .map(l => `<a class="account-btn" href="${l.href}">${esc(l.label)}</a>`).join("");
-      const where = u.structure
-        ? ` <span class="account-structure" title="${esc(roleLabel(u))}">· ${esc(u.structure.name)}</span>`
-        : "";
+      if (u.is_admin && structures === null) loadStructures().then(() => { if (user === u) render(u); });
+      const where = u.is_admin
+        ? structureSelect(u)
+        : u.structure
+          ? ` <span class="account-structure" title="${esc(roleLabel(u))}">· ${esc(u.structure.name)}</span>`
+          : "";
       el.innerHTML = `
         <span class="account-name">${esc(u.username)}${where}</span>
         ${extra}
@@ -170,7 +217,19 @@ const Session = (() => {
       if (act === "password") openPasswordChange();
       if (act === "logout") logout();
     });
+    el.addEventListener("change", async e => {
+      const sel = e.target.closest("select[data-act=structure]");
+      if (!sel) return;
+      sel.disabled = true;
+      try {
+        await switchStructure(sel.value ? Number(sel.value) : null);
+      } catch (err) {
+        alert(`Changement de structure impossible : ${err.message}`);
+        render(user);
+      }
+    });
     listeners.push(render);
+    accountRenders.push(render);
     render(user);
   }
 
@@ -185,7 +244,7 @@ const Session = (() => {
 
   // Liens d'en-tête communs aux pages
   const LINKS = {
-    search: { href: "./", label: "Recherche" },
+    search: { href: "index.html", label: "Recherche" },  // "./" renvoie les membres vers leurs créneaux
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", show: u => u.can.admin_area },
   };
@@ -194,6 +253,7 @@ const Session = (() => {
     ROLE_LABELS, LINKS, roleLabel,
     get user() { return user; },
     onChange: fn => listeners.push(fn),
-    init, login, logout, api, esc, openLogin, mountAccount,
+    set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
+    init, login, logout, api, esc, openLogin, mountAccount, setStructures,
   };
 })();

@@ -584,6 +584,8 @@ prefsRestoreBtn.addEventListener("click", () => {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
   }
   Session.mountAccount(document.getElementById("account"), [Session.LINKS.picks, Session.LINKS.admin]);
+  // connexion depuis la recherche : les membres d'une structure vont directement à leurs créneaux choisis
+  Session.redirectAfterLogin = u => (u.can.view_selections ? "mes-creneaux.html" : null);
   Session.onChange(onSessionChange);
   await Session.init();
 })();

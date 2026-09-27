@@ -334,6 +334,24 @@ def change_own_password(body: PasswordChange, user: CurrentUser, response: Respo
     _set_session_cookie(response, token)
 
 
+class StructureSwitch(BaseModel):
+    structure_id: int | None = None   # None : aucune structure
+
+
+@router.put("/me/structure")
+def switch_own_structure(body: StructureSwitch, admin: Annotated[sqlite3.Row, Depends(current_super_admin)]):
+    """Super administrateur : changer sa propre structure (sélecteur de l'en-tête).
+    Il y est en administration ; ses inscriptions dans les autres structures sont conservées."""
+    if body.structure_id is not None:
+        _check_structure_exists(body.structure_id)
+    db.update_user(
+        admin["id"],
+        structure_id=body.structure_id,
+        structure_role="manager" if body.structure_id is not None else None,
+    )
+    return {"user": _public_user(db.get_user(admin["id"]))}
+
+
 # ---------------------------------------------------------------------------
 # Routes : préférences
 # ---------------------------------------------------------------------------

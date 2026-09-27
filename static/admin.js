@@ -319,6 +319,7 @@ const structureForm = $("structure-form");
 async function loadStructures() {
   try {
     structures = await Session.api("/api/admin/structures");
+    if (isSuper()) Session.setStructures(structures);  // sélecteur de l'en-tête
   } catch (e) {
     flash(esc(e.message));
     return;
