@@ -1,14 +1,25 @@
-// Session utilisateur partagée par index.html et admin.html :
-// appels API JSON, connexion/déconnexion, changement de mot de passe,
-// et encart « compte » dans l'en-tête.
+// Session utilisateur partagée par les pages :
+// appels API JSON, connexion/déconnexion, mot de passe oublié, profil,
+// changement de mot de passe (y compris forcé après un mot de passe provisoire),
+// liste de contrôle de la politique de mot de passe, encart « compte » de l'en-tête.
 
 const Session = (() => {
   let user = null;
   const listeners = [];
+  // complété par /api/auth/config au démarrage
+  let config = {
+    password_reset: false,
+    password_policy: { min_length: 12, max_length: 128, classes: [] },
+  };
 
   function esc(s) {
-    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   }
+
+  const FIELD_LABELS = {
+    username: "Identifiant", first_name: "Prénom", last_name: "Nom", email: "Adresse e-mail",
+    phone: "Téléphone", password: "Mot de passe", new_password: "Mot de passe",
+  };
 
   // Message lisible à partir d'une erreur FastAPI (detail texte ou liste de validation)
   function errorMessage(body, res) {
@@ -17,9 +28,9 @@ const Session = (() => {
     if (Array.isArray(d) && d.length) {
       const e = d[0];
       const field = e.loc ? e.loc[e.loc.length - 1] : "";
-      if (field === "username") return "Nom invalide : 3 à 32 caractères parmi lettres, chiffres, . _ -";
-      if (field === "password" || field === "new_password") return "Le mot de passe doit faire au moins 8 caractères.";
-      return e.msg || "Données invalides.";
+      const msg = String(e.msg || "Données invalides.").replace(/^Value error, /, "");
+      if (e.type === "missing") return `${FIELD_LABELS[field] || field} : champ obligatoire.`;
+      return msg;
     }
     return `Erreur ${res.status}`;
   }
@@ -34,24 +45,39 @@ const Session = (() => {
     if (res.status === 204) return null;
     const data = await res.json().catch(() => null);
     if (!res.ok) {
+      if (res.headers.get("X-Password-Change-Required")) init();  // mot de passe provisoire
       const err = new Error(errorMessage(data, res));
       err.status = res.status;
+      err.body = data;
       throw err;
     }
     return data;
   }
 
-  function setUser(u) {
-    user = u;
+  function notify() {
     for (const fn of listeners) fn(user);
   }
 
-  async function init() {
-    try {
-      setUser((await api("/api/auth/me")).user);
-    } catch {
-      setUser(null);
+  function setUser(u) {
+    // Mot de passe provisoire : rien d'autre n'est accessible tant qu'il n'est pas changé.
+    // Les pages voient un visiteur anonyme derrière le dialogue.
+    if (u?.must_change_password) {
+      user = null;
+      notify();
+      openPasswordChange({ forced: u });
+      return;
     }
+    user = u;
+    notify();
+  }
+
+  async function init() {
+    const [me, cfg] = await Promise.all([
+      api("/api/auth/me").catch(() => ({ user: null })),
+      api("/api/auth/config").catch(() => null),
+    ]);
+    if (cfg) config = cfg;
+    setUser(me.user);
     return user;
   }
 
@@ -59,19 +85,73 @@ const Session = (() => {
   // Réglée par la page (la recherche envoie les membres vers leurs créneaux choisis).
   let redirectAfterLogin = null;
 
+  function goAfterLogin(u) {
+    const target = redirectAfterLogin?.(u);
+    if (target) location.assign(target);  // pas de setUser : inutile de redessiner la page qu'on quitte
+    return !!target;
+  }
+
   async function login(username, password) {
     const u = (await api("/api/auth/login", { method: "POST", body: { username, password } })).user;
-    const target = redirectAfterLogin?.(u);
-    if (target) {
-      location.assign(target);  // pas de setUser : inutile de recharger la page qu'on quitte
-      return;
-    }
+    // mot de passe provisoire : d'abord le changement obligatoire (voir openPasswordChange)
+    if (!u.must_change_password && goAfterLogin(u)) return;
     setUser(u);
   }
 
   async function logout() {
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     setUser(null);
+  }
+
+  // ---- Politique de mot de passe ----
+
+  const CLASS_TESTS = {
+    lower: c => c !== c.toUpperCase() && c === c.toLowerCase(),
+    upper: c => c !== c.toLowerCase() && c === c.toUpperCase(),
+    digit: c => /\p{Nd}/u.test(c),
+    special: c => !/[\p{L}\p{N}]/u.test(c),
+  };
+
+  // Liste de contrôle mise à jour à la frappe ; le serveur revérifie tout
+  // (et refuse en plus : nom / e-mail dans le mot de passe, mots de passe courants).
+  function passwordChecklist(input, confirm = null) {
+    const p = config.password_policy;
+    const rules = [
+      { label: `${p.min_length} caractères au moins`, test: v => [...v].length >= p.min_length },
+      ...p.classes.map(c => ({ label: c.label, test: v => [...v].some(CLASS_TESTS[c.key] || (() => true)) })),
+    ];
+    if (confirm) rules.push({ label: "confirmation identique", test: v => v !== "" && v === confirm.value });
+    const ul = document.createElement("ul");
+    ul.className = "pw-rules";
+    ul.setAttribute("aria-live", "polite");
+    const render = () => {
+      const v = input.value;
+      ul.innerHTML = rules.map(r => {
+        const ok = r.test(v);
+        return `<li class="${ok ? "ok" : ""}"><span aria-hidden="true">${ok ? "✓" : "○"}</span> ${esc(r.label)}<span class="visually-hidden">${ok ? " : respecté" : " : manquant"}</span></li>`;
+      }).join("");
+    };
+    input.addEventListener("input", render);
+    confirm?.addEventListener("input", render);
+    render();
+    ul.refresh = render;
+    ul.hint = "Évitez d'y mettre votre nom ou votre adresse e-mail.";
+    return ul;
+  }
+
+  // Mot de passe aléatoire conforme : sans 0/O ni 1/l/I, facile à dicter
+  function generatePassword() {
+    const pools = ["abcdefghjkmnpqrstuvwxyz", "ABCDEFGHJKLMNPQRSTUVWXYZ", "23456789", "-_!?@#%+="];
+    const all = pools.join("");
+    const length = Math.max(config.password_policy.min_length + 2, 14);
+    const rnd = n => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+    const chars = pools.map(p => p[rnd(p.length)]);
+    while (chars.length < length) chars.push(all[rnd(all.length)]);
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = rnd(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    return chars.join("");
   }
 
   // ---- Dialogues ----
@@ -83,45 +163,87 @@ const Session = (() => {
     dialog = document.createElement("dialog");
     dialog.className = "account-dialog";
     document.body.append(dialog);
-    dialog.addEventListener("click", e => { if (e.target === dialog) dialog.close(); });
+    dialog.addEventListener("click", e => {
+      if (e.target === dialog && !dialog.dataset.locked) dialog.close();
+    });
+    // Échap : refusé sur un dialogue obligatoire
+    dialog.addEventListener("cancel", e => { if (dialog.dataset.locked) e.preventDefault(); });
     return dialog;
   }
 
-  function openForm({ title, fields, submitLabel, onSubmit }) {
+  /**
+   * fields : [{ name, label, type, autocomplete, required (défaut true), value, hint }]
+   * intro / extra : HTML avant / après les champs
+   * setup(form) : branchements supplémentaires
+   * locked : pas de fermeture par Échap ni clic extérieur ; cancelLabel / onCancel
+   */
+  function openForm({ title, intro = "", fields, extra = "", submitLabel, onSubmit, setup,
+                      locked = false, cancelLabel = "Annuler", onCancel }) {
     const d = ensureDialog();
+    d.dataset.locked = locked ? "1" : "";
     d.innerHTML = `
-      <form method="dialog">
+      <form method="dialog" novalidate>
         <h2>${esc(title)}</h2>
+        ${intro}
         ${fields.map(f => `
           <label>${esc(f.label)}
-            <input name="${f.name}" type="${f.type || "text"}" autocomplete="${f.autocomplete || "off"}" required>
+            <input name="${f.name}" type="${f.type || "text"}" autocomplete="${f.autocomplete || "off"}"
+                   ${f.required === false ? "" : "required"} value="${esc(f.value ?? "")}">
+            ${f.hint ? `<small class="field-hint">${esc(f.hint)}</small>` : ""}
           </label>`).join("")}
+        ${extra}
         <p class="dialog-error" role="alert"></p>
         <div class="dialog-actions">
-          <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+          <button type="button" class="btn-quiet" value="cancel">${esc(cancelLabel)}</button>
           <button type="submit" class="btn-primary">${esc(submitLabel)}</button>
         </div>
       </form>`;
     const form = d.querySelector("form");
     const errEl = d.querySelector(".dialog-error");
-    d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+    d.querySelector("[value=cancel]").addEventListener("click", () => {
+      d.close();
+      onCancel?.();
+    });
     form.addEventListener("submit", async e => {
       e.preventDefault();
       errEl.textContent = "";
+      const missing = [...form.querySelectorAll("input[required]")].find(i => !i.value.trim());
+      if (missing) {
+        errEl.textContent = `${missing.closest("label").firstChild.textContent.trim()} : champ obligatoire.`;
+        missing.focus();
+        return;
+      }
       const values = Object.fromEntries(new FormData(form));
       const btn = form.querySelector("[type=submit]");
       btn.disabled = true;
       try {
-        await onSubmit(values);
-        d.close();
+        const keepOpen = await onSubmit(values, form);
+        // form.isConnected : onSubmit a pu ouvrir un autre dialogue à la place
+        // (ex. connexion → changement obligatoire du mot de passe provisoire)
+        if (keepOpen !== true && form.isConnected) d.close();
       } catch (err) {
         errEl.textContent = err.message;
       } finally {
         btn.disabled = false;
       }
     });
-    d.showModal();
-    form.querySelector("input").focus();
+    setup?.(form);
+    if (!d.open) d.showModal();
+    form.querySelector("input")?.focus();
+    return form;
+  }
+
+  function openMessage(title, html) {
+    const d = ensureDialog();
+    d.dataset.locked = "";
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>${esc(title)}</h2>
+        <div class="dialog-message">${html}</div>
+        <div class="dialog-actions"><button type="submit" class="btn-primary">OK</button></div>
+      </form>`;
+    if (!d.open) d.showModal();
+    d.querySelector("button").focus();
   }
 
   function openLogin() {
@@ -129,30 +251,102 @@ const Session = (() => {
       title: "Connexion",
       submitLabel: "Se connecter",
       fields: [
-        { name: "username", label: "Identifiant", autocomplete: "username" },
+        { name: "username", label: "Identifiant ou adresse e-mail", autocomplete: "username" },
         { name: "password", label: "Mot de passe", type: "password", autocomplete: "current-password" },
       ],
-      onSubmit: v => login(v.username, v.password),
+      extra: config.password_reset
+        ? `<p class="dialog-links"><button type="button" class="link-btn" data-forgot>Mot de passe oublié ?</button></p>`
+        : "",
+      onSubmit: v => login(v.username.trim(), v.password),
+      setup: form => form.querySelector("[data-forgot]")?.addEventListener("click", () => {
+        openForgot(form.username.value.trim());
+      }),
     });
   }
 
-  function openPasswordChange() {
+  function openForgot(prefill = "") {
     openForm({
-      title: "Changer de mot de passe",
+      title: "Mot de passe oublié",
+      intro: `<p class="dialog-hint">Indiquez votre identifiant ou votre adresse e-mail : vous recevrez un lien pour choisir un nouveau mot de passe.</p>`,
+      submitLabel: "Recevoir un lien",
+      fields: [{ name: "login", label: "Identifiant ou adresse e-mail", autocomplete: "username", value: prefill }],
+      onSubmit: async v => {
+        await api("/api/auth/forgot-password", { method: "POST", body: { login: v.login.trim() } });
+        openMessage("E-mail envoyé",
+          `<p>Si un compte correspond à « ${esc(v.login.trim())} », un e-mail contenant un lien vient de lui être envoyé.</p>
+           <p class="dialog-hint">Le lien est valable une heure. Pensez à regarder dans les indésirables.</p>`);
+        return true;  // le dialogue affiche déjà le message
+      },
+    });
+  }
+
+  function attachChecklist(form, inputName = "new_password", confirmName = "confirm") {
+    const list = passwordChecklist(form[inputName], form[confirmName]);
+    form[inputName].closest("label").after(list);
+  }
+
+  // forced : compte dont le mot de passe provisoire doit être changé avant tout
+  function openPasswordChange({ forced = null } = {}) {
+    openForm({
+      title: forced ? "Choisissez votre mot de passe" : "Changer de mot de passe",
+      intro: forced
+        ? `<p class="dialog-hint">Bonjour ${esc(forced.first_name || forced.username)}, le mot de passe que vous avez utilisé est provisoire : choisissez le vôtre pour continuer.</p>`
+        : "",
       submitLabel: "Changer le mot de passe",
+      locked: !!forced,
+      cancelLabel: forced ? "Se déconnecter" : "Annuler",
+      onCancel: forced ? logout : undefined,
       fields: [
-        { name: "current_password", label: "Mot de passe actuel", type: "password", autocomplete: "current-password" },
-        { name: "new_password", label: "Nouveau mot de passe (8 caractères min.)", type: "password", autocomplete: "new-password" },
+        { name: "current_password", label: forced ? "Mot de passe provisoire" : "Mot de passe actuel", type: "password", autocomplete: "current-password" },
+        { name: "new_password", label: "Nouveau mot de passe", type: "password", autocomplete: "new-password" },
         { name: "confirm", label: "Confirmation", type: "password", autocomplete: "new-password" },
       ],
+      setup: form => attachChecklist(form),
       onSubmit: async v => {
         if (v.new_password !== v.confirm) throw new Error("Les deux saisies diffèrent.");
         await api("/api/me/password", {
           method: "POST",
           body: { current_password: v.current_password, new_password: v.new_password },
         });
+        if (forced) {
+          const u = (await api("/api/auth/me")).user;
+          if (!goAfterLogin(u)) setUser(u);
+        }
       },
     });
+  }
+
+  function openProfile() {
+    const u = user;
+    const form = openForm({
+      title: "Mon compte",
+      intro: `<p class="dialog-hint">Identifiant : <strong>${esc(u.username)}</strong>${u.structure ? ` · ${esc(u.structure.name)} (${esc(roleLabel(u))})` : ""}</p>`,
+      submitLabel: "Enregistrer",
+      fields: [
+        { name: "first_name", label: "Prénom", autocomplete: "given-name", value: u.first_name },
+        { name: "last_name", label: "Nom", autocomplete: "family-name", value: u.last_name },
+        { name: "email", label: "Adresse e-mail", type: "email", autocomplete: "email", value: u.email,
+          hint: "Sert à la connexion et à la réinitialisation du mot de passe." },
+        { name: "phone", label: "Téléphone (facultatif)", type: "tel", autocomplete: "tel", value: u.phone, required: false },
+        { name: "current_password", label: "Mot de passe actuel (pour changer d'adresse e-mail)", type: "password",
+          autocomplete: "current-password", required: false },
+      ],
+      extra: `<p class="dialog-links"><button type="button" class="link-btn" data-change-password>Changer de mot de passe</button></p>`,
+      onSubmit: async v => {
+        const body = { first_name: v.first_name, last_name: v.last_name, email: v.email, phone: v.phone };
+        if (v.current_password) body.current_password = v.current_password;
+        setUser((await api("/api/me/profile", { method: "PATCH", body })).user);
+      },
+      setup: f => {
+        const pwLabel = f.current_password.closest("label");
+        const sync = () => { pwLabel.hidden = f.email.value.trim().toLowerCase() === (u.email || ""); };
+        f.email.addEventListener("input", sync);
+        sync();
+        f.querySelector("[data-change-password]").addEventListener("click", () => openPasswordChange());
+      },
+    });
+    if (!u.profile_complete) form.querySelector(".dialog-hint").insertAdjacentHTML(
+      "afterend", `<p class="dialog-notice">Complétez votre profil : prénom, nom et adresse e-mail.</p>`);
   }
 
   // Super administrateur : structures proposées dans le sélecteur de l'en-tête
@@ -206,15 +400,15 @@ const Session = (() => {
           ? ` <span class="account-structure" title="${esc(roleLabel(u))}">· ${esc(u.structure.name)}</span>`
           : "";
       el.innerHTML = `
-        <span class="account-name">${esc(u.username)}${where}</span>
+        <span class="account-name" title="${esc(u.username)}">${esc(u.display_name)}${where}</span>
         ${extra}
-        <button type="button" class="account-btn" data-act="password">Mot de passe</button>
+        <button type="button" class="account-btn" data-act="profile">Mon compte${u.profile_complete ? "" : ` <span class="account-dot" title="Profil à compléter">!</span>`}</button>
         <button type="button" class="account-btn" data-act="logout">Se déconnecter</button>`;
     };
     el.addEventListener("click", e => {
       const act = e.target.closest("[data-act]")?.dataset.act;
       if (act === "login") openLogin();
-      if (act === "password") openPasswordChange();
+      if (act === "profile") openProfile();
       if (act === "logout") logout();
     });
     el.addEventListener("change", async e => {
@@ -252,8 +446,10 @@ const Session = (() => {
   return {
     ROLE_LABELS, LINKS, roleLabel,
     get user() { return user; },
+    get config() { return config; },
     onChange: fn => listeners.push(fn),
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
-    init, login, logout, api, esc, openLogin, mountAccount, setStructures,
+    init, login, logout, api, esc, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
+    mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
   };
 })();

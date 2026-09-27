@@ -110,7 +110,8 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
     out: dict[int, list[dict]] = {}
     for r in db.list_registrations(structure_id, selection_id):
         out.setdefault(r["selection_id"], []).append(
-            {"user_id": r["user_id"], "username": r["username"], "created_at": r["created_at"]}
+            {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
+             "created_at": r["created_at"]}
         )
     return out
 

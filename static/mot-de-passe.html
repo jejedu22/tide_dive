@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- le lien contient un jeton : ne jamais le transmettre à un autre site -->
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Choisir un mot de passe — Aide au choix de plongées</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>🤿 Aide au choix de plongées</h1>
+      <p class="subtitle"><a href="index.html">Retour à la recherche de créneaux</a></p>
+    </div>
+  </header>
+
+  <main class="narrow-main">
+    <section class="panel reset-panel">
+      <h2 id="reset-title">Choisir un mot de passe</h2>
+      <p id="reset-intro" class="hint" role="status">Vérification du lien…</p>
+
+      <form id="reset-form" class="reset-form" autocomplete="off" hidden>
+        <!-- aide les gestionnaires de mots de passe à associer le compte -->
+        <input id="reset-username" name="username" autocomplete="username" hidden>
+        <label>Nouveau mot de passe
+          <input name="new_password" type="password" autocomplete="new-password" required>
+        </label>
+        <label>Confirmation
+          <input name="confirm" type="password" autocomplete="new-password" required>
+        </label>
+        <label class="check"><input type="checkbox" id="reset-show"> Afficher les mots de passe</label>
+        <p id="reset-error" class="dialog-error" role="alert"></p>
+        <button type="submit" class="btn-primary">Enregistrer et me connecter</button>
+      </form>
+
+      <p id="reset-actions" class="reset-actions" hidden>
+        <button type="button" id="reset-forgot" class="btn-secondary">Recevoir un nouveau lien</button>
+        <a class="btn-quiet" href="./">Aller à l'accueil</a>
+      </p>
+    </section>
+  </main>
+
+  <script src="session.js"></script>
+  <script src="mot-de-passe.js"></script>
+</body>
+</html>

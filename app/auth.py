@@ -1,9 +1,17 @@
 """
-Comptes utilisateurs, sessions et préférences de filtrage.
+Comptes utilisateurs, sessions, profil et préférences de filtrage.
 
 - Pas d'inscription libre : les comptes sont créés par un administrateur,
-  depuis /admin.html ou en ligne de commande (voir plus bas).
-- Mots de passe hachés avec scrypt (bibliothèque standard, aucune dépendance).
+  depuis /admin.html (un par un ou par import CSV, voir user_import.py) ou
+  en ligne de commande (voir plus bas).
+- Profil : identifiant, prénom, nom, adresse e-mail (unique), téléphone.
+  On se connecte avec son identifiant OU son adresse e-mail.
+- Mots de passe hachés avec scrypt (bibliothèque standard) et soumis à la
+  politique de passwords.py (12 caractères, 4 types de caractères…).
+- Mot de passe provisoire (défini par un administrateur) : à changer à la
+  connexion suivante ; tant que ce n'est pas fait, l'API refuse tout le reste.
+- Invitation / mot de passe oublié : liens à usage unique envoyés par e-mail
+  (recovery.py).
 - Session = jeton aléatoire dans un cookie HttpOnly ; la base ne garde que
   son SHA-256, une fuite de la base ne permet donc pas d'usurper une session.
 - L'application reste utilisable sans compte : la connexion sert à retrouver
@@ -18,7 +26,7 @@ Rôles :
 
 Premier administrateur (ou dépannage) en ligne de commande :
 
-    python -m app.auth create-admin jerome
+    python -m app.auth create-admin jerome --email jerome@example.fr --first-name Jérôme --last-name Martin
     python -m app.auth set-password jerome
     python -m app.auth list
 
@@ -36,24 +44,26 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import db
+from . import accounts, db, mailer, passwords
+from .accounts import (
+    ROLE_LABELS, USERNAME_PATTERN, clean_email, clean_name, clean_phone, display_name, iso as _iso,
+    now as _now, permissions, public_user as _public_user, token_hash as _token_hash,
+)
 
 COOKIE_NAME = "maree_session"
 SESSION_TTL = timedelta(days=int(os.environ.get("SESSION_DAYS", "30")))
 # À mettre à 1 derrière HTTPS (Traefik) : le cookie n'est alors jamais envoyé en clair
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").lower() in ("1", "true", "yes")
-
-USERNAME_PATTERN = r"^[A-Za-z0-9._-]{3,32}$"
-PASSWORD_MIN = 8
 
 # ---------------------------------------------------------------------------
 # Mots de passe (scrypt)
@@ -70,6 +80,7 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
+    """Faux pour un compte invité (hash « !… ») : il n'a pas encore de mot de passe."""
     try:
         algo, n, r, p, salt_b64, dk_b64 = stored.split("$")
         if algo != "scrypt":
@@ -89,49 +100,26 @@ def verify_password(password: str, stored: str) -> bool:
 _DUMMY_HASH = hash_password(secrets.token_hex(8))
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+def check_new_password(password: str, *personal: str | None) -> None:
+    """422 si le mot de passe ne respecte pas la politique (passwords.py)."""
+    issues = passwords.problems(password, personal)
+    if issues:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, passwords.error_message(issues))
 
 
-def _iso(dt: datetime) -> str:
-    return dt.isoformat(timespec="seconds")
+def _personal(row: sqlite3.Row, **override) -> list[str | None]:
+    """Données personnelles qu'un mot de passe ne doit pas contenir."""
+    get = lambda k: override[k] if k in override else row[k]
+    return [get("username"), get("first_name"), get("last_name"), get("email")]
 
 
-def _token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+def _integrity_conflict(e: sqlite3.IntegrityError, username: str | None = None) -> HTTPException:
+    if "email" in str(e):
+        return HTTPException(status.HTTP_409_CONFLICT, "Cette adresse e-mail est déjà utilisée par un autre compte")
+    return HTTPException(status.HTTP_409_CONFLICT, f"L'identifiant « {username} » est déjà pris")
 
 
 Role = Literal["viewer", "manager"]
-ROLE_LABELS = {"viewer": "visualisation", "manager": "administration"}
-
-
-def permissions(row: sqlite3.Row) -> dict:
-    """Droits dérivés du compte ; le front s'en sert pour l'affichage, l'API les revérifie."""
-    is_super = bool(row["is_admin"])
-    in_structure = row["structure_id"] is not None
-    manager = in_structure and (row["structure_role"] == "manager" or is_super)
-    return {
-        "super_admin": is_super,
-        "admin_area": is_super or manager,     # accès à /admin.html
-        "manage_structure": manager,           # membres et types de SA structure
-        "pick": manager,                       # choisir / retirer des créneaux
-        "view_selections": in_structure,       # voir les créneaux de sa structure
-    }
-
-
-def _public_user(row: sqlite3.Row) -> dict:
-    return {
-        "id": row["id"],
-        "username": row["username"],
-        "is_admin": bool(row["is_admin"]),
-        "structure": (
-            {"id": row["structure_id"], "name": row["structure_name"]} if row["structure_id"] is not None else None
-        ),
-        "role": row["structure_role"],
-        "can": permissions(row),
-        "created_at": row["created_at"],
-        "last_login_at": row["last_login_at"],
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +128,9 @@ def _public_user(row: sqlite3.Row) -> dict:
 
 SessionCookie = Annotated[str | None, Cookie(alias=COOKIE_NAME)]
 
+# Seules routes accessibles avec un mot de passe provisoire pas encore changé
+_ALLOWED_WHILE_MUST_CHANGE = {"/api/auth/me", "/api/auth/logout", "/api/auth/config", "/api/me/password"}
+
 
 def optional_user(session: SessionCookie = None) -> sqlite3.Row | None:
     if not session:
@@ -147,9 +138,14 @@ def optional_user(session: SessionCookie = None) -> sqlite3.Row | None:
     return db.get_session_user(_token_hash(session), _iso(_now()))
 
 
-def current_user(user: Annotated[sqlite3.Row | None, Depends(optional_user)]) -> sqlite3.Row:
+def current_user(request: Request, user: Annotated[sqlite3.Row | None, Depends(optional_user)]) -> sqlite3.Row:
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion requise")
+    if user["must_change_password"] and request.url.path not in _ALLOWED_WHILE_MUST_CHANGE:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Changez d'abord votre mot de passe provisoire",
+            headers={"X-Password-Change-Required": "1"},
+        )
     return user
 
 
@@ -220,13 +216,37 @@ def scope_structure(actor: sqlite3.Row, structure_id: int | None, *, required: b
 # ---------------------------------------------------------------------------
 
 class Credentials(BaseModel):
-    username: str = Field(max_length=64)
+    username: str = Field(max_length=254, description="Identifiant ou adresse e-mail")
     password: str = Field(max_length=256)
 
 
 class PasswordChange(BaseModel):
     current_password: str = Field(max_length=256)
-    new_password: str = Field(min_length=PASSWORD_MIN, max_length=256)
+    new_password: str = Field(max_length=256)
+
+
+class _ProfileValidators(BaseModel):
+    """Validation commune des champs de profil (None = absent)."""
+
+    @field_validator("first_name", check_fields=False)
+    @classmethod
+    def _first(cls, v):
+        return None if v is None else clean_name(v, "Prénom")
+
+    @field_validator("last_name", check_fields=False)
+    @classmethod
+    def _last(cls, v):
+        return None if v is None else clean_name(v, "Nom")
+
+    @field_validator("email", check_fields=False)
+    @classmethod
+    def _email(cls, v):
+        return None if v is None else clean_email(v)
+
+    @field_validator("phone", check_fields=False)
+    @classmethod
+    def _phone(cls, v):
+        return clean_phone(v)
 
 
 class FormPrefs(BaseModel):
@@ -264,35 +284,76 @@ class Preferences(BaseModel):
     filters: FilterPrefs = FilterPrefs()
 
 
-class UserCreate(BaseModel):
-    username: str = Field(pattern=USERNAME_PATTERN)
-    password: str = Field(min_length=PASSWORD_MIN, max_length=256)
+class UserCreate(_ProfileValidators):
+    username: str | None = Field(None, max_length=32, description="vide : prenom.nom")
+    first_name: str
+    last_name: str
+    email: str
+    phone: str | None = None
+    # soit une invitation par e-mail (le compte choisit son mot de passe),
+    # soit un mot de passe défini par l'administrateur
+    send_invite: bool = False
+    password: str | None = Field(None, max_length=256)
+    must_change_password: bool = True
     is_admin: bool = False
     structure_id: int | None = None   # ignoré pour un administrateur de structure (la sienne)
     role: Role | None = None          # défaut : visualisation
 
+    @field_validator("username")
+    @classmethod
+    def _username(cls, v):
+        v = (v or "").strip()
+        if not v:
+            return None
+        if not re.match(USERNAME_PATTERN, v):
+            raise ValueError("Identifiant invalide : 3 à 32 caractères parmi lettres, chiffres, . _ -")
+        return v
 
-class UserUpdate(BaseModel):
+
+class UserUpdate(_ProfileValidators):
     """Champs absents = inchangés. structure_id: null retire de la structure (super admin uniquement)."""
-    password: str | None = Field(None, min_length=PASSWORD_MIN, max_length=256)
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    phone: str | None = None          # null ou "" : retiré
+    password: str | None = Field(None, max_length=256)
+    must_change_password: bool | None = None
     is_admin: bool | None = None
     structure_id: int | None = None
     role: Role | None = None
 
 
+class ProfileUpdate(_ProfileValidators):
+    """Profil modifié par le titulaire du compte. Changer d'e-mail exige le mot de passe."""
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    current_password: str | None = Field(None, max_length=256)
+
+
 # ---------------------------------------------------------------------------
-# Routes : connexion
+# Routes : connexion, profil
 # ---------------------------------------------------------------------------
 
 router = APIRouter(prefix="/api")
 
 
-def _set_session_cookie(response: Response, token: str) -> None:
+def set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         COOKIE_NAME, token,
         max_age=int(SESSION_TTL.total_seconds()),
         httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/",
     )
+
+
+def open_session(response: Response, user_id: int) -> str:
+    """Crée une session et pose le cookie ; renvoie le jeton."""
+    token = secrets.token_urlsafe(32)
+    now = _now()
+    db.create_session(_token_hash(token), user_id, _iso(now + SESSION_TTL), _iso(now))
+    set_session_cookie(response, token)
+    return token
 
 
 @router.post("/auth/login")
@@ -301,10 +362,7 @@ def login(creds: Credentials, response: Response):
     ok = verify_password(creds.password, row["password_hash"] if row else _DUMMY_HASH)
     if row is None or not ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Identifiant ou mot de passe incorrect")
-    token = secrets.token_urlsafe(32)
-    now = _now()
-    db.create_session(_token_hash(token), row["id"], _iso(now + SESSION_TTL), _iso(now))
-    _set_session_cookie(response, token)
+    open_session(response, row["id"])
     return {"user": _public_user(db.get_user(row["id"]))}
 
 
@@ -321,17 +379,49 @@ def me(user: Annotated[sqlite3.Row | None, Depends(optional_user)]):
     return {"user": _public_user(user) if user else None}
 
 
+@router.get("/auth/config")
+def auth_config():
+    """Ce que le frontend doit savoir avant connexion : politique, mot de passe oublié."""
+    return {
+        "password_reset": mailer.enabled(),
+        "password_policy": passwords.policy(),
+    }
+
+
 @router.post("/me/password", status_code=204)
 def change_own_password(body: PasswordChange, user: CurrentUser, response: Response):
-    row = db.get_user_credentials(user["username"])
+    row = db.get_user_credentials_by_id(user["id"])
     if not verify_password(body.current_password, row["password_hash"]):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mot de passe actuel incorrect")
-    db.update_user(user["id"], password_hash=hash_password(body.new_password))
+    if body.new_password == body.current_password:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Le nouveau mot de passe doit être différent de l'actuel")
+    check_new_password(body.new_password, *_personal(user))
+    db.update_user(
+        user["id"], password_hash=hash_password(body.new_password), must_change_password=False, now=_iso(_now()),
+    )
     # toutes les sessions viennent d'être fermées : on en rouvre une pour ce navigateur
-    token = secrets.token_urlsafe(32)
-    now = _now()
-    db.create_session(_token_hash(token), user["id"], _iso(now + SESSION_TTL), _iso(now))
-    _set_session_cookie(response, token)
+    open_session(response, user["id"])
+
+
+@router.patch("/me/profile")
+def update_own_profile(body: ProfileUpdate, user: CurrentUser):
+    sent = body.model_fields_set - {"current_password"}
+    changes = {k: getattr(body, k) for k in sent}
+    for k in ("first_name", "last_name", "email"):
+        if k in changes and changes[k] is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Prénom, nom et adresse e-mail sont obligatoires")
+    if "email" in changes and changes["email"] != user["email"]:
+        # une adresse e-mail permet de réinitialiser le mot de passe : on vérifie
+        # que c'est bien le titulaire du compte qui la change
+        row = db.get_user_credentials_by_id(user["id"])
+        if not body.current_password or not verify_password(body.current_password, row["password_hash"]):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Saisissez votre mot de passe actuel pour changer d'adresse e-mail")
+        db.delete_user_tokens(user["id"])   # liens envoyés à l'ancienne adresse
+    try:
+        db.update_user(user["id"], **changes)
+    except sqlite3.IntegrityError as e:
+        raise _integrity_conflict(e)
+    return {"user": _public_user(db.get_user(user["id"]))}
 
 
 class StructureSwitch(BaseModel):
@@ -398,7 +488,7 @@ def _get_or_404(user_id: int) -> sqlite3.Row:
     return row
 
 
-def _target_or_404(actor: sqlite3.Row, user_id: int) -> sqlite3.Row:
+def target_or_404(actor: sqlite3.Row, user_id: int) -> sqlite3.Row:
     """Compte que l'acteur a le droit de gérer (404 sinon : on ne révèle rien)."""
     target = _get_or_404(user_id)
     if actor["is_admin"]:
@@ -411,6 +501,14 @@ def _target_or_404(actor: sqlite3.Row, user_id: int) -> sqlite3.Row:
 def _check_structure_exists(structure_id: int) -> None:
     if db.get_structure(structure_id) is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Structure inconnue")
+
+
+def require_mail() -> None:
+    if not mailer.enabled():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Envoi d'e-mails indisponible : {mailer.disabled_reason()}. Définissez plutôt un mot de passe provisoire.",
+        )
 
 
 @router.get("/admin/users")
@@ -432,18 +530,40 @@ def admin_create_user(body: UserCreate, actor: CurrentManager):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Seul un super administrateur peut en créer un autre")
         structure_id = actor["structure_id"]
     role = (body.role or "viewer") if structure_id is not None else None
+    username = body.username or accounts.suggest_username(body.first_name, body.last_name, body.email)
+
+    if body.send_invite:
+        require_mail()
+        password_hash, must_change = db.UNUSABLE_PASSWORD, False
+    else:
+        if not body.password:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Saisissez un mot de passe, ou envoyez une invitation par e-mail")
+        check_new_password(body.password, username, body.first_name, body.last_name, body.email)
+        password_hash, must_change = hash_password(body.password), body.must_change_password
+
     try:
         user_id = db.create_user(
-            body.username, hash_password(body.password), body.is_admin, _iso(_now()), structure_id, role,
+            username, password_hash, body.is_admin, _iso(_now()), structure_id, role,
+            first_name=body.first_name, last_name=body.last_name, email=body.email, phone=body.phone,
+            must_change_password=must_change,
         )
-    except sqlite3.IntegrityError:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Le nom « {body.username} » est déjà pris")
-    return _public_user(db.get_user(user_id))
+    except sqlite3.IntegrityError as e:
+        raise _integrity_conflict(e, username)
+
+    if not body.send_invite:
+        return _public_user(db.get_user(user_id))
+    try:
+        accounts.send_invitation(user_id, inviter=display_name(actor))
+        invitation = {"sent": True, "error": None}
+    except mailer.MailError as e:
+        # le compte existe : l'invitation pourra être renvoyée depuis la liste
+        invitation = {"sent": False, "error": str(e)}
+    return _public_user(db.get_user(user_id)) | {"invitation": invitation}
 
 
 @router.patch("/admin/users/{user_id}")
 def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
-    target = _target_or_404(actor, user_id)
+    target = target_or_404(actor, user_id)
     sent = body.model_fields_set
     is_self = target["id"] == actor["id"]
 
@@ -472,24 +592,44 @@ def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
     if is_self and not actor["is_admin"] and new_role != target["structure_role"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas changer votre propre rôle")
 
-    db.update_user(
-        user_id,
-        password_hash=hash_password(body.password) if body.password else None,
-        is_admin=new_admin if new_admin != bool(target["is_admin"]) else None,
-        structure_id=new_structure,
-        structure_role=new_role,
-    )
+    # profil : prénom, nom et e-mail ne peuvent pas être vidés ; téléphone oui
+    profile = {k: getattr(body, k) for k in ("first_name", "last_name", "email") if k in sent and getattr(body, k) is not None}
+    if "phone" in sent:
+        profile["phone"] = body.phone
+    if "email" in profile and profile["email"] != target["email"]:
+        db.delete_user_tokens(user_id)   # liens déjà envoyés à l'ancienne adresse
+
+    password_hash, must_change = None, body.must_change_password
+    if body.password:
+        check_new_password(body.password, *_personal(target, **{k: v for k, v in profile.items() if k != "phone"}))
+        password_hash = hash_password(body.password)
+        if must_change is None:
+            must_change = not is_self   # provisoire, sauf s'il s'agit du sien
+
+    try:
+        db.update_user(
+            user_id,
+            password_hash=password_hash,
+            now=_iso(_now()),
+            must_change_password=must_change,
+            is_admin=new_admin if new_admin != bool(target["is_admin"]) else None,
+            structure_id=new_structure,
+            structure_role=new_role,
+            **profile,
+        )
+    except sqlite3.IntegrityError as e:
+        raise _integrity_conflict(e)
     return _public_user(db.get_user(user_id))
 
 
 @router.delete("/admin/users/{user_id}", status_code=204)
 def admin_delete_user(user_id: int, actor: CurrentManager):
-    target = _target_or_404(actor, user_id)
+    target = target_or_404(actor, user_id)
     if target["id"] == actor["id"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas supprimer votre propre compte")
     if target["is_admin"] and db.count_admins() <= 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Il doit rester au moins un super administrateur")
-    # sessions et préférences suivent (CASCADE) ; ses créneaux choisis restent à la structure
+    # sessions, jetons et préférences suivent (CASCADE) ; ses créneaux choisis restent à la structure
     db.delete_user(user_id)
 
 
@@ -497,11 +637,13 @@ def admin_delete_user(user_id: int, actor: CurrentManager):
 # Ligne de commande
 # ---------------------------------------------------------------------------
 
-def _ask_password() -> str:
+def _ask_password(*personal: str | None) -> str:
+    print(f"Au moins {passwords.MIN_LENGTH} caractères, avec minuscule, majuscule, chiffre et caractère spécial.")
     while True:
         pw = getpass.getpass("Mot de passe : ")
-        if len(pw) < PASSWORD_MIN:
-            print(f"Au moins {PASSWORD_MIN} caractères.", file=sys.stderr)
+        issues = passwords.problems(pw, personal)
+        if issues:
+            print(passwords.error_message(issues), file=sys.stderr)
             continue
         if pw != getpass.getpass("Confirmation : "):
             print("Les deux saisies diffèrent.", file=sys.stderr)
@@ -510,14 +652,15 @@ def _ask_password() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import re
-
     parser = argparse.ArgumentParser(prog="python -m app.auth", description="Gestion des comptes Marée")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_admin = sub.add_parser("create-admin", help="Créer un compte super administrateur (sans structure)")
     p_admin.add_argument("username")
+    p_admin.add_argument("--email")
+    p_admin.add_argument("--first-name")
+    p_admin.add_argument("--last-name")
     p_pw = sub.add_parser("set-password", help="Changer le mot de passe d'un compte")
-    p_pw.add_argument("username")
+    p_pw.add_argument("username", help="identifiant ou adresse e-mail")
     sub.add_parser("list", help="Lister les comptes")
     args = parser.parse_args(argv)
 
@@ -526,27 +669,43 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "list":
         for u in db.list_users():
             where = f"{u['structure_name']} ({ROLE_LABELS[u['structure_role']]})" if u["structure_id"] else "-"
-            print(f"{u['id']:>4}  {u['username']:<32} {'super admin' if u['is_admin'] else '':<12} {where}")
+            print(f"{u['id']:>4}  {u['username']:<24} {display_name(u):<28} {u['email'] or '':<32} "
+                  f"{'super admin' if u['is_admin'] else '':<12} {where}")
         return 0
 
     if args.cmd == "create-admin":
         if not re.match(USERNAME_PATTERN, args.username):
-            print("Nom invalide : 3 à 32 caractères parmi lettres, chiffres, . _ -", file=sys.stderr)
+            print("Identifiant invalide : 3 à 32 caractères parmi lettres, chiffres, . _ -", file=sys.stderr)
             return 1
         try:
-            db.create_user(args.username, hash_password(_ask_password()), True, _iso(_now()))
-        except sqlite3.IntegrityError:
-            print(f"« {args.username} » existe déjà (utiliser set-password).", file=sys.stderr)
+            email = clean_email(args.email) if args.email else None
+            first = clean_name(args.first_name, "Prénom") if args.first_name else None
+            last = clean_name(args.last_name, "Nom") if args.last_name else None
+        except ValueError as e:
+            print(e, file=sys.stderr)
             return 1
-        print(f"Super administrateur « {args.username} » créé.")
+        try:
+            db.create_user(
+                args.username, hash_password(_ask_password(args.username, first, last, email)), True, _iso(_now()),
+                first_name=first, last_name=last, email=email,
+            )
+        except sqlite3.IntegrityError as e:
+            what = "Cette adresse e-mail est déjà utilisée" if "email" in str(e) else f"« {args.username} » existe déjà (utiliser set-password)"
+            print(f"{what}.", file=sys.stderr)
+            return 1
+        print(f"Super administrateur « {args.username} » créé."
+              + ("" if email else " Complétez son profil (nom, e-mail) depuis l'application."))
         return 0
 
     row = db.get_user_credentials(args.username)
     if row is None:
         print(f"Compte « {args.username} » introuvable.", file=sys.stderr)
         return 1
-    db.update_user(row["id"], password_hash=hash_password(_ask_password()))
-    print("Mot de passe changé ; les sessions ouvertes ont été fermées.")
+    db.update_user(
+        row["id"], password_hash=hash_password(_ask_password(*_personal(row))),
+        must_change_password=False, now=_iso(_now()),
+    )
+    print("Mot de passe changé ; les sessions ouvertes et les liens envoyés ont été invalidés.")
     return 0
 
 

@@ -367,6 +367,11 @@ function renderStructureSelects() {
   newSel.innerHTML = opts(keepNew, `<option value="">Aucune (super administrateur seulement)</option>`);
   syncCreateRole();
 
+  const importSel = $("import-structure");
+  const keepImport = importSel.options.length ? importSel.value : String(Session.user?.structure?.id ?? "");
+  importSel.innerHTML = `<option value="">Aucune (colonne « structure » obligatoire)</option>` + opts(null);
+  importSel.value = structures.some(st => String(st.id) === keepImport) ? keepImport : (structures[0] ? String(structures[0].id) : "");
+
   const filter = $("users-filter");
   const keepFilter = filter.value;
   filter.innerHTML = `<option value="">Toutes les structures</option>` + opts(null);
@@ -773,17 +778,7 @@ const usersBody = $("users-body");
 const usersStatus = $("users-status");
 const createForm = $("create-user");
 const createStatus = $("create-status");
-
-// Mot de passe lisible : sans 0/O ni 1/l/I, facile à dicter
-function generatePassword(length = 12) {
-  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.getRandomValues(new Uint32Array(length));
-  return Array.from(bytes, b => alphabet[b % alphabet.length]).join("");
-}
-
-$("gen-password").addEventListener("click", () => {
-  createForm.password.value = generatePassword();
-});
+const mailOn = () => !!Session.config.password_reset;
 
 let users = [];
 
@@ -796,26 +791,52 @@ function roleCell(u) {
   return tags.join(" ");
 }
 
+function statusTags(u) {
+  const tags = [];
+  if (u.pending_invite) {
+    const expired = u.invite_expires_at && new Date(u.invite_expires_at) < new Date();
+    tags.push(expired || !u.invite_expires_at
+      ? `<span class="tag tag-warn" title="Le lien d'invitation a expiré : renvoyez-la">invitation expirée</span>`
+      : `<span class="tag tag-pending" title="Lien valable jusqu'au ${stamp(u.invite_expires_at)}">invitation envoyée</span>`);
+  } else if (u.must_change_password) {
+    tags.push(`<span class="tag tag-pending" title="Mot de passe à changer à la prochaine connexion">mot de passe provisoire</span>`);
+  }
+  if (!u.profile_complete) tags.push(`<span class="tag tag-warn" title="Prénom, nom ou adresse e-mail manquant">profil incomplet</span>`);
+  return tags.join(" ");
+}
+
 function renderUsers() {
   const me = Session.user;
-  usersBody.innerHTML = users.length ? users.map(u => {
+  const q = $("users-search").value.trim().toLowerCase();
+  const shown = q
+    ? users.filter(u => [u.display_name, u.username, u.email, u.phone].some(v => v && v.toLowerCase().includes(q)))
+    : users;
+  usersBody.innerHTML = shown.length ? shown.map(u => {
     const self = u.id === me.id;
+    const contact = [
+      u.email ? `<a href="mailto:${esc(u.email)}">${esc(u.email)}</a>` : `<span class="muted">pas d'e-mail</span>`,
+      u.phone ? `<a href="tel:${esc(u.phone.replace(/\s/g, ""))}">${esc(u.phone)}</a>` : "",
+    ].filter(Boolean).join("<br>");
     return `
       <tr data-id="${u.id}">
-        <th scope="row">${esc(u.username)}${self ? ` <span class="tag">vous</span>` : ""}</th>
+        <th scope="row">
+          <span class="user-name">${esc(u.display_name)}</span>${self ? ` <span class="tag">vous</span>` : ""}
+          <span class="user-sub">${esc(u.username)}</span>
+          ${statusTags(u)}
+        </th>
+        <td class="contact">${contact}</td>
         <td>${u.structure ? esc(u.structure.name) : `<span class="muted">–</span>`}</td>
         <td>${roleCell(u)}</td>
-        <td>${stamp(u.created_at)}</td>
-        <td>${stamp(u.last_login_at)}</td>
+        <td title="Compte créé le ${stamp(u.created_at)}">${u.last_login_at ? stamp(u.last_login_at) : `<span class="muted">jamais</span>`}</td>
         <td class="actions">
-          <button type="button" class="btn-quiet" data-act="password">Nouveau mot de passe</button>
-          ${self && !isSuper() ? "" : `<button type="button" class="btn-quiet" data-act="edit">Modifier</button>`}
+          <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
+          ${self ? "" : `<button type="button" class="btn-quiet" data-act="password">Mot de passe…</button>`}
           ${self ? "" : `<button type="button" class="btn-danger" data-act="delete">Supprimer</button>`}
         </td>
       </tr>`;
   }).join("")
-    : `<tr><td colspan="6" class="empty">Aucun compte.</td></tr>`;
-  usersStatus.textContent = `${users.length} compte(s).`;
+    : `<tr><td colspan="6" class="empty">${q ? "Aucun compte ne correspond à la recherche." : "Aucun compte."}</td></tr>`;
+  usersStatus.textContent = q ? `${shown.length} compte(s) sur ${users.length}.` : `${users.length} compte(s).`;
 }
 
 async function loadUsers() {
@@ -829,6 +850,9 @@ async function loadUsers() {
 }
 
 $("users-filter").addEventListener("change", loadUsers);
+$("users-search").addEventListener("input", renderUsers);
+
+// ---- Création ----
 
 // Sans structure (super administrateur seul), pas de rôle de structure
 function syncCreateRole() {
@@ -844,30 +868,99 @@ createForm.is_admin.addEventListener("change", () => {
   }
 });
 
+// Identifiant proposé (le serveur ajoute un suffixe s'il est déjà pris)
+function slug(s) {
+  return s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+function suggestUsername() {
+  const base = [slug(createForm.first_name.value), slug(createForm.last_name.value)].filter(Boolean).join(".");
+  createForm.username.placeholder = base ? base.slice(0, 28) : "prenom.nom";
+}
+createForm.first_name.addEventListener("input", suggestUsername);
+createForm.last_name.addEventListener("input", suggestUsername);
+
+const pwChecklist = { el: null };
+
+function syncPasswordMode() {
+  const invite = createForm.pw_mode.value === "invite";
+  $("new-password-block").hidden = invite;
+  createForm.password.required = !invite;
+  createForm.querySelector("[type=submit]").textContent = invite ? "Créer et envoyer l'invitation" : "Créer le compte";
+}
+for (const r of createForm.pw_mode) r.addEventListener("change", syncPasswordMode);
+
+// À faire une fois la configuration connue (politique, e-mail disponible)
+function setupCreateForm() {
+  const inviteRadio = createForm.querySelector("[name=pw_mode][value=invite]");
+  inviteRadio.disabled = !mailOn();
+  $("mode-invite-label").classList.toggle("disabled", !mailOn());
+  $("mail-disabled").hidden = mailOn();
+  $("mail-disabled").textContent = "Invitations et « mot de passe oublié » indisponibles : l'envoi d'e-mails n'est pas configuré sur le serveur (MAIL_BACKEND, APP_BASE_URL).";
+  createForm.pw_mode.value = mailOn() ? "invite" : "password";
+  if (!pwChecklist.el) {
+    pwChecklist.el = Session.passwordChecklist(createForm.password);
+    $("new-password-block").querySelector(".with-action").after(pwChecklist.el);
+  }
+  // import : l'invitation n'est proposée que si l'e-mail fonctionne
+  const importMode = $("import-mode");
+  importMode.querySelector("[value=invite]").disabled = !mailOn();
+  importMode.value = mailOn() ? "invite" : "password";
+  syncPasswordMode();
+}
+
+$("gen-password").addEventListener("click", () => {
+  createForm.password.value = Session.generatePassword();
+  pwChecklist.el?.refresh();
+});
+
 createForm.addEventListener("submit", async e => {
   e.preventDefault();
   createStatus.textContent = "";
+  const invite = createForm.pw_mode.value === "invite";
   const body = {
-    username: createForm.username.value.trim(),
-    password: createForm.password.value,
+    first_name: createForm.first_name.value.trim(),
+    last_name: createForm.last_name.value.trim(),
+    email: createForm.email.value.trim(),
+    phone: createForm.phone.value.trim() || null,
+    username: createForm.username.value.trim() || null,
     role: createForm.role.value,
+    send_invite: invite,
   };
+  if (!invite) {
+    body.password = createForm.password.value;
+    body.must_change_password = createForm.must_change_password.checked;
+  }
   if (isSuper()) {
     body.is_admin = createForm.is_admin.checked;
     body.structure_id = createForm.structure_id.value ? Number(createForm.structure_id.value) : null;
   }
+  const btn = createForm.querySelector("[type=submit]");
+  btn.disabled = true;
   try {
     const u = await Session.api("/api/admin/users", { method: "POST", body });
-    createStatus.textContent = `Compte « ${u.username} » créé${u.structure ? ` dans « ${u.structure.name} »` : ""}. Transmettez-lui son mot de passe : il ne sera plus affiché.`;
-    createForm.username.value = "";
-    createForm.password.value = "";
+    const where = u.structure ? ` dans « ${esc(u.structure.name)} »` : "";
+    let msg = `Compte <strong>${esc(u.display_name)}</strong> (identifiant <code>${esc(u.username)}</code>) créé${where}. `;
+    if (invite) {
+      msg += u.invitation?.sent
+        ? `Invitation envoyée à ${esc(u.email)}.`
+        : `<span class="warn">L'invitation n'a pas pu être envoyée (${esc(u.invitation?.error || "erreur inconnue")}) : renvoyez-la depuis la liste.</span>`;
+    } else {
+      msg += `Transmettez-lui son mot de passe : il ne sera plus affiché.`;
+    }
+    createStatus.innerHTML = msg;
+    for (const name of ["first_name", "last_name", "email", "phone", "username", "password"]) createForm[name].value = "";
+    suggestUsername();
+    pwChecklist.el?.refresh();
     await Promise.all([loadUsers(), isSuper() ? loadStructures() : null]);
   } catch (err) {
     createStatus.textContent = err.message;
+  } finally {
+    btn.disabled = false;
   }
 });
 
-// Modifier un compte : rôle (et, pour le super administrateur, structure et droit de super administrateur)
+// ---- Modification ----
+
 function editUser(user) {
   const self = user.id === Session.user.id;
   const sup = isSuper();
@@ -876,23 +969,37 @@ function editUser(user) {
   const roleOpts = Object.entries(ROLE_LABELS).map(([v, l]) =>
     `<option value="${v}"${v === (user.role || "viewer") ? " selected" : ""}>${l}</option>`).join("");
   const form = openDialog({
-    title: `Modifier ${user.username}`,
+    title: `Modifier ${user.display_name}`,
     body: `
+      <p class="dialog-hint">Identifiant : <strong>${esc(user.username)}</strong></p>
+      <label>Prénom <input name="first_name" maxlength="60" required value="${esc(user.first_name ?? "")}"></label>
+      <label>Nom <input name="last_name" maxlength="60" required value="${esc(user.last_name ?? "")}"></label>
+      <label>Adresse e-mail <input name="email" type="email" maxlength="254" required value="${esc(user.email ?? "")}"></label>
+      <label>Téléphone <input name="phone" type="tel" maxlength="30" value="${esc(user.phone ?? "")}"></label>
       ${sup ? `<label>Structure <select name="structure_id">${structOpts}</select></label>` : ""}
       <label>Rôle dans la structure <select name="role"${self && !sup ? " disabled" : ""}>${roleOpts}</select></label>
       ${sup ? `<label class="check"><input type="checkbox" name="is_admin"${user.is_admin ? " checked" : ""}${self ? " disabled" : ""}> Super administrateur</label>` : ""}
       <p class="dialog-hint">${sup ? "Un compte sans structure doit être super administrateur. Ses créneaux déjà choisis restent à son ancienne structure." : "Administration : choisit les créneaux et gère la structure. Visualisation : voit les créneaux choisis."}</p>`,
     onSubmit: async f => {
-      const body = { role: f.role.value };
+      const body = {
+        first_name: f.first_name.value.trim(),
+        last_name: f.last_name.value.trim(),
+        email: f.email.value.trim(),
+        phone: f.phone.value.trim() || null,
+      };
+      // champs vides d'un ancien compte : laissés tels quels plutôt que refusés
+      for (const k of ["first_name", "last_name", "email"]) if (!body[k]) delete body[k];
+      if (!(self && !sup)) body.role = f.role.value;
       if (sup) {
         body.structure_id = f.structure_id.value ? Number(f.structure_id.value) : null;
         if (!self) body.is_admin = f.is_admin.checked;
       }
       await Session.api(`/api/admin/users/${user.id}`, { method: "PATCH", body });
       await Promise.all([loadUsers(), sup ? loadStructures() : null]);
-      if (self) Session.init();  // ses propres droits ont pu changer
+      if (self) Session.init();  // son nom et ses droits ont pu changer
     },
   });
+  form.noValidate = true;
   if (sup) {
     const sync = () => { form.role.disabled = form.structure_id.value === ""; };
     form.structure_id.addEventListener("change", sync);
@@ -900,62 +1007,206 @@ function editUser(user) {
   }
 }
 
-// Dialogue « nouveau mot de passe » (le mot de passe est affiché pour être transmis)
-function askNewPassword(user) {
-  const d = document.createElement("dialog");
-  d.className = "account-dialog";
-  d.innerHTML = `
-    <form method="dialog">
-      <h2>Nouveau mot de passe pour ${esc(user.username)}</h2>
-      <label>Mot de passe (8 caractères min.)
-        <input name="password" type="text" required minlength="8" value="${generatePassword()}" autocomplete="new-password">
-      </label>
-      <p class="dialog-hint">Ses sessions ouvertes seront fermées.</p>
-      <p class="dialog-error" role="alert"></p>
-      <div class="dialog-actions">
-        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
-        <button type="submit" class="btn-primary">Changer le mot de passe</button>
-      </div>
-    </form>`;
-  document.body.append(d);
-  const form = d.querySelector("form");
-  d.addEventListener("close", () => d.remove());
-  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
-  form.addEventListener("submit", async e => {
-    e.preventDefault();
-    try {
-      await Session.api(`/api/admin/users/${user.id}`, { method: "PATCH", body: { password: form.password.value } });
-      usersStatus.textContent = `Mot de passe de « ${user.username} » changé.`;
-      d.close();
-    } catch (err) {
-      d.querySelector(".dialog-error").textContent = err.message;
-    }
+// ---- Mot de passe : lien par e-mail ou mot de passe provisoire ----
+
+function askPassword(user) {
+  const canMail = mailOn() && !!user.email;
+  const linkLabel = user.pending_invite ? "Renvoyer l'invitation par e-mail" : "Envoyer un lien de réinitialisation par e-mail";
+  const why = !mailOn() ? "envoi d'e-mails non configuré" : !user.email ? "pas d'adresse e-mail" : "";
+  const form = openDialog({
+    title: `Mot de passe de ${user.display_name}`,
+    submitLabel: canMail ? "Envoyer" : "Changer le mot de passe",
+    body: `
+      <label class="check"><input type="radio" name="mode" value="link"${canMail ? " checked" : " disabled"}>
+        ${linkLabel}${why ? ` <span class="muted">(${why})</span>` : ""}</label>
+      ${canMail ? `<p class="dialog-hint">À ${esc(user.email)}. ${user.pending_invite ? "Le lien précédent est remplacé." : "Le mot de passe actuel reste valable tant que le lien n'est pas utilisé."}</p>` : ""}
+      <label class="check"><input type="radio" name="mode" value="temp"${canMail ? "" : " checked"}> Définir un mot de passe provisoire</label>
+      <div class="temp-block">
+        <label>Mot de passe provisoire
+          <input name="password" type="text" autocomplete="new-password" spellcheck="false" value="${esc(Session.generatePassword())}">
+        </label>
+        <label class="check"><input type="checkbox" name="must_change" checked> À changer à la prochaine connexion</label>
+        <p class="dialog-hint">Ses sessions ouvertes seront fermées. Transmettez-lui ce mot de passe : il ne sera plus affiché.</p>
+      </div>`,
+    onSubmit: async f => {
+      if (f.mode.value === "link") {
+        const r = await Session.api(`/api/admin/users/${user.id}/send-link`, { method: "POST" });
+        usersStatus.textContent = r.sent === "invite"
+          ? `Invitation renvoyée à ${r.email}.` : `Lien de réinitialisation envoyé à ${r.email}.`;
+      } else {
+        await Session.api(`/api/admin/users/${user.id}`, {
+          method: "PATCH", body: { password: f.password.value, must_change_password: f.must_change.checked },
+        });
+        usersStatus.textContent = `Mot de passe de « ${user.display_name} » changé.`;
+      }
+      loadUsers();
+    },
   });
-  d.showModal();
-  form.password.select();
+  const block = form.querySelector(".temp-block");
+  const rules = Session.passwordChecklist(form.password);
+  form.password.closest("label").after(rules);
+  const sync = () => {
+    const temp = form.mode.value === "temp";
+    block.hidden = !temp;
+    form.querySelector("[type=submit]").textContent = temp ? "Changer le mot de passe" : "Envoyer";
+  };
+  for (const r of form.mode) r.addEventListener("change", sync);
+  sync();
 }
 
 usersBody.addEventListener("click", async e => {
-  const btn = e.target.closest("[data-act]");
+  const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const user = users.find(u => u.id === Number(btn.closest("tr").dataset.id));
   if (!user) return;
   try {
     switch (btn.dataset.act) {
       case "password":
-        askNewPassword(user);
+        askPassword(user);
         return;
       case "edit":
         editUser(user);
         return;
       case "delete":
-        if (!confirm(`Supprimer le compte « ${user.username} » et ses préférences ? Les créneaux qu'il a choisis restent à sa structure.`)) return;
+        if (!confirm(`Supprimer le compte « ${user.display_name} » (${user.username}) et ses préférences ? Les créneaux qu'il a choisis restent à sa structure.`)) return;
         await Session.api(`/api/admin/users/${user.id}`, { method: "DELETE" });
         break;
     }
     await Promise.all([loadUsers(), isSuper() ? loadStructures() : null]);
   } catch (err) {
     usersStatus.textContent = err.message;
+  }
+});
+
+// ---- Import CSV ----
+
+const importForm = $("import-form");
+const importPreview = $("import-preview");
+const importResult = $("import-result");
+let importRequest = null;   // corps de la dernière analyse, renvoyé tel quel pour confirmer
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error("Lecture du fichier impossible"));
+    r.readAsDataURL(file);
+  });
+}
+
+function resetImport() {
+  importRequest = null;
+  importPreview.hidden = true;
+  $("import-body").innerHTML = "";
+}
+
+function renderImportRows(result) {
+  $("import-body").innerHTML = result.rows.map(r => {
+    const ok = !r.errors.length;
+    return `
+      <tr class="${ok ? "" : "row-error"}">
+        <td class="num">${r.line}</td>
+        <th scope="row">${esc([r.first_name, r.last_name].filter(Boolean).join(" ") || "–")}</th>
+        <td>${r.username ? `${esc(r.username)}${r.generated_username ? ` <span class="muted" title="Proposé à partir du nom">(auto)</span>` : ""}` : `<span class="muted">–</span>`}</td>
+        <td class="contact">${esc(r.email || "")}${r.phone ? `<br>${esc(r.phone)}` : ""}</td>
+        <td>${r.structure ? esc(r.structure.name) : `<span class="muted">–</span>`}</td>
+        <td><span class="tag role-${r.role}">${ROLE_LABELS[r.role]}</span></td>
+        <td class="check-cell">${ok ? `<span class="ok-mark">✓ prêt</span>` : r.errors.map(e => `<span class="err">${esc(e)}</span>`).join("<br>")}</td>
+      </tr>`;
+  }).join("");
+}
+
+importForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  resetImport();
+  importResult.hidden = true;
+  const file = $("import-file").files[0];
+  if (!file) return;
+  const summary = $("import-summary");
+  try {
+    importRequest = {
+      content_b64: await fileToBase64(file),
+      role: $("import-role").value,
+      mode: $("import-mode").value,
+      dry_run: true,
+    };
+    if (isSuper() && $("import-structure").value) importRequest.structure_id = Number($("import-structure").value);
+    const result = await Session.api("/api/admin/users/import", { method: "POST", body: importRequest });
+    renderImportRows(result);
+    const extra = result.ignored_columns.length ? ` Colonnes ignorées : ${result.ignored_columns.map(esc).join(", ")}.` : "";
+    summary.innerHTML = `<strong>${result.valid}</strong> compte(s) prêt(s) à créer`
+      + (result.invalid ? `, <strong class="err">${result.invalid}</strong> ligne(s) en erreur qui seront ignorées` : "")
+      + `. <span class="muted">Fichier ${esc(result.encoding)}, séparateur ${esc(result.delimiter)}.${extra}</span>`;
+    const confirmBtn = $("import-confirm");
+    confirmBtn.disabled = !result.valid;
+    confirmBtn.textContent = importRequest.mode === "invite"
+      ? `Créer ${result.valid} compte(s) et envoyer les invitations`
+      : `Créer ${result.valid} compte(s) avec mots de passe provisoires`;
+    importPreview.hidden = false;
+  } catch (err) {
+    importPreview.hidden = true;
+    importResult.hidden = false;
+    importResult.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+    importRequest = null;
+  }
+});
+
+$("import-cancel").addEventListener("click", () => {
+  resetImport();
+  importForm.reset();
+  setupCreateForm();
+});
+importForm.addEventListener("change", e => { if (e.target.closest(".import-grid")) resetImport(); });
+
+function downloadCsv(filename, rows) {
+  const cell = v => /[";\n\r]/.test(String(v ?? "")) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? "");
+  const text = "\ufeff" + rows.map(r => r.map(cell).join(";")).join("\r\n") + "\r\n";
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+$("import-confirm").addEventListener("click", async () => {
+  if (!importRequest) return;
+  const btn = $("import-confirm");
+  btn.disabled = true;
+  btn.textContent = "Création en cours…";
+  try {
+    const result = await Session.api("/api/admin/users/import", { method: "POST", body: { ...importRequest, dry_run: false } });
+    const created = result.created;
+    const failed = created.filter(c => c.invitation_error);
+    let html = `<p><strong>${created.length}</strong> compte(s) créé(s).`;
+    if (importRequest.mode === "invite") {
+      html += failed.length
+        ? ` <span class="err">${failed.length} invitation(s) non envoyée(s)</span> : renvoyez-les depuis la liste (bouton « Mot de passe… »).`
+        : " Une invitation a été envoyée à chacun.";
+      html += "</p>";
+    } else {
+      html += ` Leurs mots de passe provisoires ne seront <strong>plus affichés</strong> : téléchargez-les maintenant.</p>
+        <p><button type="button" class="btn-primary" id="import-download">Télécharger les identifiants (CSV)</button></p>
+        <p class="hint">Ce fichier contient des mots de passe : transmettez-les individuellement puis supprimez-le. Chacun devra changer le sien à sa première connexion.</p>`;
+    }
+    if (failed.length) {
+      html += `<ul class="err-list">${failed.map(c => `<li>${esc(c.first_name)} ${esc(c.last_name)} (${esc(c.email)}) : ${esc(c.invitation_error)}</li>`).join("")}</ul>`;
+    }
+    importResult.innerHTML = html;
+    importResult.hidden = false;
+    $("import-download")?.addEventListener("click", () => downloadCsv(
+      `identifiants-${new Date().toISOString().slice(0, 10)}.csv`,
+      [["nom", "prenom", "email", "identifiant", "mot_de_passe_provisoire", "structure", "role"],
+       ...created.map(c => [c.last_name, c.first_name, c.email, c.username, c.password, c.structure, ROLE_LABELS[c.role]])],
+    ));
+    resetImport();
+    importForm.reset();
+    setupCreateForm();
+    await Promise.all([loadUsers(), isSuper() ? loadStructures() : null]);
+  } catch (err) {
+    importResult.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+    importResult.hidden = false;
+    btn.disabled = false;
   }
 });
 
@@ -974,7 +1225,7 @@ async function onSessionChange(user) {
     return;
   }
   if (!allowed) {
-    gateEl.textContent = `Le compte « ${user.username} » est en visualisation : il n'a pas accès à l'administration.`;
+    gateEl.textContent = `Le compte « ${user.display_name} » est en visualisation : il n'a pas accès à l'administration.`;
     return;
   }
   const sup = isSuper();
@@ -987,6 +1238,7 @@ async function onSessionChange(user) {
   $("types-structure").previousElementSibling.hidden = !sup;
   $("types-structure-name").hidden = sup;
 
+  setupCreateForm();
   await loadStructures();
   if (sup) {
     loadPorts();

@@ -776,3 +776,155 @@ table.picks .c-regs { white-space: nowrap; }
   color: #fff; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px;
 }
 .account-structure-select option { color: #1d3557; background: #fff; }
+
+/* --- Comptes : profil, mots de passe, import ------------------------- */
+
+.account-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 1.1em;
+  height: 1.1em;
+  margin-left: 0.2em;
+  border-radius: 50%;
+  background: var(--sand);
+  color: var(--blue-deep);
+  font-size: 0.8em;
+  font-weight: 700;
+}
+
+.account-dialog { max-height: calc(100vh - 2rem); overflow-y: auto; }
+.account-dialog select {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+}
+.account-dialog label.check { flex-direction: row; font-weight: 400; margin-bottom: 0.4rem; }
+.account-dialog label.check input { padding: 0; }
+.field-hint { font-weight: 400; font-size: 0.78rem; color: #607d8b; }
+.dialog-links { margin: -0.3rem 0 0.6rem; font-size: 0.85rem; }
+.dialog-message p { margin: 0 0 0.75rem; font-size: 0.92rem; }
+.dialog-notice {
+  margin: 0 0 0.9rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  background: #fff6db;
+  font-size: 0.85rem;
+}
+
+.link-btn {
+  font: inherit;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--blue);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Liste de contrôle du mot de passe */
+.pw-rules {
+  list-style: none;
+  margin: -0.4rem 0 0.8rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  font-size: 0.78rem;
+  color: #8a9ba3;
+}
+.pw-rules li.ok { color: #0a7d5a; }
+.pw-rules li span[aria-hidden] { display: inline-block; width: 1em; font-weight: 700; }
+.password-block .pw-rules { margin: 0.4rem 0; }
+
+/* Formulaire de création */
+.create-user .password-mode,
+.create-user .form-actions { grid-column: 1 / -1; }
+.create-user input[type="email"],
+.create-user input[type="tel"] {
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #cfe3ea;
+  font-size: 0.95rem;
+  min-width: 0;
+}
+.optional { font-weight: 400; font-size: 0.75rem; color: #607d8b; }
+.password-mode {
+  margin: 0;
+  padding: 0.75rem 1rem 0.5rem;
+  border: 1px solid #d8e8ee;
+  border-radius: 10px;
+}
+.password-mode legend { padding: 0 0.3rem; font-size: 0.85rem; font-weight: 600; color: var(--blue-deep); }
+.password-mode .check { padding-bottom: 0.35rem; }
+.password-mode .check.disabled { opacity: 0.5; }
+.password-block { margin: 0.3rem 0 0.2rem 1.6rem; max-width: 30rem; }
+.password-block .with-action input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.03em; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.form-status .warn, .err { color: var(--coral); }
+
+/* Liste des comptes */
+.users-list th[scope="row"] { white-space: normal; min-width: 11rem; }
+.user-name { font-weight: 700; }
+.user-sub { display: block; font-weight: 400; font-size: 0.78rem; color: #607d8b; margin-bottom: 0.15rem; }
+.users td.contact { font-size: 0.82rem; line-height: 1.4; }
+.users td.contact a { color: var(--blue-deep); text-decoration: none; }
+.users td.contact a:hover { text-decoration: underline; }
+.tag-pending { background: #e6f3f8; color: var(--blue); }
+.tag-warn { background: #fde8ed; color: #b3264a; }
+#users-search { min-width: 16rem; }
+
+/* Import CSV */
+.import-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1rem;
+  align-items: end;
+}
+.import-grid select,
+.import-grid input[type="file"] {
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+  min-width: 0;
+  background: white;
+}
+.import-preview { margin-top: 1rem; display: grid; gap: 0.75rem; }
+.import-summary { margin: 0; font-size: 0.9rem; }
+.import-table td, .import-table th { vertical-align: top; }
+.import-table tr.row-error { background: #fff5f7; }
+.import-table .check-cell { white-space: normal; min-width: 14rem; font-size: 0.8rem; }
+.ok-mark { color: #0a7d5a; font-weight: 600; }
+.import-result { margin-top: 1rem; padding: 0.75rem 1rem; border-radius: 10px; background: var(--bg); font-size: 0.9rem; }
+.import-result p { margin: 0 0 0.5rem; }
+.err-list { margin: 0.25rem 0 0; font-size: 0.82rem; color: var(--coral); }
+
+/* Page « choisir un mot de passe » */
+main.narrow-main { max-width: 32rem; }
+.reset-panel h2 { margin-bottom: 0.5rem; }
+.reset-panel .hint { font-size: 0.88rem; margin-bottom: 1rem; }
+.reset-form label:not(.check) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--blue-deep);
+}
+.reset-form input[type="password"],
+.reset-form input[type="text"] {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.55rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+}
+.reset-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.reset-actions a { text-decoration: none; }
+.account-dialog { width: min(26rem, calc(100vw - 2rem)); }
+.account-dialog h2 + .dialog-hint { margin: -0.5rem 0 0.9rem; }
+.dialog-actions button { white-space: nowrap; }

@@ -79,9 +79,9 @@ function renderPop() {
     const mine = r.user_id === me;
     const remove = canPick() && !mine
       ? `<button type="button" class="chip-remove" data-act="unregister-other" data-user="${r.user_id}"
-           title="Retirer l'inscription" aria-label="Retirer l'inscription de ${esc(r.username)}">×</button>`
+           title="Retirer l'inscription" aria-label="Retirer l'inscription de ${esc(r.display_name)}">×</button>`
       : "";
-    return `<li${mine ? ` class="me"` : ""}>${esc(r.username)}${mine ? " (vous)" : ""}${remove}</li>`;
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}">${esc(r.display_name)}${mine ? " (vous)" : ""}${remove}</li>`;
   }).join("");
   pop.innerHTML = `<p class="regs-pop-title">${p.registrations.length} inscrit(s)</p>` +
     (items ? `<ul>${items}</ul>` : `<p class="muted">Personne pour l'instant.</p>`);
@@ -244,7 +244,7 @@ async function onRegistrationClick(e) {
   const p = picks.find(x => x.id === id);
   if (act === "unregister-other") {
     const r = p?.registrations.find(x => String(x.user_id) === btn.dataset.user);
-    if (r && !confirm(`Retirer l'inscription de ${r.username} ?`)) return;
+    if (r && !confirm(`Retirer l'inscription de ${r.display_name} ?`)) return;
   }
   const url = act === "unregister-other"
     ? `/api/selections/${id}/registrations/${btn.dataset.user}`
@@ -304,7 +304,7 @@ Session.onChange(user => {
     return;
   }
   if (!member) {
-    gateEl.textContent = `Le compte « ${user.username} » n'est rattaché à aucune structure : il n'a pas de créneaux choisis.`;
+    gateEl.textContent = `Le compte « ${user.display_name} » n'est rattaché à aucune structure : il n'a pas de créneaux choisis.`;
     return;
   }
   $("picks-hint").textContent = user.can.pick

@@ -89,7 +89,27 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     last_login_at TEXT,
     structure_id INTEGER REFERENCES structures(id) ON DELETE RESTRICT,
-    structure_role TEXT CHECK (structure_role IN ('viewer', 'manager'))
+    structure_role TEXT CHECK (structure_role IN ('viewer', 'manager')),
+    -- Profil (NULL possible sur les comptes créés avant ces colonnes)
+    first_name TEXT,
+    last_name TEXT,
+    email TEXT,                     -- en minuscules, unique (index idx_users_email)
+    phone TEXT,
+    -- 1 : mot de passe provisoire, à changer à la prochaine connexion
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    password_changed_at TEXT
+);
+
+-- Jetons à usage unique envoyés par e-mail : invitation (définir son premier
+-- mot de passe) ou réinitialisation (mot de passe oublié). Comme pour les
+-- sessions, seul le SHA-256 du jeton est stocké. Tous les jetons d'un compte
+-- sont supprimés dès que son mot de passe change.
+CREATE TABLE IF NOT EXISTS user_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
 );
 
 -- Sessions : on ne stocke que le SHA-256 du jeton envoyé en cookie
@@ -188,6 +208,8 @@ CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id)
 CREATE INDEX IF NOT EXISTS idx_selections_structure ON slot_selections(structure_id, local_date);
 CREATE INDEX IF NOT EXISTS idx_slot_types_structure ON slot_types(structure_id, position);
 CREATE INDEX IF NOT EXISTS idx_users_structure ON users(structure_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_user_tokens_user ON user_tokens(user_id, purpose);
 """
 
 _SQL_INSERT_HEIGHTS = (
@@ -359,6 +381,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 )
     if "auto_precompute" not in cols:
         conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
+
+    # Profil des comptes : nom, prénom, e-mail, téléphone, mot de passe provisoire
+    user_cols = _columns(conn, "users")
+    for col, ddl in (
+        ("first_name", "TEXT"),
+        ("last_name", "TEXT"),
+        ("email", "TEXT"),
+        ("phone", "TEXT"),
+        ("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
+        ("password_changed_at", "TEXT"),
+    ):
+        if col not in user_cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
 
 
 @contextmanager
@@ -645,9 +680,17 @@ def delete_structure(structure_id: int) -> None:
 
 _USER_SELECT = """
     SELECT u.id, u.username, u.is_admin, u.structure_id, u.structure_role,
-           u.created_at, u.last_login_at, st.name AS structure_name
+           u.created_at, u.last_login_at, st.name AS structure_name,
+           u.first_name, u.last_name, u.email, u.phone,
+           u.must_change_password, u.password_changed_at,
+           substr(u.password_hash, 1, 1) = '!' AS pending_invite,
+           (SELECT MAX(t.expires_at) FROM user_tokens t
+             WHERE t.user_id = u.id AND t.purpose = 'invite') AS invite_expires_at
     FROM users u LEFT JOIN structures st ON st.id = u.structure_id
 """
+
+# Mot de passe « inutilisable » d'un compte invité qui n'a pas encore choisi le sien
+UNUSABLE_PASSWORD = "!invite"
 
 
 def list_users(structure_id: int | None = None) -> list[sqlite3.Row]:
@@ -657,7 +700,10 @@ def list_users(structure_id: int | None = None) -> list[sqlite3.Row]:
         sql += " WHERE u.structure_id = ?"
         params.append(structure_id)
     with get_conn() as conn:
-        return conn.execute(sql + " ORDER BY u.username", params).fetchall()
+        return conn.execute(
+            sql + " ORDER BY COALESCE(u.last_name, u.username) COLLATE NOCASE, u.first_name COLLATE NOCASE, u.username",
+            params,
+        ).fetchall()
 
 
 def get_user(user_id: int) -> sqlite3.Row | None:
@@ -665,35 +711,101 @@ def get_user(user_id: int) -> sqlite3.Row | None:
         return conn.execute(_USER_SELECT + " WHERE u.id = ?", (user_id,)).fetchone()
 
 
-def get_user_credentials(username: str) -> sqlite3.Row | None:
-    """Ligne complète (avec hash) pour la vérification du mot de passe."""
+def get_user_credentials(login: str) -> sqlite3.Row | None:
+    """Ligne complète (avec hash) d'après l'identifiant OU l'adresse e-mail.
+    Pas d'ambiguïté possible : un identifiant ne contient jamais « @ »."""
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if "@" in login:
+            return conn.execute("SELECT * FROM users WHERE email = ?", (login.lower(),)).fetchone()
+        return conn.execute("SELECT * FROM users WHERE username = ?", (login,)).fetchone()
+
+
+def get_user_credentials_by_id(user_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def username_exists(username: str) -> bool:
+    with get_conn() as conn:
+        return conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone() is not None
+
+
+def existing_logins(usernames: list[str], emails: list[str]) -> tuple[set[str], set[str]]:
+    """(identifiants en minuscules, e-mails) déjà pris parmi ceux proposés."""
+    with get_conn() as conn:
+        taken_u = {r[0].lower() for r in conn.execute("SELECT username FROM users")} & {u.lower() for u in usernames}
+        taken_e = {r[0] for r in conn.execute("SELECT email FROM users WHERE email IS NOT NULL")} & set(emails)
+    return taken_u, taken_e
+
+
+_PROFILE_FIELDS = ("first_name", "last_name", "email", "phone")
+
+
+def _insert_user(conn: sqlite3.Connection, u: dict) -> int:
+    return conn.execute(
+        """
+        INSERT INTO users (username, password_hash, is_admin, created_at, structure_id, structure_role,
+                           first_name, last_name, email, phone, must_change_password, password_changed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            u["username"], u["password_hash"], int(u.get("is_admin", False)), u["created_at"],
+            u.get("structure_id"), u.get("structure_role"),
+            u.get("first_name"), u.get("last_name"), u.get("email"), u.get("phone"),
+            int(u.get("must_change_password", False)),
+            None if u["password_hash"].startswith("!") else u["created_at"],
+        ),
+    ).lastrowid
 
 
 def create_user(username: str, password_hash: str, is_admin: bool, created_at: str,
-                structure_id: int | None = None, structure_role: str | None = None) -> int:
-    """Lève sqlite3.IntegrityError si le nom existe déjà (insensible à la casse)."""
+                structure_id: int | None = None, structure_role: str | None = None, **profile) -> int:
+    """
+    profile : first_name, last_name, email, phone, must_change_password.
+    Lève sqlite3.IntegrityError si l'identifiant ou l'e-mail existe déjà
+    (le message contient « users.username » ou « users.email »).
+    """
     with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO users (username, password_hash, is_admin, created_at, structure_id, structure_role) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (username, password_hash, int(is_admin), created_at, structure_id, structure_role),
-        )
-        return cur.lastrowid
+        return _insert_user(conn, {
+            "username": username, "password_hash": password_hash, "is_admin": is_admin,
+            "created_at": created_at, "structure_id": structure_id, "structure_role": structure_role,
+            **profile,
+        })
+
+
+def create_users_bulk(users: list[dict]) -> list[int]:
+    """Création en une transaction (import CSV) : tout ou rien."""
+    with get_conn() as conn:
+        return [_insert_user(conn, u) for u in users]
 
 
 _UNSET = object()
 
 
 def update_user(user_id: int, *, password_hash: str | None = None, is_admin: bool | None = None,
-                structure_id=_UNSET, structure_role=_UNSET) -> None:
-    """structure_id / structure_role : absents = inchangés, None = retirés."""
+                structure_id=_UNSET, structure_role=_UNSET, must_change_password: bool | None = None,
+                now: str | None = None, **profile) -> None:
+    """
+    structure_id / structure_role : absents = inchangés, None = retirés.
+    profile : first_name, last_name, email, phone (présents = remplacés, None = vidés).
+    """
     with get_conn() as conn:
         if password_hash is not None:
-            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+            conn.execute(
+                "UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?",
+                (password_hash, now, user_id),
+            )
             # un nouveau mot de passe déconnecte toutes les sessions ouvertes
+            # et invalide les liens d'invitation / de réinitialisation en cours
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_tokens WHERE user_id = ?", (user_id,))
+        if must_change_password is not None:
+            conn.execute(
+                "UPDATE users SET must_change_password = ? WHERE id = ?", (int(must_change_password), user_id)
+            )
+        for field in _PROFILE_FIELDS:
+            if field in profile:
+                conn.execute(f"UPDATE users SET {field} = ? WHERE id = ?", (profile[field], user_id))
         if is_admin is not None:
             conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
         if structure_id is not _UNSET:
@@ -741,6 +853,49 @@ def get_session_user(token_hash: str, now: str) -> sqlite3.Row | None:
 def delete_session(token_hash: str) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+
+def delete_other_sessions(user_id: int, keep_token_hash: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?", (user_id, keep_token_hash))
+
+
+# ---------------------------------------------------------------------------
+# Jetons d'invitation et de réinitialisation (voir recovery.py)
+# ---------------------------------------------------------------------------
+
+def create_user_token(token_hash: str, user_id: int, purpose: str, created_at: str, expires_at: str,
+                      *, replace: bool = True) -> None:
+    """replace : supprime d'abord les jetons du même usage (un seul lien valide à la fois)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM user_tokens WHERE expires_at <= ?", (created_at,))  # ménage
+        if replace:
+            conn.execute("DELETE FROM user_tokens WHERE user_id = ? AND purpose = ?", (user_id, purpose))
+        conn.execute(
+            "INSERT INTO user_tokens (token_hash, user_id, purpose, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (token_hash, user_id, purpose, created_at, expires_at),
+        )
+
+
+def get_token(token_hash: str, now: str) -> sqlite3.Row | None:
+    """Jeton valide (non expiré) avec l'usage et l'id du compte."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM user_tokens WHERE token_hash = ? AND expires_at > ?", (token_hash, now)
+        ).fetchone()
+
+
+def last_token_at(user_id: int, purpose: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MAX(created_at) FROM user_tokens WHERE user_id = ? AND purpose = ?", (user_id, purpose)
+        ).fetchone()
+    return row[0]
+
+
+def delete_user_tokens(user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM user_tokens WHERE user_id = ?", (user_id,))
 
 
 def get_preferences(user_id: int) -> sqlite3.Row | None:
@@ -952,7 +1107,8 @@ def delete_slot_type(type_id: int) -> None:
 
 _SELECTION_SQL = """
     SELECT s.*, p.name AS port_name, t.label AS type_label, t.color AS type_color, t.active AS type_active,
-           u.username AS picked_by_name
+           COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
+               AS picked_by_name
     FROM slot_selections s
     JOIN ports p ON p.id = s.port_id
     JOIN slot_types t ON t.id = s.type_id
@@ -1028,7 +1184,9 @@ def delete_selection(structure_id: int, selection_id: int) -> bool:
 def list_registrations(structure_id: int, selection_id: int | None = None) -> list[sqlite3.Row]:
     """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription."""
     sql = """
-        SELECT r.selection_id, r.user_id, r.created_at, u.username
+        SELECT r.selection_id, r.user_id, r.created_at, u.username,
+               COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
+                   AS display_name
         FROM slot_registrations r
         JOIN slot_selections s ON s.id = r.selection_id
         JOIN users u ON u.id = r.user_id
@@ -1039,7 +1197,7 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
         sql += " AND r.selection_id = ?"
         params.append(selection_id)
     with get_conn() as conn:
-        return conn.execute(sql + " ORDER BY r.created_at, u.username", params).fetchall()
+        return conn.execute(sql + " ORDER BY r.created_at, display_name", params).fetchall()
 
 
 def add_registration(selection_id: int, user_id: int, now: str) -> None:

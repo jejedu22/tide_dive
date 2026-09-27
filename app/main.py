@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, db, selections, structures
+from . import admin, auth, calendar_fr, db, recovery, selections, structures, user_import
 from .slots import RDV_AVANT_ETALE, PM_SEARCH_PAD
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -29,6 +29,10 @@ app = FastAPI(title="Aide au choix de plongées")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 # Comptes, préférences et administration (/api/auth, /api/me, /api/admin)
 app.include_router(auth.router)
+# Mot de passe oublié, invitations (/api/auth/forgot-password, /api/auth/reset-password…)
+app.include_router(recovery.router)
+# Import CSV de comptes (/api/admin/users/import)
+app.include_router(user_import.router)
 # Administration des données : ports, précalcul, téléchargement FES (/api/admin)
 app.include_router(admin.router)
 # Structures (/api/admin/structures)

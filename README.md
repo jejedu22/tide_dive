@@ -53,7 +53,8 @@ cp .env.example .env
 docker compose up -d --build
 
 # Premier administrateur
-docker compose run --rm --entrypoint python api -m app.auth create-admin jerome
+docker compose run --rm --entrypoint python api -m app.auth create-admin jerome \
+    --email jerome@example.fr --first-name Jérôme --last-name "Le Goff"
 ```
 
 Puis ouvrir <http://localhost:8000/admin.html> (port configurable via `API_PORT`) :
@@ -94,6 +95,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
 | `API_PORT` | `8000` | Port exposé sur l'hôte |
 | `HOST_UID`, `HOST_GID` | `1000` | Utilisateur propriétaire de `./data` et `./models` |
+| `MAIL_BACKEND`, `APP_BASE_URL`, `SMTP_*` | — | Envoi d'e-mails (invitations, mot de passe oublié) : voir [Comptes](#comptes-structures-et-préférences) |
 
 Côté application, `tide_model.py` lit `TIDE_MODEL_DIRECTORY` (fixé à `/models` dans les conteneurs) et `TIDE_MODEL_NAME` (défaut `FES2014`).
 
@@ -215,29 +217,88 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 | **Administration** | en plus : choisir et retirer les créneaux de la structure, gérer ses membres (création, rôle, mot de passe, suppression) et ses types de créneaux |
 | **Super administrateur** | tout : structures, ports, données et tâches, comptes et types de toutes les structures. Peut aussi appartenir à une structure (il y a alors les droits d'administration) |
 
-Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html`**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
+Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
 **Mise à jour d'une base existante** : au premier démarrage, les comptes, types et créneaux existants sont rattachés à une structure « Structure principale » ; les super administrateurs y sont en administration, **les autres comptes en visualisation** (à promouvoir si besoin). Si plusieurs comptes avaient choisi le même créneau, seul le premier choix est conservé.
 
-Premier super administrateur (sans structure), en ligne de commande :
+### Profil
+
+Chaque compte a un **identifiant**, un **prénom**, un **nom**, une **adresse e-mail** (unique) et un **téléphone** facultatif (numéros français mis en forme : `06 12 34 56 78`, `+33 6 12 34 56 78`). On se connecte avec l'identifiant **ou** l'adresse e-mail. Laissé vide à la création, l'identifiant est proposé sous la forme `prenom.nom` (suffixe 2, 3… s'il est pris).
+
+Chacun modifie son profil via **Mon compte** dans l'en-tête ; changer d'adresse e-mail demande le mot de passe actuel (l'adresse permet de réinitialiser le mot de passe). Les comptes antérieurs à ces champs sont conservés tels quels, marqués « profil incomplet » dans la liste et signalés par une pastille sur « Mon compte ».
+
+### Mots de passe
+
+Politique appliquée à tout nouveau mot de passe (recommandation CNIL pour un mot de passe seul) : **au moins 12 caractères** (`PASSWORD_MIN_LENGTH`), avec **une minuscule, une majuscule, un chiffre et un caractère spécial** ; ne contenant ni l'identifiant, ni le prénom, le nom ou l'adresse e-mail ; ni mot de passe courant (« Motdepasse2026! »), ni caractère répété 4 fois. Les règles s'affichent et se cochent pendant la saisie ; le serveur les revérifie. Un compte existant garde son mot de passe jusqu'au prochain changement.
+
+À la création d'un compte, l'administrateur choisit :
+
+- **Invitation par e-mail** : la personne reçoit un lien (valable `INVITE_DAYS`, 7 jours) pour choisir elle-même son mot de passe ;
+- **Mot de passe provisoire** (bouton « Générer ») : à lui transmettre ; coché par défaut, il devra être changé à la première connexion. Tant que ce n'est pas fait, l'API refuse tout le reste et l'interface impose le changement.
+
+Depuis la liste, le bouton **Mot de passe…** renvoie l'invitation, envoie un lien de réinitialisation ou définit un nouveau mot de passe provisoire. Des étiquettes signalent les invitations en attente ou expirées et les mots de passe provisoires.
+
+**Mot de passe oublié** : lien dans la fenêtre de connexion. L'utilisateur saisit son identifiant ou son adresse e-mail et reçoit un lien valable `RESET_TOKEN_MINUTES` (60 min), utilisable une fois. La réponse est la même que le compte existe ou non, la recherche et l'envoi ont lieu après la réponse, et un compte ne reçoit pas plus d'un lien toutes les 2 minutes.
+
+Les liens pointent vers `/mot-de-passe.html#token=…` : le jeton est dans le fragment, donc jamais envoyé au serveur dans l'URL (absent des logs du reverse proxy et de l'en-tête Referer). Seule son empreinte SHA-256 est stockée ; il est invalidé dès que le mot de passe change. Choisir un mot de passe par ce lien ferme toutes les sessions du compte et connecte le navigateur.
+
+### Import CSV
+
+**`/admin.html` → Utilisateurs → Importer** crée des comptes en masse. Un [modèle](static/modele-import-utilisateurs.csv) est téléchargeable depuis la page.
+
+| Colonne | | Contenu |
+|---|---|---|
+| `nom`, `prenom`, `email` | obligatoires | |
+| `telephone` | facultatif | |
+| `role` | facultatif | `visualisation` ou `administration` ; vide : rôle par défaut choisi à l'import |
+| `identifiant` | facultatif | vide : `prenom.nom` |
+| `structure` | facultatif | nom d'une structure existante, super administrateur uniquement ; vide : structure par défaut choisie à l'import |
+
+Séparateur point-virgule, virgule ou tabulation ; UTF-8 ou export Excel (Windows-1252) ; en-têtes insensibles à la casse et aux accents (`Prénom`, `E-mail`, `Téléphone`, `mail`, `courriel`, `tel`… sont reconnus), colonnes inconnues ignorées. 500 comptes et 512 Ko au plus par fichier.
+
+L'import se fait en deux temps : **analyse** (chaque ligne affichée avec l'identifiant qui sera créé, ou ses erreurs : e-mail invalide, doublon dans le fichier ou avec un compte existant, rôle ou structure inconnus), puis **confirmation**, qui crée les lignes valides en une transaction (les lignes en erreur sont ignorées). Mots de passe : invitation par e-mail pour chacun, ou mots de passe provisoires générés, proposés **une seule fois** en téléchargement CSV (à transmettre individuellement puis à supprimer). Un administrateur de structure n'importe que dans la sienne ; l'import ne crée jamais de super administrateur.
+
+### E-mails
+
+Invitations et mot de passe oublié nécessitent l'envoi d'e-mails. Sans configuration (`MAIL_BACKEND=none`), ils sont masqués dans l'interface : seul le mot de passe provisoire est proposé.
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `MAIL_BACKEND` | `none` | `none`, `console` (messages écrits dans les logs du conteneur `api`, pour tester) ou `smtp` |
+| `APP_BASE_URL` | — | URL publique, ex. `https://maree.example.fr` (**obligatoire** : les liens ne sont jamais construits à partir de l'en-tête `Host`, falsifiable) |
+| `APP_NAME` | `Marée` | Nom affiché dans les e-mails |
+| `SMTP_HOST`, `SMTP_PORT` | —, `587` | Serveur d'envoi |
+| `SMTP_SECURITY` | `starttls` | `starttls` (587), `ssl` (465) ou `none` |
+| `SMTP_USER`, `SMTP_PASSWORD` | — | Authentification (facultative) |
+| `MAIL_FROM` | `SMTP_USER` | Expéditeur, ex. `Marée <no-reply@example.fr>` |
+| `INVITE_DAYS` | `7` | Validité d'un lien d'invitation |
+| `RESET_TOKEN_MINUTES` | `60` | Validité d'un lien de réinitialisation |
+
+Pour essayer sans serveur SMTP : `MAIL_BACKEND=console` et `APP_BASE_URL=http://localhost:8000`, puis `docker compose logs -f api` pour lire les e-mails et leurs liens.
+
+### Ligne de commande
+
+Premier super administrateur (sans structure) et dépannage :
 
 ```bash
 # Docker
-docker compose run --rm --entrypoint python api -m app.auth create-admin jerome
+docker compose run --rm --entrypoint python api -m app.auth create-admin jerome \
+    --email jerome@example.fr --first-name Jérôme --last-name "Le Goff"
 # Sans Docker
-python -m app.auth create-admin jerome
+python -m app.auth create-admin jerome --email jerome@example.fr --first-name Jérôme --last-name "Le Goff"
 
-# Dépannage : changer un mot de passe, lister les comptes
+# Changer un mot de passe (identifiant ou e-mail), lister les comptes
 python -m app.auth set-password jerome
 python -m app.auth list
 ```
 
-Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session dans un cookie `HttpOnly` / `SameSite=Lax` dont seule l'empreinte SHA-256 est stockée en base. Changer un mot de passe ferme les sessions ouvertes du compte. **Derrière HTTPS, mettre `COOKIE_SECURE=1`.**
+Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session dans un cookie `HttpOnly` / `SameSite=Lax` dont seule l'empreinte SHA-256 est stockée en base. Changer un mot de passe ferme les sessions ouvertes du compte et invalide ses liens en cours. **Derrière HTTPS, mettre `COOKIE_SECURE=1`.**
 
 | Variable | Défaut | Description |
 |---|---|---|
 | `COOKIE_SECURE` | `0` | `1` : cookie de session envoyé uniquement en HTTPS |
 | `SESSION_DAYS` | `30` | Durée de validité d'une connexion |
+| `PASSWORD_MIN_LENGTH` | `12` | Longueur minimale des nouveaux mots de passe (8 au minimum) |
 
 ## Créneaux choisis
 
@@ -284,16 +345,25 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 
 | Méthode et route | Accès | Rôle |
 |---|---|---|
-| `POST /api/auth/login` | public | `{username, password}` → cookie de session |
+| `POST /api/auth/login` | public | `{username, password}` (`username` : identifiant ou e-mail) → cookie de session |
 | `POST /api/auth/logout` | public | ferme la session |
 | `GET /api/auth/me` | public | `{user}` ou `{user: null}` |
+| `GET /api/auth/config` | public | `{password_reset, password_policy}` : mot de passe oublié disponible, règles des mots de passe |
+| `POST /api/auth/forgot-password` | public | `{login}` → 202 dans tous les cas ; 404 si l'envoi d'e-mails n'est pas configuré |
+| `POST /api/auth/token-info` | public | `{token}` → compte et usage (`invite` / `reset`) du lien ; 400 s'il est expiré ou utilisé |
+| `POST /api/auth/reset-password` | public | `{token, new_password}` → mot de passe changé, session ouverte |
+| `PATCH /api/me/profile` | connecté | `{first_name?, last_name?, email?, phone?, current_password?}` (mot de passe requis pour changer d'e-mail) |
 | `POST /api/me/password` | connecté | `{current_password, new_password}` |
 | `GET` / `PUT` / `DELETE /api/me/preferences` | connecté | `{form, filters}` |
-| `GET` / `POST /api/admin/users` | admin. structure / super admin | liste (`?structure_id=` pour le super admin) / création `{username, password, role, structure_id?, is_admin?}` |
-| `PATCH` / `DELETE /api/admin/users/{id}` | admin. structure / super admin | `{password?, role?, structure_id?, is_admin?}` / suppression |
+| `GET` / `POST /api/admin/users` | admin. structure / super admin | liste (`?structure_id=` pour le super admin) / création `{first_name, last_name, email, phone?, username?, send_invite, password?, must_change_password?, role, structure_id?, is_admin?}` |
+| `PATCH` / `DELETE /api/admin/users/{id}` | admin. structure / super admin | `{first_name?, last_name?, email?, phone?, password?, must_change_password?, role?, structure_id?, is_admin?}` / suppression |
+| `POST /api/admin/users/{id}/send-link` | admin. structure / super admin | renvoie l'invitation, ou envoie un lien de réinitialisation |
+| `POST /api/admin/users/import` | admin. structure / super admin | `{content_b64, dry_run, mode: invite\|password, role, structure_id?}` : analyse ou création depuis un CSV |
 | `GET /api/admin/structures` | admin. structure / super admin | structures avec effectifs (la sienne seulement pour un admin. de structure) |
 | `POST /api/admin/structures` | super admin | `{name}` |
 | `PATCH` / `DELETE /api/admin/structures/{id}` | super admin | `{name}` / suppression (409 s'il reste des membres) |
+
+Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes les routes connectées répondent 403 (en-tête `X-Password-Change-Required: 1`) sauf `/api/auth/me`, `/api/auth/config`, `/api/auth/logout` et `/api/me/password`.
 
 `GET /api/auth/me` renvoie aussi `structure`, `role` et `can` (`super_admin`, `admin_area`, `manage_structure`, `pick`, `view_selections`). `structure_id` et `is_admin` ne sont modifiables que par un super administrateur ; un administrateur de structure agit toujours sur la sienne.
 
@@ -351,7 +421,12 @@ app/
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m
   db.py             schéma et accès SQLite
-  auth.py           comptes, sessions, rôles, préférences, administration des comptes (+ CLI)
+  auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
+  accounts.py       profil (normalisation), identifiant proposé, jetons et e-mails de compte
+  passwords.py      politique de mots de passe et génération
+  recovery.py       mot de passe oublié, invitations (liens à usage unique)
+  user_import.py    import CSV de comptes
+  mailer.py         envoi d'e-mails (SMTP ou console)
   structures.py     API des structures (super administrateur)
   admin.py          API d'administration : ports, tâches, état des données
   selections.py     types de créneaux et créneaux choisis, par structure
@@ -361,7 +436,9 @@ app/
 static/             frontend (index.html, app.js, style.css)
   admin.html/.js    administration (structures, ports, données, types de créneaux, comptes)
   mes-creneaux.*    créneaux choisis par la structure de l'utilisateur connecté
-  session.js        connexion, droits et appels API, partagé par les pages
+  session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
+  mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
+  modele-import-utilisateurs.csv  modèle d'import CSV
 docker/crontab      tâches périodiques mises en file par le scheduler
 Dockerfile
 docker-compose.yml

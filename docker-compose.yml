@@ -1,7 +1,7 @@
 # Marée — API FastAPI + précalcul annuel des marées/crépuscules
 #
 #   docker compose up -d --build                          # 1. API + worker + planificateur
-#   docker compose run --rm --entrypoint python api -m app.auth create-admin jerome   # 2. 1er admin
+#   docker compose run --rm --entrypoint python api -m app.auth create-admin jerome --email jerome@example.fr --first-name Jérôme --last-name "Le Goff"   # 2. 1er admin
 #   puis /admin.html : télécharger FES, ajouter les ports, lancer les calculs
 #
 # En ligne de commande (sans passer par l'admin) :
@@ -20,6 +20,19 @@ x-app: &app
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
     COOKIE_SECURE: ${COOKIE_SECURE:-0}          # 1 derrière HTTPS (Traefik)
     SESSION_DAYS: ${SESSION_DAYS:-30}           # durée d'une session de connexion
+    PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
+    # E-mails : invitations et mot de passe oublié (voir .env.example)
+    MAIL_BACKEND: ${MAIL_BACKEND:-none}
+    APP_BASE_URL: ${APP_BASE_URL:-}
+    APP_NAME: ${APP_NAME:-Marée}
+    SMTP_HOST: ${SMTP_HOST:-}
+    SMTP_PORT: ${SMTP_PORT:-587}
+    SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+    SMTP_USER: ${SMTP_USER:-}
+    SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    MAIL_FROM: ${MAIL_FROM:-}
+    INVITE_DAYS: ${INVITE_DAYS:-7}
+    RESET_TOKEN_MINUTES: ${RESET_TOKEN_MINUTES:-60}
   volumes:
     - ./data:/srv/maree/data              # base SQLite (data/plongee.db, chemin relatif de db.py)
     - ${FES_DIR:-./models}:/models:ro

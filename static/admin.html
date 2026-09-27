@@ -219,19 +219,28 @@
 
       <!-- ============ Utilisateurs ============ -->
       <section id="tab-utilisateurs" class="tab-panel" role="tabpanel" hidden>
-        <form id="create-user" class="panel create-user" autocomplete="off">
+        <form id="create-user" class="panel create-user" autocomplete="off" novalidate>
           <h2>Ajouter un utilisateur</h2>
           <div class="field">
-            <label for="new-username">Identifiant</label>
-            <input id="new-username" name="username" required pattern="[A-Za-z0-9._\-]{3,32}"
-                   title="3 à 32 caractères : lettres, chiffres, point, tiret, tiret bas">
+            <label for="new-first-name">Prénom</label>
+            <input id="new-first-name" name="first_name" required maxlength="60">
           </div>
           <div class="field">
-            <label for="new-password">Mot de passe (8 caractères min.)</label>
-            <div class="with-action">
-              <input id="new-password" name="password" type="text" required minlength="8" autocomplete="new-password">
-              <button type="button" id="gen-password" class="btn-quiet">Générer</button>
-            </div>
+            <label for="new-last-name">Nom</label>
+            <input id="new-last-name" name="last_name" required maxlength="60">
+          </div>
+          <div class="field">
+            <label for="new-email">Adresse e-mail</label>
+            <input id="new-email" name="email" type="email" required maxlength="254">
+          </div>
+          <div class="field">
+            <label for="new-phone">Téléphone <span class="optional">facultatif</span></label>
+            <input id="new-phone" name="phone" type="tel" maxlength="30">
+          </div>
+          <div class="field">
+            <label for="new-username">Identifiant <span class="optional">facultatif</span></label>
+            <input id="new-username" name="username" maxlength="32" pattern="[A-Za-z0-9._\-]{3,32}"
+                   title="3 à 32 caractères : lettres, chiffres, point, tiret, tiret bas">
           </div>
           <div class="field" data-super>
             <label for="new-structure">Structure</label>
@@ -247,26 +256,113 @@
           <label class="check" data-super>
             <input type="checkbox" name="is_admin"> Super administrateur
           </label>
-          <button type="submit" class="btn-primary">Créer le compte</button>
+
+          <fieldset class="password-mode">
+            <legend>Mot de passe</legend>
+            <label class="check" id="mode-invite-label">
+              <input type="radio" name="pw_mode" value="invite">
+              Envoyer une invitation par e-mail <span class="muted">— la personne choisit elle-même son mot de passe</span>
+            </label>
+            <label class="check">
+              <input type="radio" name="pw_mode" value="password">
+              Définir un mot de passe provisoire <span class="muted">— à lui transmettre</span>
+            </label>
+            <div id="new-password-block" class="password-block">
+              <div class="with-action">
+                <input id="new-password" name="password" type="text" autocomplete="new-password" aria-label="Mot de passe provisoire" spellcheck="false">
+                <button type="button" id="gen-password" class="btn-quiet">Générer</button>
+              </div>
+              <label class="check">
+                <input type="checkbox" name="must_change_password" checked> À changer à la première connexion
+              </label>
+            </div>
+            <p id="mail-disabled" class="hint" hidden></p>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Créer le compte</button>
+          </div>
           <p id="create-status" class="form-status" role="status"></p>
+        </form>
+
+        <form id="import-form" class="panel import-panel" autocomplete="off">
+          <div class="panel-head">
+            <h2>Importer des utilisateurs depuis un fichier CSV</h2>
+            <a class="btn-quiet btn-small" href="modele-import-utilisateurs.csv" download>Télécharger le modèle</a>
+          </div>
+          <div class="import-grid">
+            <div class="field">
+              <label for="import-file">Fichier</label>
+              <input id="import-file" type="file" accept=".csv,.txt,text/csv" required>
+            </div>
+            <div class="field" data-super>
+              <label for="import-structure">Structure par défaut</label>
+              <select id="import-structure"></select>
+            </div>
+            <div class="field">
+              <label for="import-role">Rôle par défaut</label>
+              <select id="import-role">
+                <option value="viewer">Visualisation</option>
+                <option value="manager">Administration</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="import-mode">Mots de passe</label>
+              <select id="import-mode">
+                <option value="invite">Invitation par e-mail</option>
+                <option value="password">Provisoires, générés</option>
+              </select>
+            </div>
+            <button type="submit" class="btn-secondary">Analyser le fichier</button>
+          </div>
+          <p class="hint">Une ligne d'en-tête puis un compte par ligne. Colonnes <code>nom</code>, <code>prenom</code>, <code>email</code> obligatoires ; <code>telephone</code>, <code>role</code> (visualisation / administration), <code>identifiant</code> (vide : prenom.nom) et, pour le super administrateur, <code>structure</code> facultatives. Séparateur point-virgule ou virgule, UTF-8 ou export Excel. Rien n'est créé avant votre confirmation.</p>
+
+          <div id="import-preview" class="import-preview" hidden>
+            <p id="import-summary" class="import-summary" role="status"></p>
+            <div class="table-wrap">
+              <table class="users import-table">
+                <thead>
+                  <tr>
+                    <th scope="col" class="num">Ligne</th>
+                    <th scope="col">Nom</th>
+                    <th scope="col">Identifiant</th>
+                    <th scope="col">Contact</th>
+                    <th scope="col">Structure</th>
+                    <th scope="col">Rôle</th>
+                    <th scope="col">Vérification</th>
+                  </tr>
+                </thead>
+                <tbody id="import-body"></tbody>
+              </table>
+            </div>
+            <div class="form-actions">
+              <button type="button" id="import-confirm" class="btn-primary">Créer les comptes</button>
+              <button type="button" id="import-cancel" class="btn-quiet">Annuler</button>
+            </div>
+          </div>
+          <div id="import-result" class="import-result" hidden></div>
         </form>
 
         <div class="panel">
           <div class="panel-head">
             <h2>Utilisateurs</h2>
-            <p class="inline-form" data-super>
-              <label for="users-filter">Structure</label>
-              <select id="users-filter"></select>
+            <p class="inline-form">
+              <label for="users-search" class="visually-hidden">Rechercher</label>
+              <input id="users-search" type="search" placeholder="Rechercher un nom, un e-mail…">
+              <span data-super>
+                <label for="users-filter">Structure</label>
+                <select id="users-filter"></select>
+              </span>
             </p>
           </div>
           <div class="table-wrap">
-            <table class="users">
+            <table class="users users-list">
               <thead>
                 <tr>
-                  <th scope="col">Identifiant</th>
+                  <th scope="col">Nom</th>
+                  <th scope="col">Contact</th>
                   <th scope="col">Structure</th>
                   <th scope="col">Rôle</th>
-                  <th scope="col">Créé le</th>
                   <th scope="col">Dernière connexion</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
@@ -275,7 +371,7 @@
             </table>
           </div>
           <p id="users-status" class="form-status" role="status"></p>
-          <p class="hint"><strong>Administration</strong> : choisit les créneaux de la structure, gère ses membres et ses types. <strong>Visualisation</strong> : voit la liste des créneaux choisis.</p>
+          <p class="hint"><strong>Administration</strong> : choisit les créneaux de la structure, gère ses membres et ses types. <strong>Visualisation</strong> : voit la liste des créneaux choisis. On se connecte avec son identifiant ou son adresse e-mail.</p>
         </div>
       </section>
     </div>
