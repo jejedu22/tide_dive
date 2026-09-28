@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from . import db
-from .auth import CurrentManager, CurrentSuperAdmin
+from .auth import CurrentManager, CurrentSuperAdmin, can_manage_structure
 
 router = APIRouter(prefix="/api/admin/structures")
 
@@ -33,6 +33,13 @@ class StructureIn(BaseModel):
         return v
 
 
+class StructureSettingsIn(BaseModel):
+    # None : pas de limite ; N : close à partir de N jours avant le créneau (J-N).
+    # Champ absent : inchangé.
+    register_lock_days: int | None = Field(None, ge=0, le=365)
+    unregister_lock_days: int | None = Field(None, ge=0, le=365)
+
+
 def _out(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
@@ -42,6 +49,8 @@ def _out(row: sqlite3.Row) -> dict:
         "viewers": row["viewers"],
         "types": row["types"],
         "selections": row["selections"],
+        "register_lock_days": row["register_lock_days"],
+        "unregister_lock_days": row["unregister_lock_days"],
     }
 
 
@@ -76,6 +85,16 @@ def rename_structure(structure_id: int, body: StructureIn, admin: CurrentSuperAd
         db.rename_structure(structure_id, body.name)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"La structure « {body.name} » existe déjà")
+    return _out(db.get_structure(structure_id))
+
+
+@router.patch("/{structure_id}/settings")
+def update_settings(structure_id: int, body: StructureSettingsIn, actor: CurrentManager):
+    """Règles de la structure : ses administrateurs ou un super administrateur."""
+    if not can_manage_structure(actor, structure_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Structure inconnue")
+    _or_404(structure_id)
+    db.update_structure_settings(structure_id, **body.model_dump(exclude_unset=True))
     return _out(db.get_structure(structure_id))
 
 

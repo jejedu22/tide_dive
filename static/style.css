@@ -674,6 +674,27 @@ table.picks .c-port { color: #4a6572; }
 
 /* --- Administration : types de créneaux ------------------------------ */
 
+.settings-form {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  justify-content: start;
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+.settings-form h2, .settings-form .hint, .settings-form .form-status { grid-column: 1 / -1; margin-bottom: 0; }
+.settings-form button { justify-self: start; }
+.lock-days { display: inline-flex; align-items: center; gap: 0.5rem; }
+.lock-days input {
+  font: inherit;
+  width: 5rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid #cfe3ea;
+  border-radius: 8px;
+}
+@media (max-width: 600px) {
+  .settings-form { grid-template-columns: 1fr; }
+}
+
 .type-form {
   display: grid;
   grid-template-columns: minmax(12rem, 2fr) auto auto auto;
@@ -753,6 +774,7 @@ table.picks .c-regs { white-space: nowrap; }
   font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
 }
 .reg-count:hover, .reg-count[aria-expanded="true"] { background: #cde3ec; }
+.reg-locked { font-size: 0.78rem; color: #607d8b; cursor: help; }
 .reg-count.reg-me { background: #d8f3dc; border-color: #95d5b2; color: #1b4332; }
 .regs-pop {
   position: fixed; z-index: 50; min-width: 11rem; max-width: 18rem; max-height: 50vh; overflow-y: auto;

@@ -636,9 +636,88 @@ $("types-structure").addEventListener("change", e => {
   loadTypes();
 });
 
+// ---- Règles de la structure : délais d'inscription et de désinscription ----
+// N jours : fermé à partir de J-N (possible jusqu'à J-N-1 inclus) ; vide : pas de limite.
+
+const settingsForm = $("settings-form");
+const lockInputs = { register_lock_days: $("register-lock-days"), unregister_lock_days: $("lock-days") };
+const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+
+// Structure affichée dans l'onglet : choisie (super administrateur) ou la sienne
+const scopedStructure = () =>
+  structures.find(st => st.id === (isSuper() ? typesScope : Session.user?.structure?.id));
+
+// "" → null ; entier 0..365 → nombre ; sinon undefined (invalide)
+function parseLock(input) {
+  const raw = input.value.trim();
+  if (raw === "") return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 365 ? n : undefined;
+}
+
+function renderLockPreview() {
+  const el = $("lock-days-preview");
+  const reg = parseLock(lockInputs.register_lock_days);
+  const unreg = parseLock(lockInputs.unregister_lock_days);
+  if (reg === undefined || unreg === undefined) {
+    el.textContent = "Nombre entier de 0 à 365, ou vide pour ne pas limiter.";
+    return;
+  }
+  // exemple parlant : un créneau le dimanche de la semaine prochaine
+  const slot = new Date();
+  slot.setDate(slot.getDate() + ((7 - slot.getDay()) % 7 || 7) + 7);
+  const until = n => {
+    if (n === null) return "jusqu'au jour même";
+    const d = new Date(slot);
+    d.setDate(d.getDate() - n - 1);
+    return `jusqu'au ${fmtWeekday.format(d)} inclus`;
+  };
+  el.textContent = `Exemple, pour un créneau le ${fmtWeekday.format(slot)} : inscription ${until(reg)}, ` +
+    `désinscription ${until(unreg)}. Champ vide : pas de limite. ` +
+    "Les administrateurs de la structure peuvent toujours retirer une inscription.";
+}
+
+function loadSettings() {
+  const st = scopedStructure();
+  settingsForm.hidden = !st;
+  $("settings-form-status").textContent = "";
+  if (!st) return;
+  for (const [k, input] of Object.entries(lockInputs)) input.value = st[k] ?? "";
+  renderLockPreview();
+}
+
+for (const input of Object.values(lockInputs)) input.addEventListener("input", renderLockPreview);
+
+settingsForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const status = $("settings-form-status");
+  const st = scopedStructure();
+  if (!st) return;
+  const body = {};
+  for (const [k, input] of Object.entries(lockInputs)) {
+    const v = parseLock(input);
+    if (v === undefined) {
+      status.textContent = "Nombre entier de 0 à 365, ou vide pour ne pas limiter.";
+      input.focus();
+      return;
+    }
+    body[k] = v;
+  }
+  status.textContent = "";
+  try {
+    const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
+    Object.assign(st, saved);
+    loadSettings();
+    $("settings-form-status").textContent = "Délais enregistrés.";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
 async function loadTypes() {
   const noStructure = isSuper() && !typesScope;
   typeForm.hidden = noStructure;
+  loadSettings();
   if (noStructure) {
     slotTypes = [];
     typesBody.innerHTML = `<tr><td colspan="5" class="empty">Créez d'abord une structure (onglet « Structures »).</td></tr>`;

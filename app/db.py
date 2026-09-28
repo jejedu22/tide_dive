@@ -70,10 +70,15 @@ CREATE TABLE IF NOT EXISTS school_holidays (
 
 -- Structures (clubs, groupes) : chacune a ses membres, ses types de créneaux
 -- et sa liste de créneaux choisis. Créées par un super administrateur.
+-- register_lock_days / unregister_lock_days : inscription / désinscription close
+-- à partir de J-N (N jours avant la date du créneau, heure de Paris) ;
+-- NULL = pas de limite (jusqu'au jour J).
 CREATE TABLE IF NOT EXISTS structures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    unregister_lock_days INTEGER CHECK (unregister_lock_days BETWEEN 0 AND 365),
+    register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365)
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
@@ -405,6 +410,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if col not in user_cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
 
+    # Délais d'inscription / de désinscription par structure (NULL = pas de limite)
+    structure_cols = _columns(conn, "structures")
+    for col in ("unregister_lock_days", "register_lock_days"):
+        if col not in structure_cols:
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} INTEGER CHECK ({col} BETWEEN 0 AND 365)")
+
 
 @contextmanager
 def get_conn():
@@ -675,6 +686,28 @@ def create_structure(name: str, created_at: str) -> int:
 def rename_structure(structure_id: int, name: str) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE structures SET name = ? WHERE id = ?", (name, structure_id))
+
+
+LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
+
+
+def update_structure_settings(structure_id: int, **fields) -> None:
+    """Met à jour les délais fournis (clés de LOCK_COLUMNS ; None = pas de limite)."""
+    fields = {k: v for k, v in fields.items() if k in LOCK_COLUMNS}
+    if not fields:
+        return
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE structures SET {sets} WHERE id = ?", (*fields.values(), structure_id))
+
+
+def get_lock_days(structure_id: int) -> dict[str, int | None]:
+    """{'register_lock_days': N | None, 'unregister_lock_days': N | None}"""
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {', '.join(LOCK_COLUMNS)} FROM structures WHERE id = ?", (structure_id,)
+        ).fetchone()
+    return {k: (row[k] if row else None) for k in LOCK_COLUMNS}
 
 
 def delete_structure(structure_id: int) -> None:

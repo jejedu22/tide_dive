@@ -1,5 +1,6 @@
 // « Créneaux choisis » : créneaux choisis par la structure de l'utilisateur.
-// Tout membre : s'inscrire / se désinscrire sur un créneau à venir.
+// Tout membre : s'inscrire / se désinscrire sur un créneau à venir, dans les
+// délais fixés par la structure (le serveur fait foi).
 // Administration de la structure : en plus, changer le type, retirer un
 // créneau (qui redevient disponible dans la recherche), retirer l'inscription
 // d'un membre.
@@ -23,6 +24,7 @@ const canPick = () => !!Session.user?.can.pick;
 
 const fmtDay = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
 const formatDay = iso => fmtDay.format(new Date(iso + "T12:00:00"));
+const nextDay = iso => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); };
 const fmtHeight = v => (v != null ? v.toFixed(2).replace(".", ",") : "–");
 const fmtCoef = c => (c != null ? Math.round(c) : "–");
 const coefClass = c => (c == null ? "" : c >= 90 ? "ve" : c <= 50 ? "me" : "");
@@ -49,9 +51,15 @@ function registrationsCell(p) {
     title="Voir les inscrits">${n}<span class="visually-hidden"> inscrit(s)</span></button>`;
   const button = p.past
     ? ""
-    : p.registered
-      ? `<button type="button" class="btn-quiet btn-small" data-act="unregister">Se désinscrire</button>`
-      : `<button type="button" class="btn-primary btn-small" data-act="register">S'inscrire</button>`;
+    : !p.registered
+      ? p.can_register
+        ? `<button type="button" class="btn-primary btn-small" data-act="register"
+             title="Inscription possible jusqu'au ${formatDay(p.register_until)} inclus">S'inscrire</button>`
+        : `<span class="reg-locked" title="Inscriptions closes depuis le ${formatDay(nextDay(p.register_until))} : contactez un administrateur de la structure">🔒 Inscriptions closes</span>`
+      : p.can_unregister
+        ? `<button type="button" class="btn-quiet btn-small" data-act="unregister"
+             title="Possible jusqu'au ${formatDay(p.unregister_until)} inclus">Se désinscrire</button>`
+        : `<span class="reg-locked" title="Désinscription close depuis le ${formatDay(nextDay(p.unregister_until))} : contactez un administrateur de la structure">🔒 Désinscription close</span>`;
   return `<div class="regs">${count}${button}</div>`;
 }
 
@@ -208,9 +216,18 @@ async function load() {
     statusEl.textContent = e.message;
     return;
   }
+  loadedDay = todayISO();
   renderTypeFilter();
   render();
 }
+
+// Les droits d'inscription dépendent de la date : un onglet resté ouvert (ou
+// rouvert le lendemain) se remet à jour quand on y revient, pour ne pas
+// proposer « S'inscrire » sur un créneau dont les inscriptions sont closes.
+let loadedDay = null;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && loadedDay && loadedDay !== todayISO() && Session.user?.can.view_selections) load();
+});
 
 bodyEl.addEventListener("change", async e => {
   const sel = e.target.closest("select[data-act=type]");

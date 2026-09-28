@@ -27,6 +27,17 @@ from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coe
 
 app = FastAPI(title="Aide au choix de plongées")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def _revalidate_static(request, call_next):
+    """Frontend : le navigateur revalide à chaque chargement (304 si inchangé,
+    grâce à l'ETag de StaticFiles). Sans cela, après une mise à jour, il peut
+    garder l'ancien JS en cache et afficher des boutons que l'API refuse."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
 # Comptes, préférences et administration (/api/auth, /api/me, /api/admin)
 app.include_router(auth.router)
 # Mot de passe oublié, invitations (/api/auth/forgot-password, /api/auth/reset-password…)

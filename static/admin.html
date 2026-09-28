@@ -26,7 +26,7 @@
         <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
         <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
         <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
-        <button type="button" role="tab" data-tab="types" aria-selected="false">Types de créneaux</button>
+        <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
       </div>
       <p id="flash" class="flash" role="status"></p>
@@ -182,6 +182,27 @@
           <select id="types-structure"></select>
           <strong id="types-structure-name"></strong>
         </p>
+        <form id="settings-form" class="panel settings-form" autocomplete="off">
+          <h2>Délais d'inscription</h2>
+          <div class="field">
+            <label for="register-lock-days">Inscription impossible à partir de</label>
+            <span class="lock-days">
+              <input id="register-lock-days" name="register_lock_days" type="number" min="0" max="365" step="1" inputmode="numeric" placeholder="—">
+              <span>jour(s) avant le créneau</span>
+            </span>
+          </div>
+          <div class="field">
+            <label for="lock-days">Désinscription impossible à partir de</label>
+            <span class="lock-days">
+              <input id="lock-days" name="unregister_lock_days" type="number" min="0" max="365" step="1" inputmode="numeric" placeholder="—">
+              <span>jour(s) avant le créneau</span>
+            </span>
+          </div>
+          <button type="submit" class="btn-primary">Enregistrer</button>
+          <p id="lock-days-preview" class="hint"></p>
+          <p id="settings-form-status" class="form-status" role="status"></p>
+        </form>
+
         <form id="type-form" class="panel type-form" autocomplete="off">
           <h2>Ajouter un type de créneau</h2>
           <div class="field">
