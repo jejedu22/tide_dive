@@ -26,26 +26,50 @@
         <label class="check"><input type="checkbox" id="only-mine"> Seulement mes inscriptions</label>
         <label class="check"><input type="checkbox" id="show-past"> Afficher les créneaux passés</label>
         <ul id="summary" class="picks-summary" aria-label="Répartition par type"></ul>
+        <div class="view-switch" role="group" aria-label="Affichage">
+          <button type="button" data-view="cal" aria-pressed="true">Calendrier</button>
+          <button type="button" data-view="list" aria-pressed="false">Liste</button>
+        </div>
       </div>
       <p id="status" role="status"></p>
-      <div class="table-wrap">
-        <table class="windows picks">
-          <thead>
-            <tr>
-              <th scope="col">Date</th>
-              <th scope="col"><abbr title="Heure de rendez-vous (étale − 2 h)">RDV</abbr></th>
-              <th scope="col">Port</th>
-              <th scope="col"><abbr title="Étale de pleine mer (PM) ou de basse mer (BM)">Étale</abbr></th>
-              <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
-              <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
-              <th scope="col">Type</th>
-              <th scope="col">Inscrits</th>
-              <th scope="col">Choisi par</th>
-              <th scope="col" class="c-actions"><span class="visually-hidden">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody id="picks-body"></tbody>
-        </table>
+      <p id="picks-empty" class="panel picks-empty" hidden></p>
+
+      <div id="cal-view" class="cal" hidden>
+        <div class="cal-head">
+          <button type="button" class="cal-nav" data-cal="prev" aria-label="Mois précédent">‹</button>
+          <h2 id="cal-title" class="cal-title"></h2>
+          <button type="button" class="cal-nav" data-cal="next" aria-label="Mois suivant">›</button>
+          <span id="cal-count" class="cal-count"></span>
+          <button type="button" class="btn-quiet btn-small cal-today" data-cal="today">Aujourd'hui</button>
+        </div>
+        <div class="cal-weekdays" aria-hidden="true">
+          <span>lun.</span><span>mar.</span><span>mer.</span><span>jeu.</span><span>ven.</span><span>sam.</span><span>dim.</span>
+        </div>
+        <div id="cal-grid" class="cal-grid" role="group" aria-labelledby="cal-title"></div>
+        <div id="day-panel" class="day-panel"></div>
+      </div>
+
+      <div id="list-view" hidden>
+        <div class="table-wrap" id="table-wrap">
+          <table class="windows picks">
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col"><abbr title="Heure de rendez-vous (étale − 2 h)">RDV</abbr></th>
+                <th scope="col">Port</th>
+                <th scope="col"><abbr title="Étale de pleine mer (PM) ou de basse mer (BM)">Étale</abbr></th>
+                <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
+                <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
+                <th scope="col">Type</th>
+                <th scope="col">Inscrits</th>
+                <th scope="col">Choisi par</th>
+                <th scope="col" class="c-actions"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="picks-body"></tbody>
+          </table>
+        </div>
+        <div id="list-cards" class="list-cards" hidden></div>
       </div>
       <p class="hint" id="picks-hint"></p>
     </section>
