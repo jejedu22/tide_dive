@@ -114,7 +114,7 @@ const TABLE_HEAD = `
       <th scope="col" class="c-pick-head">Choix</th>
     </tr>
     <tr class="filters">
-      <th>
+      <th data-label="Jour">
         <select data-f="day" aria-label="Filtrer par type de jour">
           <option value="">Tous</option>
           <option value="off">Week-end ou férié</option>
@@ -124,26 +124,26 @@ const TABLE_HEAD = `
           <option value="semaine">En semaine</option>
         </select>
       </th>
-      <th>
+      <th data-label="RDV">
         <div class="range stack">
           <input type="time" data-f="rdvMin" aria-label="RDV à partir de" title="RDV à partir de">
           <input type="time" data-f="rdvMax" aria-label="RDV jusqu'à" title="RDV jusqu'à">
         </div>
       </th>
-      <th>
+      <th data-label="Étale">
         <select data-f="kind" aria-label="Filtrer par étale">
           <option value="">Tous</option>
           <option value="PM">PM</option>
           <option value="BM">BM</option>
         </select>
       </th>
-      <th class="num">
+      <th class="num" data-label="Hauteur (m)">
         <div class="range">
           <input type="number" data-f="hMin" step="0.1" placeholder="min" aria-label="Hauteur minimale (m)">
           <input type="number" data-f="hMax" step="0.1" placeholder="max" aria-label="Hauteur maximale (m)">
         </div>
       </th>
-      <th class="num">
+      <th class="num" data-label="Coefficient">
         <div class="range">
           <input type="number" data-f="coefMin" min="20" max="120" step="1" placeholder="min" aria-label="Coefficient minimal">
           <input type="number" data-f="coefMax" min="20" max="120" step="1" placeholder="max" aria-label="Coefficient maximal">
@@ -152,7 +152,7 @@ const TABLE_HEAD = `
       <th colspan="3">
         <button type="button" class="reset-filters" disabled>Effacer les filtres</button>
       </th>
-      <th class="c-pick-head">
+      <th class="c-pick-head" data-label="Choix">
         <select data-f="pick" aria-label="Filtrer par choix">
           <option value="">Tous</option>
           <option value="free">Non choisis</option>
@@ -257,16 +257,16 @@ function buildRows(results) {
       const first = i === 0;
       const picked = pickedFor(r);
       rows.push(`
-        <tr class="${[first ? "day-start" : "", deco.classes, picked ? "is-picked" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}">
+        <tr class="${[first ? "day-start" : "", deco.classes, picked ? "is-picked" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}" data-day="${escapeHtml(formatDay(day))}">
           ${first ? `<th scope="row" rowspan="${span}" class="c-date"${deco.title ? ` title="${deco.title}"` : ""}>${formatDay(day)}${deco.notes}</th>` : ""}
-          <td class="c-rdv">${rdvCell(r)}</td>
-          <td class="c-tide"><span class="kind ${r.kind}">${r.kind}</span>${r.time}</td>
-          <td class="num">${fmtHeight(r.height_m)}</td>
-          <td class="num"><span class="coef ${coefClass(r.coefficient)}">${fmtCoef(r.coefficient)}</span></td>
-          <td class="c-win">${r.window.start}–${r.window.end}</td>
-          ${first ? `<td rowspan="${span}" class="c-sun">${pair(sun.sunrise, sun.sunset)}</td>` : ""}
-          ${first ? `<td rowspan="${span}" class="c-sun">${pair(sun.nautical_dawn, sun.nautical_dusk)}</td>` : ""}
-          <td class="c-pick">${pickCell(picked)}</td>
+          <td class="c-rdv" data-label="RDV">${rdvCell(r)}</td>
+          <td class="c-tide" data-label="Étale"><span class="kind ${r.kind}">${r.kind}</span>${r.time}</td>
+          <td class="num" data-label="Hauteur">${fmtHeight(r.height_m)}</td>
+          <td class="num" data-label="Coef"><span class="coef ${coefClass(r.coefficient)}">${fmtCoef(r.coefficient)}</span></td>
+          <td class="c-win" data-label="Fenêtre">${r.window.start}–${r.window.end}</td>
+          ${first ? `<td rowspan="${span}" class="c-sun" data-label="Soleil">${pair(sun.sunrise, sun.sunset)}</td>` : ""}
+          ${first ? `<td rowspan="${span}" class="c-sun" data-label="Nautique">${pair(sun.nautical_dawn, sun.nautical_dusk)}</td>` : ""}
+          <td class="c-pick" data-label="Choix">${pickCell(picked)}</td>
         </tr>`);
     });
   }

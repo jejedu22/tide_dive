@@ -191,12 +191,12 @@ function statusTag(j) {
 function renderJobs() {
   jobsBody.innerHTML = jobs.length ? jobs.map(j => `
     <tr data-id="${j.id}" class="${j.id === openJobId ? "is-open" : ""}">
-      <td class="num">${j.id}</td>
+      <td class="num" data-label="N°">${j.id}</td>
       <th scope="row">${esc(j.label)}</th>
-      <td>${statusTag(j)}</td>
-      <td>${esc(j.created_by)}</td>
-      <td>${stamp(j.created_at)}</td>
-      <td class="num">${fmtDuration(j.duration_s)}</td>
+      <td data-label="Statut">${statusTag(j)}</td>
+      <td data-label="Lancée par">${esc(j.created_by)}</td>
+      <td data-label="Créée">${stamp(j.created_at)}</td>
+      <td class="num" data-label="Durée">${fmtDuration(j.duration_s)}</td>
       <td class="actions">
         <button type="button" class="btn-quiet" data-act="log">Journal</button>
         ${["queued", "running"].includes(j.status) && !j.cancel_requested
@@ -334,10 +334,10 @@ function renderStructures() {
     return `
       <tr data-id="${st.id}">
         <th scope="row">${esc(st.name)}</th>
-        <td class="num">${st.managers || `<span class="tag job-failed" title="Personne ne peut choisir de créneaux ni gérer cette structure">aucun</span>`}</td>
-        <td class="num">${st.viewers}</td>
-        <td class="num">${st.types}</td>
-        <td class="num">${st.selections}</td>
+        <td class="num" data-label="Administration">${st.managers || `<span class="tag job-failed" title="Personne ne peut choisir de créneaux ni gérer cette structure">aucun</span>`}</td>
+        <td class="num" data-label="Visualisation">${st.viewers}</td>
+        <td class="num" data-label="Types">${st.types}</td>
+        <td class="num" data-label="Créneaux choisis">${st.selections}</td>
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="members">Membres</button>
           <button type="button" class="btn-quiet" data-act="types">Types</button>
@@ -470,10 +470,10 @@ function renderPorts() {
     return `
       <tr data-id="${p.id}">
         <th scope="row">${esc(p.name)}</th>
-        <td class="muted">${fmtNum(p.latitude, 4)}, ${fmtNum(p.longitude, 4)}</td>
-        <td class="num">${offset}</td>
-        <td>${years}</td>
-        <td><input type="checkbox" data-act="auto" ${p.auto_precompute ? "checked" : ""} aria-label="Recalcul annuel de ${esc(p.name)}"></td>
+        <td class="muted" data-label="Coordonnées">${fmtNum(p.latitude, 4)}, ${fmtNum(p.longitude, 4)}</td>
+        <td class="num" data-label="NM / ZH">${offset}</td>
+        <td data-label="Années calculées">${years}</td>
+        <td data-label="Recalcul annuel"><input type="checkbox" data-act="auto" ${p.auto_precompute ? "checked" : ""} aria-label="Recalcul annuel de ${esc(p.name)}"></td>
         <td class="actions">
           <input type="number" class="year-input" min="1990" max="2100" value="${defaultYear}" aria-label="Année à calculer">
           <button type="button" class="btn-secondary" data-act="compute" ${p.offset_zh_m == null ? "disabled title=\"Renseignez d'abord le niveau moyen\"" : ""}>Calculer</button>
@@ -735,15 +735,15 @@ async function loadTypes() {
 function renderTypes() {
   typesBody.innerHTML = slotTypes.length ? slotTypes.map((t, i) => `
     <tr data-id="${t.id}" class="${t.active ? "" : "inactive"}">
-      <td>
+      <td data-label="Ordre">
         <span class="order">
           <button type="button" class="btn-quiet" data-act="up" ${i === 0 ? "disabled" : ""} aria-label="Monter ${esc(t.label)}">▲</button>
           <button type="button" class="btn-quiet" data-act="down" ${i === slotTypes.length - 1 ? "disabled" : ""} aria-label="Descendre ${esc(t.label)}">▼</button>
         </span>
       </td>
       <th scope="row"><span class="type-pill" style="--type-color:${esc(t.color)}">${esc(t.label)}</span></th>
-      <td><input type="checkbox" data-act="active" ${t.active ? "checked" : ""} aria-label="Proposer ${esc(t.label)}"></td>
-      <td class="num">${t.uses}</td>
+      <td data-label="Proposé"><input type="checkbox" data-act="active" ${t.active ? "checked" : ""} aria-label="Proposer ${esc(t.label)}"></td>
+      <td class="num" data-label="Utilisé">${t.uses}</td>
       <td class="actions">
         <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
         <button type="button" class="btn-danger" data-act="delete" ${t.uses ? `disabled title="Utilisé : décochez « Proposé » à la place"` : ""}>Supprimer</button>
@@ -903,10 +903,10 @@ function renderUsers() {
           <span class="user-sub">${esc(u.username)}</span>
           ${statusTags(u)}
         </th>
-        <td class="contact">${contact}</td>
-        <td>${u.structure ? esc(u.structure.name) : `<span class="muted">–</span>`}</td>
-        <td>${roleCell(u)}</td>
-        <td title="Compte créé le ${stamp(u.created_at)}">${u.last_login_at ? stamp(u.last_login_at) : `<span class="muted">jamais</span>`}</td>
+        <td class="contact" data-label="Contact">${contact}</td>
+        <td data-label="Structure">${u.structure ? esc(u.structure.name) : `<span class="muted">–</span>`}</td>
+        <td data-label="Rôle">${roleCell(u)}</td>
+        <td data-label="Dernière connexion" title="Compte créé le ${stamp(u.created_at)}">${u.last_login_at ? stamp(u.last_login_at) : `<span class="muted">jamais</span>`}</td>
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           ${self ? "" : `<button type="button" class="btn-quiet" data-act="password">Mot de passe…</button>`}
@@ -1184,13 +1184,13 @@ function renderImportRows(result) {
     const ok = !r.errors.length;
     return `
       <tr class="${ok ? "" : "row-error"}">
-        <td class="num">${r.line}</td>
+        <td class="num" data-label="Ligne">${r.line}</td>
         <th scope="row">${esc([r.first_name, r.last_name].filter(Boolean).join(" ") || "–")}</th>
-        <td>${r.username ? `${esc(r.username)}${r.generated_username ? ` <span class="muted" title="Proposé à partir du nom">(auto)</span>` : ""}` : `<span class="muted">–</span>`}</td>
-        <td class="contact">${esc(r.email || "")}${r.phone ? `<br>${esc(r.phone)}` : ""}</td>
-        <td>${r.structure ? esc(r.structure.name) : `<span class="muted">–</span>`}</td>
-        <td><span class="tag role-${r.role}">${ROLE_LABELS[r.role]}</span></td>
-        <td class="check-cell">${ok ? `<span class="ok-mark">✓ prêt</span>` : r.errors.map(e => `<span class="err">${esc(e)}</span>`).join("<br>")}</td>
+        <td data-label="Identifiant">${r.username ? `${esc(r.username)}${r.generated_username ? ` <span class="muted" title="Proposé à partir du nom">(auto)</span>` : ""}` : `<span class="muted">–</span>`}</td>
+        <td class="contact" data-label="Contact">${esc(r.email || "")}${r.phone ? `<br>${esc(r.phone)}` : ""}</td>
+        <td data-label="Structure">${r.structure ? esc(r.structure.name) : `<span class="muted">–</span>`}</td>
+        <td data-label="Rôle"><span class="tag role-${r.role}">${ROLE_LABELS[r.role]}</span></td>
+        <td class="check-cell" data-label="Vérification">${ok ? `<span class="ok-mark">✓ prêt</span>` : r.errors.map(e => `<span class="err">${esc(e)}</span>`).join("<br>")}</td>
       </tr>`;
   }).join("");
 }

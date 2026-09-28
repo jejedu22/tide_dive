@@ -1174,3 +1174,232 @@ main.narrow-main { max-width: 32rem; }
   .slot-row .btn-small { padding: 0.45rem 0.8rem; font-size: 0.85rem; }   /* cibles tactiles */
   .reg-count { min-width: 2.1rem; height: 2.1rem; }
 }
+
+/* --- Page de choix des créneaux : responsive ------------------------------
+   ≤ 700 px : le tableau devient une liste de cartes (une par créneau),
+   la ligne de filtres un bloc de champs étiquetés. Les libellés viennent des
+   attributs data-label posés par app.js. */
+
+@media (max-width: 700px) {
+  /* Formulaire de recherche : cibles tactiles, 16 px pour éviter le zoom iOS */
+  .controls { padding: 1rem; gap: 0.75rem; }
+  .controls select,
+  .controls input[type="date"] { min-height: 2.75rem; font-size: 16px; }
+  button#search { min-height: 3rem; }
+  .prefs-bar { flex-wrap: wrap; }
+
+  /* Le cadre du tableau disparaît : chaque carte a son propre fond */
+  .results .table-wrap { overflow: visible; background: none; box-shadow: none; border-radius: 0; }
+  table.windows, .windows tbody { display: block; white-space: normal; font-size: 0.9rem; }
+
+  /* Filtres : bloc sombre, deux champs par ligne (plus de sticky : trop haut) */
+  .windows thead {
+    display: block;
+    position: static;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 12px;
+    background: var(--blue-deep);
+  }
+  .windows thead tr:first-child { display: none; }          /* titres de colonnes */
+  .windows tr.filters { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .windows tr.filters th {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0;
+    text-align: left;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .windows tr.filters th[data-label]::before { content: attr(data-label); }
+  .windows tr.filters th[colspan] { grid-column: 1 / -1; }
+  .windows .filters select,
+  .windows .filters input { width: 100%; min-width: 0; min-height: 2.5rem; font-size: 16px; }
+  .windows .filters select[data-f="day"] { max-width: none; }
+  .windows .filters .range,
+  .windows .filters .range.stack { flex-direction: row; }
+  .reset-filters { min-height: 2.5rem; font-size: 0.85rem; }
+
+  /* Cartes */
+  .windows tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem 1rem;
+    margin-bottom: 0.6rem;
+    padding: 0.75rem;
+    border: 0;
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0 2px 8px rgba(7, 59, 76, 0.08);
+  }
+  .windows tbody tr.weekend { background: var(--weekend-bg); }
+  .windows tbody tr.is-picked { background: var(--picked-bg); }   /* après weekend : le grisé l'emporte */
+  .windows tbody tr.is-picked > td:not(.c-sun):not(.c-pick) { background: none; }
+
+  .windows tbody th,
+  .windows tbody td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0;
+    text-align: left;
+  }
+  .windows tbody td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--blue-deep);
+  }
+
+  /* Date en titre de carte ; répétée (via data-day) quand la ligne n'est pas la 1re du jour */
+  .windows .c-date { grid-column: 1 / -1; display: block; font-size: 1rem; }
+  .windows tr.vacances .c-date { padding-left: 0.5rem; }
+  .windows tbody tr:not(.day-start)::before {
+    content: attr(data-day);
+    grid-column: 1 / -1;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--blue-deep);
+  }
+  .windows .c-win { grid-column: 1 / -1; }
+  .windows td.empty { grid-column: 1 / -1; justify-content: center; }
+
+  /* Choix du créneau : pleine largeur, gros boutons */
+  .windows td.c-pick {
+    grid-column: 1 / -1;
+    margin-top: 0.2rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #eef4f7;
+    background: none;
+  }
+  .windows td.c-pick::before { content: none; }
+  .windows td.c-pick select { flex: 1; max-width: none; min-height: 2.75rem; font-size: 16px; }
+  .windows td.c-pick .unpick { min-width: 2.75rem; min-height: 2.75rem; }
+}
+
+/* --- Administration : responsive -------------------------------------------
+   ≤ 700 px : onglets défilants, formulaires confortables au doigt, et les
+   tableaux (structures, ports, tâches, types, comptes, aperçu d'import)
+   deviennent des cartes. Libellés fournis par les attributs data-label
+   posés dans admin.js. */
+
+@media (max-width: 700px) {
+  main.admin-main { padding: 1rem 0.5rem; }
+  .panel { padding: 1rem; }
+  .account-btn { display: inline-flex; align-items: center; min-height: 2.5rem; }
+
+  /* Onglets : une seule ligne qui défile (le filet du bas passe en ombre interne
+     pour ne pas être rogné par le défilement) */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    border-bottom: 0;
+    box-shadow: inset 0 -2px 0 #cfe3ea;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs [role="tab"] { flex: 0 0 auto; margin-bottom: 0; padding: 0.7rem 0.8rem; white-space: nowrap; }
+
+  /* Champs : 16 px (pas de zoom iOS) et hauteur tactile */
+  .admin-main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not([type="file"]), select),
+  .account-dialog :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+    font-size: 16px;
+    min-height: 2.6rem;
+  }
+  .admin-main input[type="checkbox"],
+  .admin-main input[type="radio"] { width: 1.3rem; height: 1.3rem; flex: none; }
+  .admin-main .check { align-items: flex-start; }
+  .btn-primary, .btn-secondary, .btn-quiet, .btn-danger { min-height: 2.5rem; }
+  .dialog-actions button { min-height: 2.6rem; }
+  .account-dialog { padding: 1.1rem; }
+
+  /* Formulaires en ligne : le libellé prend la ligne, champs et boutons s'étirent */
+  .inline-form > label { flex: 1 1 100%; }
+  .inline-form input:not([type="number"]),
+  .inline-form select { flex: 1 1 12rem; }
+  .inline-form button { flex: 1 1 auto; }
+  .panel-head .inline-form { width: 100%; }
+  .panel-head .inline-form [data-super] { display: flex; flex: 1 1 100%; min-width: 0; align-items: center; gap: 0.5rem; }
+  .panel-head .inline-form [data-super] select { flex: 1; }
+  #users-search { flex: 1 1 100%; min-width: 0; }
+  .scope-bar select { flex: 1 1 12rem; }
+  .password-block { margin-left: 0; }
+  .import-grid button { width: 100%; }
+
+  /* Données et tâches */
+  .sources { grid-template-columns: 1fr; }
+  .source > button { align-self: stretch; }
+  .job-log-head { flex-wrap: wrap; }
+  .job-log pre { max-height: 60vh; font-size: 0.75rem; }
+
+  /* Tableaux → cartes */
+  .panel .table-wrap { overflow: visible; border: 0; background: none; }
+  table.users, .users tbody { display: block; white-space: normal; font-size: 0.9rem; }
+  .users thead { display: none; }
+
+  .users tbody tr,
+  .users tbody tr + tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.6rem;
+    padding: 0.75rem;
+    border: 1px solid #d8e8ee;
+    border-radius: 12px;
+    background: white;
+  }
+  .users tbody th,
+  .users tbody td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .users tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.1rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #607d8b;
+  }
+  .users .num { text-align: left; }
+
+  /* Le titre de la carte (cellule d'en-tête de ligne) passe en premier */
+  .users tbody th[scope="row"] { order: -1; grid-column: 1 / -1; min-width: 0; font-size: 1rem; }
+  .users td.contact,
+  .users td.check-cell { grid-column: 1 / -1; min-width: 0; }
+  .users td.empty { grid-column: 1 / -1; text-align: center; }
+
+  /* Actions : ligne en bas de carte, boutons tactiles */
+  .users tbody td.actions {
+    order: 99;
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #eef4f7;
+  }
+  .users tbody td.actions button { flex: 1 1 auto; min-height: 2.5rem; padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+  .users .year-input { width: 5.2em; min-height: 2.5rem; font-size: 16px; }
+  .types .order button { min-width: 2.5rem; min-height: 2.5rem; }
+}
+
+/* Administration : les éléments de grille peuvent rétrécir sous la largeur de leur
+   contenu ; sans cela, un tableau (white-space: nowrap) ou une liste déroulante à
+   longues options élargit toute la page au lieu de défiler dans son cadre. */
+.admin, .admin > *, .tab-panel > * { min-width: 0; }
+
+@media (max-width: 700px) {
+  .admin-main select { max-width: 100%; min-width: 0; }
+  .admin-main .field { min-width: 0; }
+  .admin-main .field :is(input:not([type="checkbox"]):not([type="radio"]), select) { width: 100%; max-width: 100%; }
+}
