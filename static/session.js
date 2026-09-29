@@ -255,9 +255,7 @@ const Session = (() => {
         { name: "username", label: "Identifiant ou adresse e-mail", autocomplete: "username", value: prefill },
         { name: "password", label: "Mot de passe", type: "password", autocomplete: "current-password" },
       ],
-      extra: config.password_reset
-        ? `<p class="dialog-links"><button type="button" class="link-btn" data-forgot>Mot de passe oublié ?</button></p>`
-        : "",
+      extra: `<p class="dialog-links"><button type="button" class="link-btn" data-forgot>Mot de passe oublié ?</button></p>`,
       onSubmit: v => login(v.username.trim(), v.password),
       setup: form => form.querySelector("[data-forgot]")?.addEventListener("click", () => {
         openForgot(form.username.value.trim());
@@ -266,6 +264,14 @@ const Session = (() => {
   }
 
   function openForgot(prefill = "") {
+    // sans envoi d'e-mails configuré sur le serveur, seul un administrateur peut aider
+    if (!config.password_reset) {
+      openMessage("Mot de passe oublié",
+        `<p>La réinitialisation par e-mail n'est pas disponible : contactez un administrateur de votre structure pour qu'il vous envoie un nouveau lien ou réinitialise votre mot de passe.</p>
+         <p><button type="button" class="btn-secondary" data-back-login>Retour à la connexion</button></p>`);
+      document.querySelector("dialog[open] [data-back-login]")?.addEventListener("click", () => openLogin(prefill));
+      return;
+    }
     openForm({
       title: "Mot de passe oublié",
       intro: `<p class="dialog-hint">Indiquez votre identifiant ou votre adresse e-mail : vous recevrez un mot de passe provisoire, à remplacer par le vôtre dès la connexion.</p>`,
