@@ -208,15 +208,44 @@ def compute_year_series(
     return timestamps, heights
 
 
+# Voisinage qu'un extremum doit dominer, en temps (indépendant du pas) : évite
+# de prendre de petites ondulations (tenue du plein) pour des étales.
+EXTREMA_NEIGHBORHOOD = timedelta(minutes=30)
+
+
+def _refine_parabola(t_mid: datetime, step: timedelta, y0: float, y1: float, y2: float) -> tuple[datetime, float]:
+    """
+    Sommet de la parabole passant par trois points équidistants (y1 = extremum
+    échantillonné) : heure et hauteur de l'étale entre deux pas de temps.
+    Précision de l'ordre de la seconde au lieu de ± un demi-pas.
+    """
+    denom = y0 - 2 * y1 + y2
+    if denom == 0:  # plateau parfait : l'échantillon central est le sommet
+        return t_mid, y1
+    delta = 0.5 * (y0 - y2) / denom           # en pas, dans [-0.5, 0.5] pour un vrai extremum
+    delta = max(-1.0, min(1.0, delta))        # garde-fou (plateau non centré)
+    return t_mid + delta * step, y1 - 0.25 * (y0 - y2) * delta
+
+
+def _round_minute(t: datetime) -> datetime:
+    """Heure arrondie à la minute : horodatages ts_utc au format habituel (:00)."""
+    return (t + timedelta(seconds=30)).replace(second=0, microsecond=0)
+
+
 def find_extrema(
     timestamps: list[datetime], heights: np.ndarray
 ) -> list[tuple[datetime, str, float]]:
-    """Détecte les pleines mers (PM) et basses mers (BM) dans une série continue."""
+    """
+    Détecte les pleines mers (PM) et basses mers (BM) dans une série continue
+    au pas régulier, puis affine chacune par interpolation parabolique.
+    """
     from scipy.signal import argrelextrema
 
     heights = np.asarray(heights)
-    highs = argrelextrema(heights, np.greater_equal, order=3)[0]
-    lows = argrelextrema(heights, np.less_equal, order=3)[0]
+    step = timestamps[1] - timestamps[0]
+    order = max(1, round(EXTREMA_NEIGHBORHOOD / step))
+    highs = argrelextrema(heights, np.greater_equal, order=order)[0]
+    lows = argrelextrema(heights, np.less_equal, order=order)[0]
 
     # argrelextrema peut renvoyer des plateaux (plusieurs indices consécutifs
     # égaux) : on ne garde que le point central de chaque plateau.
@@ -232,11 +261,17 @@ def find_extrema(
             result.append(group[len(group) // 2])
         return result
 
+    def refined(idx: int) -> tuple[datetime, float]:
+        if idx == 0 or idx == len(heights) - 1:  # bord de série : pas de voisin des deux côtés
+            return timestamps[idx], float(heights[idx])
+        t, h = _refine_parabola(timestamps[idx], step, *map(float, heights[idx - 1:idx + 2]))
+        return _round_minute(t), float(h)
+
     extrema = []
-    for idx in dedupe(highs):
-        extrema.append((timestamps[idx], "PM", float(heights[idx])))
-    for idx in dedupe(lows):
-        extrema.append((timestamps[idx], "BM", float(heights[idx])))
+    for kind, indices in (("PM", highs), ("BM", lows)):
+        for idx in dedupe(indices):
+            t, h = refined(idx)
+            extrema.append((t, kind, h))
     extrema.sort(key=lambda e: e[0])
     return extrema
 

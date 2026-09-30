@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -536,6 +537,7 @@ def replace_year(
     sun_rows : (date YYYY-MM-DD, sunrise, sunset, nautical_dawn, nautical_dusk)
     """
     start, end = _year_bounds(year)
+    extrema = list(extrema)
     with get_conn() as conn:
         conn.execute(
             "DELETE FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
@@ -555,6 +557,45 @@ def replace_year(
             [(port_id, ts, kind, h, coef) for ts, kind, h, coef in extrema],
         )
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in sun_rows])
+        _rebind_selections(conn, port_id, start, end, extrema)
+
+
+# Écart maximal entre l'ancienne et la nouvelle heure d'une étale pour
+# considérer qu'il s'agit de la même (recalcul, changement de modèle ou de méthode)
+REBIND_TOLERANCE = timedelta(minutes=20)
+
+
+def _rebind_selections(conn, port_id: int, start: str, end: str, extrema: list) -> None:
+    """
+    Recale les créneaux choisis de l'année sur les étales recalculées : un
+    recalcul peut décaler l'horodatage de quelques minutes, et le créneau ne
+    serait plus reconnu dans la recherche (ni protégé contre un second choix).
+    On prend l'étale de même nature la plus proche, dans la tolérance. Les
+    champs d'affichage figés au moment du choix ne changent pas.
+    """
+    by_kind: dict[str, list[tuple[datetime, str]]] = {"PM": [], "BM": []}
+    for ts, kind, _, _ in extrema:
+        by_kind[kind].append((datetime.fromisoformat(ts), ts))
+    known = {ts for ts, *_ in extrema}
+    rows = conn.execute(
+        "SELECT id, structure_id, ts_utc, kind FROM slot_selections "
+        "WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
+        (port_id, start, end),
+    ).fetchall()
+    for r in rows:
+        if r["ts_utc"] in known:
+            continue
+        old = datetime.fromisoformat(r["ts_utc"])
+        near = [(abs(t - old), ts) for t, ts in by_kind[r["kind"]] if abs(t - old) <= REBIND_TOLERANCE]
+        if not near:
+            continue  # étale disparue : le choix reste, avec ses champs figés
+        new_ts = min(near)[1]
+        taken = conn.execute(
+            "SELECT 1 FROM slot_selections WHERE structure_id = ? AND port_id = ? AND ts_utc = ?",
+            (r["structure_id"], port_id, new_ts),
+        ).fetchone()
+        if not taken:
+            conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (new_ts, r["id"]))
 
 
 def clear_port_data(port_id: int) -> None:

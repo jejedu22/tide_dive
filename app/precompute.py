@@ -16,7 +16,8 @@ Exemples
 Ce script :
   1. calcule la hauteur d'eau toute l'année au pas de 10 min via pyTMD
      (modèle FES2014/2022, cf. tide_model.py) ;
-  2. en déduit les pleines mers / basses mers (extrema locaux) ;
+  2. en déduit les pleines mers / basses mers (extrema locaux), affinées
+     par interpolation parabolique entre deux pas de temps ;
   3. attribue à chaque pleine mer le coefficient de marée de la pleine mer
      de BREST la plus proche dans le temps (le coefficient est défini à
      Brest pour toutes les côtes françaises). La série de Brest est

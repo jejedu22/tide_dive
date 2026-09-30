@@ -35,7 +35,7 @@ AVISO+ (FES NetCDF) ──► precompute.py ──► data/plongee.db ──► 
 Pour un port et une année, `precompute.py` :
 
 1. calcule la hauteur d'eau toute l'année au pas de 10 min (≈ 52 000 points) ;
-2. détecte les pleines mers (PM) et basses mers (BM) ;
+2. détecte les pleines mers (PM) et basses mers (BM), puis affine l'heure et la hauteur de chacune par interpolation parabolique entre les points de 10 min (précision de la minute) ;
 3. attribue à chaque PM le coefficient de la PM de **Brest** la plus proche (±6 h), la série de Brest étant calculée dans le même run ;
 4. calcule les horaires solaires jour par jour ;
 5. remplace en base les données de **cette année uniquement**, en une transaction : les autres années sont conservées, et un échec laisse la base intacte.
@@ -422,6 +422,7 @@ Choix techniques à connaître :
 - **Pourquoi pas une API ?** api-maree.fr limite ses horaires à une fenêtre glissante J−30 / J+30, et les API SHOM ne permettent pas de récupération multi-mois gratuite. Un précalcul annuel exige un calcul local.
 - **Mémoire** : seules les 8 ondes principales (+ 2N2, requise pour l'inférence des ondes secondaires) sont chargées, sur une fenêtre de grille de ±0,5° autour du port. Charger tout FES provoque des OOM.
 - **Courants FES2014 non requis** : seul le groupe « z » (hauteurs) est utilisé ; la définition pyTMD est réduite en conséquence.
+- **Heure des étales** : la série est calculée au pas de 10 min, mais chaque PM/BM est affinée par interpolation parabolique sur les trois points qui l'entourent, puis arrondie à la minute. Un pas d'une minute donnerait le même résultat pour ~10 fois plus de calcul et de place en base. Un recalcul qui décale une étale de quelques minutes (≤ 20 min) y recale automatiquement les créneaux choisis.
 - **pyTMD** : l'API bas niveau est utilisée plutôt que `tide_elevations()`, dont le comportement s'est révélé instable.
 
 ## Structure du projet
