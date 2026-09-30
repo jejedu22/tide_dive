@@ -50,9 +50,22 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def default_fes_model() -> str:
-    m = os.environ.get("FES_MODEL", "FES2014")
-    return m if m in FES_MODELS else "FES2014"
+MODEL_SETTING = "tide_model"
+
+
+def env_fes_model() -> str:
+    """Modèle par défaut tant qu'aucun n'a été choisi dans l'administration."""
+    for var in ("FES_MODEL", "TIDE_MODEL_NAME"):
+        m = os.environ.get(var)
+        if m in FES_MODELS:
+            return m
+    return "FES2014"
+
+
+def current_fes_model() -> str:
+    """Modèle utilisé pour les calculs : choix de l'administration, sinon l'environnement."""
+    m = db.get_setting(MODEL_SETTING)
+    return m if m in FES_MODELS else env_fes_model()
 
 
 # ---------------------------------------------------------------------------
@@ -66,9 +79,13 @@ def normalize_params(kind: str, params: dict) -> dict:
         port_id, year = int(params["port_id"]), int(params["year"])
         if not 1990 <= year <= 2100:
             raise ValueError("année hors plage (1990–2100)")
-        return {"port_id": port_id, "year": year}
+        # modèle figé à la mise en file : un changement de réglage ne touche pas les tâches déjà prévues
+        model = params.get("model") or current_fes_model()
+        if model not in FES_MODELS:
+            raise ValueError(f"modèle inconnu : {model}")
+        return {"port_id": port_id, "year": year, "model": model}
     if kind == "fetch_models":
-        model = params.get("model") or default_fes_model()
+        model = params.get("model") or current_fes_model()
         if model not in FES_MODELS:
             raise ValueError(f"modèle inconnu : {model}")
         return {"model": model}
@@ -81,7 +98,8 @@ def build_command(kind: str, params: dict) -> list[str]:
     params = normalize_params(kind, params)
     if kind == "precompute":
         return [sys.executable, "-m", "app.precompute",
-                "--port-id", str(params["port_id"]), "--year", str(params["year"])]
+                "--port-id", str(params["port_id"]), "--year", str(params["year"]),
+                "--model", params["model"]]
     if kind == "fetch_models":
         exe = shutil.which("fetch_aviso_fes.py") or "fetch_aviso_fes.py"
         return [exe, "--directory", MODEL_DIR, "--tide", params["model"]]
@@ -101,7 +119,8 @@ def preflight(kind: str) -> str | None:
 def job_label(kind: str, params: dict, port_names: dict[int, str]) -> str:
     if kind == "precompute":
         pid = params.get("port_id")
-        return f"Précalcul {port_names.get(pid, f'port #{pid}')} {params.get('year')}"
+        model = f" ({params['model']})" if params.get("model") else ""
+        return f"Précalcul {port_names.get(pid, f'port #{pid}')} {params.get('year')}{model}"
     if kind == "fetch_models":
         return f"Téléchargement {params.get('model')} (AVISO+)"
     if kind == "school_holidays":
@@ -136,7 +155,6 @@ class Worker:
         self.current_job: int | None = None
         self.info = json.dumps({
             "aviso_configured": bool(os.environ.get("AVISO_USERNAME") and os.environ.get("AVISO_PASSWORD")),
-            "fes_model": default_fes_model(),
             "model_dir_writable": os.access(MODEL_DIR, os.W_OK),
             "pid": os.getpid(),
         })

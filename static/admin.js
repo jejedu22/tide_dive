@@ -117,6 +117,7 @@ const seeJobs = `<a href="#donnees" data-goto="donnees">Suivre dans « Données 
 let status = null;
 
 async function loadStatus() {
+  const before = status?.fes_model;
   try {
     status = await Session.api("/api/admin/status");
   } catch (e) {
@@ -124,6 +125,8 @@ async function loadStatus() {
   }
   renderWorkerBanner();
   renderSources();
+  // les années des ports sont signalées par rapport au modèle actuel
+  if (status.fes_model !== before) renderPorts();
 }
 
 function renderWorkerBanner() {
@@ -156,9 +159,19 @@ function renderSources() {
   }
   $("fes-summary").innerHTML = fes;
 
+  // Modèle des calculs : liste avec l'état de téléchargement de chaque modèle
+  const avail = f => (f.available === true ? "téléchargé" : f.available === false ? "non téléchargé" : "état inconnu");
+  const calc = $("calc-model");
+  const keep = calc.dataset.dirty === "1" ? calc.value : status.fes_model;
+  calc.innerHTML = status.fes_models.map(f =>
+    `<option value="${esc(f.model)}">${esc(f.model)} (${avail(f)})</option>`).join("");
+  calc.value = keep;
+  renderModelNote();
+
+  // Téléchargement : par défaut le modèle des calculs, puis le dernier choisi
   const sel = $("fes-model");
   if (!sel.options.length) {
-    sel.innerHTML = status.fes_models.map(x => `<option${x === status.fes_default ? " selected" : ""}>${esc(x)}</option>`).join("");
+    sel.innerHTML = status.fes_models.map(f => `<option${f.model === status.fes_model ? " selected" : ""}>${esc(f.model)}</option>`).join("");
   }
 
   const h = status.school_holidays;
@@ -287,6 +300,39 @@ async function enqueue(kind, params) {
     return null;
   }
 }
+
+function renderModelNote() {
+  const calc = $("calc-model");
+  const f = status.fes_models.find(x => x.model === calc.value);
+  const dirty = calc.value !== status.fes_model;
+  calc.dataset.dirty = dirty ? "1" : "";
+  $("calc-model-save").disabled = !dirty;
+  const parts = [];
+  if (f?.available === false) {
+    parts.push(`<strong>${esc(f.model)} n'est pas téléchargé</strong> (${f.missing}/${f.expected} fichiers manquants) : les calculs échoueront tant qu'il ne l'est pas.`);
+  }
+  parts.push(dirty
+    ? "Non enregistré."
+    : "S'applique aux prochains calculs, y compris le calcul annuel automatique. Les années déjà calculées gardent leur modèle (visible dans l'onglet Ports) : relancez-les pour en changer.");
+  $("calc-model-note").innerHTML = parts.join(" ");
+}
+
+$("calc-model").addEventListener("change", renderModelNote);
+
+$("model-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const model = $("calc-model").value;
+  try {
+    const r = await Session.api("/api/admin/settings/tide-model", { method: "PUT", body: { model } });
+    status.fes_model = r.fes_model;
+    $("calc-model").dataset.dirty = "";
+    flash(`Les prochains calculs utiliseront ${esc(r.fes_model)}.`);
+    renderSources();
+    renderPorts();
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
 
 $("fes-form").addEventListener("submit", e => {
   e.preventDefault();
@@ -459,10 +505,20 @@ async function loadPorts() {
       `<option value="${i}">${esc(p.name)}${p.offset_zh_m ? "" : " (niveau moyen à renseigner)"}</option>`).join("")}</optgroup>` : "");
 }
 
+// Année calculée : son modèle en info-bulle, signalée si ce n'est pas le modèle actuel
+function yearTag(year, model) {
+  const current = status?.fes_model;
+  if (!model) return `<span class="tag" title="Modèle non enregistré (calcul antérieur)">${year}</span>`;
+  if (current && model !== current) {
+    return `<span class="tag tag-stale" title="Calculée avec ${esc(model)} ; modèle actuel : ${esc(current)}. Relancez le calcul pour la mettre à jour.">${year} · ${esc(model)}</span>`;
+  }
+  return `<span class="tag" title="Calculée avec ${esc(model)}">${year}</span>`;
+}
+
 function renderPorts() {
   portsBody.innerHTML = ports.length ? ports.map(p => {
     const years = p.years.length
-      ? p.years.map(y => `<span class="tag">${y}</span>`).join(" ")
+      ? p.years.map(y => yearTag(y, p.year_models[y])).join(" ")
       : `<span class="muted">aucune</span>`;
     const offset = p.offset_zh_m != null
       ? `${fmtNum(p.offset_zh_m, 2)} m`

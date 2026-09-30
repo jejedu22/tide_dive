@@ -35,7 +35,7 @@ AVISO+ (FES NetCDF) ──► precompute.py ──► data/plongee.db ──► 
 Pour un port et une année, `precompute.py` :
 
 1. calcule la hauteur d'eau toute l'année au pas de 10 min (≈ 52 000 points) ;
-2. détecte les pleines mers (PM) et basses mers (BM) ;
+2. détecte les pleines mers (PM) et basses mers (BM), puis affine l'heure et la hauteur de chacune par interpolation parabolique entre les points de 10 min (précision de la minute) ;
 3. attribue à chaque PM le coefficient de la PM de **Brest** la plus proche (±6 h), la série de Brest étant calculée dans le même run ;
 4. calcule les horaires solaires jour par jour ;
 5. remplace en base les données de **cette année uniquement**, en une transaction : les autres années sont conservées, et un échec laisse la base intacte.
@@ -91,7 +91,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | Variable | Défaut | Description |
 |---|---|---|
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
-| `FES_MODEL` | `FES2014` | Modèle à télécharger (`FES2014` ou `FES2022`) |
+| `FES_MODEL` | `FES2014` | Modèle par défaut (`FES2014` ou `FES2022`), pour le téléchargement et les calculs, tant qu'aucun n'est choisi dans l'administration |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
 | `API_PORT` | `8000` | Port exposé sur l'hôte |
 | `HOST_UID`, `HOST_GID` | `1000` | Utilisateur propriétaire de `./data` et `./models` |
@@ -99,7 +99,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 
 Côté application, `tide_model.py` lit `TIDE_MODEL_DIRECTORY` (fixé à `/models` dans les conteneurs) et `TIDE_MODEL_NAME` (défaut `FES2014`).
 
-> **FES2022** : `FES_MODEL` ne pilote que le téléchargement. Pour calculer avec FES2022, ajouter aussi `TIDE_MODEL_NAME: FES2022` dans l'environnement du compose, ou passer `--model FES2022` à `precompute`.
+> **Choix du modèle** : le modèle utilisé pour les calculs se choisit dans l'administration (**Données et tâches → Modèle utilisé pour les calculs**) et est enregistré en base ; `FES_MODEL` ne sert que tant qu'aucun choix n'a été fait. Télécharger le modèle avant de lancer des calculs avec lui.
 
 ### Derrière Traefik
 
@@ -124,7 +124,7 @@ export AVISO_USERNAME=... AVISO_PASSWORD=...
 fetch_aviso_fes.py --directory /data/tide_models --tide FES2014
 
 export TIDE_MODEL_DIRECTORY=/data/tide_models
-export TIDE_MODEL_NAME=FES2014        # ou FES2022
+export FES_MODEL=FES2014              # ou FES2022 (défaut, sauf choix fait dans l'administration)
 ```
 
 Précalculer puis lancer :
@@ -152,7 +152,7 @@ python -m app.precompute --name "Caffa (Erquy)" --lat 48.646 --lon -2.478 --offs
 | `--name`, `--lat`, `--lon` | Point personnalisé (remplace `--port`) |
 | `--offset-zh` | Niveau moyen au-dessus du zéro des cartes, en m ; prioritaire sur le catalogue |
 | `--year` | Année à calculer (obligatoire) |
-| `--model` | Modèle pyTMD (défaut : `TIDE_MODEL_NAME` ou `FES2014`) |
+| `--model` | Modèle pyTMD (défaut : modèle choisi dans l'administration, sinon `FES_MODEL`, sinon `FES2014`) |
 | `--timezone` | Défaut `Europe/Paris` |
 | `--step-minutes` | Pas de calcul, défaut 10 |
 
@@ -176,15 +176,15 @@ Le coefficient (échelle 20–120) est une notion française définie à Brest. 
 
 La page `/admin.html` (administrateurs) comporte trois onglets.
 
-**Ports** : ajout depuis le catalogue (`app/ports_catalog.py`) ou en saisie libre, modification, suppression (avec toutes les données calculées du port), case « recalcul annuel », et bouton **Calculer** par port et par année, ou pour tous les ports annuels d'un coup. Un port sans niveau moyen au-dessus du zéro des cartes peut être enregistré mais pas calculé. La page de recherche ne propose que les ports ayant au moins une année calculée.
+**Ports** : ajout depuis le catalogue (`app/ports_catalog.py`) ou en saisie libre, modification, suppression (avec toutes les données calculées du port), case « recalcul annuel », années calculées (le modèle utilisé en info-bulle ; une année calculée avec un autre modèle que le modèle actuel est signalée), et bouton **Calculer** par port et par année, ou pour tous les ports annuels d'un coup. Un port sans niveau moyen au-dessus du zéro des cartes peut être enregistré mais pas calculé. La page de recherche ne propose que les ports ayant au moins une année calculée.
 
-**Données et tâches** : état du modèle FES (taille, date de mise à jour), téléchargement / mise à jour depuis AVISO+, synchronisation des vacances scolaires, et liste des tâches avec statut, durée, journal en direct et annulation.
+**Données et tâches** : choix du modèle utilisé pour les calculs (FES2014 ou FES2022, avec l'état de téléchargement de chacun), état du modèle FES (taille, date de mise à jour), téléchargement / mise à jour depuis AVISO+, synchronisation des vacances scolaires, et liste des tâches avec statut, durée, journal en direct et annulation.
 
 **Utilisateurs** : voir [Comptes et préférences](#comptes-et-préférences).
 
 ### File de tâches
 
-L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs`, et le service `worker` (`python -m app.jobs worker`) les exécute **une par une** en sous-processus, en recopiant leur sortie dans le journal. Un précalcul peut donc occuper ses 4 Go sans toucher au serveur web, et deux calculs ne se marchent pas dessus. Une tâche identique déjà en attente ou en cours n'est pas dupliquée.
+L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs`, et le service `worker` (`python -m app.jobs worker`) les exécute **une par une** en sous-processus, en recopiant leur sortie dans le journal. Un précalcul peut donc occuper ses 4 Go sans toucher au serveur web, et deux calculs ne se marchent pas dessus. Une tâche identique déjà en attente ou en cours n'est pas dupliquée. Chaque tâche de calcul retient le modèle choisi au moment de sa mise en file (visible dans son libellé) : changer de modèle ne modifie pas les tâches déjà prévues.
 
 - Si le worker est arrêté, un bandeau le signale dans l'administration et les tâches restent en attente.
 - Sans identifiants AVISO+, le téléchargement est refusé avec un message clair (le script de pyTMD attendrait sinon une saisie au clavier).
@@ -422,6 +422,7 @@ Choix techniques à connaître :
 - **Pourquoi pas une API ?** api-maree.fr limite ses horaires à une fenêtre glissante J−30 / J+30, et les API SHOM ne permettent pas de récupération multi-mois gratuite. Un précalcul annuel exige un calcul local.
 - **Mémoire** : seules les 8 ondes principales (+ 2N2, requise pour l'inférence des ondes secondaires) sont chargées, sur une fenêtre de grille de ±0,5° autour du port. Charger tout FES provoque des OOM.
 - **Courants FES2014 non requis** : seul le groupe « z » (hauteurs) est utilisé ; la définition pyTMD est réduite en conséquence.
+- **Heure des étales** : la série est calculée au pas de 10 min, mais chaque PM/BM est affinée par interpolation parabolique sur les trois points qui l'entourent, puis arrondie à la minute. Un pas d'une minute donnerait le même résultat pour ~10 fois plus de calcul et de place en base. Un recalcul qui décale une étale de quelques minutes (≤ 20 min) y recale automatiquement les créneaux choisis.
 - **pyTMD** : l'API bas niveau est utilisée plutôt que `tide_elevations()`, dont le comportement s'est révélé instable.
 
 ## Structure du projet

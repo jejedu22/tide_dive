@@ -16,7 +16,8 @@ Exemples
 Ce script :
   1. calcule la hauteur d'eau toute l'année au pas de 10 min via pyTMD
      (modèle FES2014/2022, cf. tide_model.py) ;
-  2. en déduit les pleines mers / basses mers (extrema locaux) ;
+  2. en déduit les pleines mers / basses mers (extrema locaux), affinées
+     par interpolation parabolique entre deux pas de temps ;
   3. attribue à chaque pleine mer le coefficient de marée de la pleine mer
      de BREST la plus proche dans le temps (le coefficient est défini à
      Brest pour toutes les côtes françaises). La série de Brest est
@@ -47,7 +48,7 @@ import sys
 
 import pandas as pd
 
-from . import calendar_fr, db, tide_model, twilight
+from . import calendar_fr, db, jobs, tide_model, twilight
 from .ports_catalog import PORTS
 
 BREST_NAME = "Brest"
@@ -112,8 +113,8 @@ def compute_series(lat: float, lon: float, year: int, step_minutes: int, model: 
     except FileNotFoundError as exc:
         print(
             f"\nERREUR : fichier du modèle de marée introuvable : {exc}\n"
-            "As-tu téléchargé le modèle (docker compose run --rm fetch-models)\n"
-            "et défini TIDE_MODEL_DIRECTORY ? Voir README.md.\n",
+            f"Le modèle {model} a-t-il été téléchargé (administration → Données et tâches,\n"
+            "ou docker compose run --rm fetch-models) dans TIDE_MODEL_DIRECTORY ? Voir README.md.\n",
             file=sys.stderr,
         )
         raise SystemExit(1) from exc
@@ -171,16 +172,19 @@ def main() -> None:
     parser.add_argument("--year", type=int, required=True, help="Année à précalculer, ex. 2027")
     parser.add_argument("--timezone", default="Europe/Paris")
     parser.add_argument("--step-minutes", type=int, default=10)
-    parser.add_argument("--model", default=None, help="Nom du modèle pyTMD (défaut: TIDE_MODEL_NAME ou FES2014)")
+    parser.add_argument("--model", default=None,
+                        help="Nom du modèle pyTMD (défaut : modèle choisi dans l'administration, sinon FES_MODEL, sinon FES2014)")
     args = parser.parse_args()
 
     db.init_db()
+    args.model = args.model or jobs.current_fes_model()
 
     name, lat, lon, offset_zh = resolve_port(args)
     port_id = args.port_id or db.upsert_port(name, lat, lon, args.timezone, offset_zh)
     print(f"[{name}] port_id={port_id} lat={lat} lon={lon} offset_zh={offset_zh:+.2f} m")
 
     # 1. Tous les calculs se font en mémoire ; rien n'est écrit avant la fin.
+    print(f"[{name}] modèle de marée : {args.model}")
     print(f"[{name}] calcul de la hauteur d'eau {args.year} (pas {args.step_minutes} min) via pyTMD…")
     timestamps, heights = compute_series(lat, lon, args.year, args.step_minutes, args.model)
     # Hauteurs stockées au-dessus du zéro des cartes
@@ -224,7 +228,7 @@ def main() -> None:
 
     # 3. Remplacement atomique de l'année demandée, les autres sont conservées.
     print(f"[{name}] remplacement des données {args.year} en base…")
-    db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows)
+    db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows, model=args.model)
 
     # 4. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
     try:

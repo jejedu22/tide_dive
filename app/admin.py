@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db, jobs
+from . import calendar_fr, db, jobs, tide_model
 from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
@@ -72,16 +72,36 @@ def _worker_summary() -> dict:
     }
 
 
+def _fes_files(model: str) -> dict:
+    """Fichiers du modèle présents dans le dossier partagé (ondes utilisées seulement)."""
+    try:
+        missing, expected = tide_model.missing_model_files(model, jobs.MODEL_DIR)
+    except Exception as exc:  # pyTMD absent ou modèle inconnu : on le dit sans casser la page
+        return {"model": model, "available": None, "error": str(exc)}
+    return {"model": model, "available": not missing, "missing": len(missing), "expected": len(expected)}
+
+
 @router.get("/status")
 def admin_status(admin: CurrentAdmin):
     n_periods, last_end = db.school_holidays_coverage(calendar_fr.SCHOOL_ACADEMY)
     return {
         "models": _models_summary(),
-        "fes_models": list(jobs.FES_MODELS),
-        "fes_default": jobs.default_fes_model(),
+        "fes_models": [_fes_files(m) for m in jobs.FES_MODELS],
+        "fes_model": jobs.current_fes_model(),
         "worker": _worker_summary(),
         "school_holidays": {"academy": calendar_fr.SCHOOL_ACADEMY, "periods": n_periods, "last_end": last_end},
     }
+
+
+class TideModelIn(BaseModel):
+    model: Literal["FES2014", "FES2022"]  # = jobs.FES_MODELS
+
+
+@router.put("/settings/tide-model")
+def admin_set_tide_model(body: TideModelIn, admin: CurrentAdmin):
+    """Modèle utilisé par les prochains calculs (les tâches déjà en file gardent le leur)."""
+    db.set_setting(jobs.MODEL_SETTING, body.model, jobs.now_iso(), admin["username"])
+    return {"fes_model": jobs.current_fes_model()}
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +152,7 @@ class PortPatch(BaseModel):
         return v if v is None else _check_tz(v)
 
 
-def _port_out(row: sqlite3.Row, years: dict[int, list[int]]) -> dict:
+def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, dict[int, str]] | None = None) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
@@ -142,13 +162,15 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]]) -> dict:
         "offset_zh_m": row["offset_zh_m"],
         "auto_precompute": bool(row["auto_precompute"]),
         "years": years.get(row["id"], []),
+        # modèle de chaque année (absent pour une année calculée avant son enregistrement)
+        "year_models": {str(y): m for y, m in (models or {}).get(row["id"], {}).items()},
     }
 
 
 @router.get("/ports")
 def admin_list_ports(admin: CurrentAdmin):
-    years = db.years_by_port()
-    return [_port_out(p, years) for p in db.list_ports()]
+    years, models = db.years_by_port(), db.models_by_port_year()
+    return [_port_out(p, years, models) for p in db.list_ports()]
 
 
 @router.get("/ports/catalog")
@@ -198,7 +220,7 @@ def admin_update_port(port_id: int, body: PortPatch, admin: CurrentAdmin):
         db.update_port(port_id, **fields)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Le port « {fields.get('name')} » existe déjà")
-    return _port_out(db.get_port(port_id), db.years_by_port())
+    return _port_out(db.get_port(port_id), db.years_by_port(), db.models_by_port_year())
 
 
 @router.delete("/ports/{port_id}", status_code=204)

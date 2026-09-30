@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -154,6 +155,23 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_at TEXT,
     exit_code INTEGER,
     log TEXT NOT NULL DEFAULT ''
+);
+
+-- Réglages de l'application modifiables depuis l'administration (clé → valeur)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+);
+
+-- Modèle de marée utilisé pour chaque année calculée d'un port
+CREATE TABLE IF NOT EXISTS computed_years (
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    year INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+    PRIMARY KEY (port_id, year)
 );
 
 -- Une seule ligne (id = 1) : signe de vie du worker
@@ -510,6 +528,32 @@ def years_by_port() -> dict[int, list[int]]:
     return out
 
 
+def models_by_port_year() -> dict[int, dict[int, str]]:
+    """{port_id: {année: modèle}} ; une année calculée avant cet enregistrement n'y figure pas."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT port_id, year, model FROM computed_years").fetchall()
+    out: dict[int, dict[int, str]] = {}
+    for r in rows:
+        out.setdefault(r["port_id"], {})[r["year"]] = r["model"]
+    return out
+
+
+def get_setting(key: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_setting(key: str, value: str, updated_at: str, updated_by: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+            (key, value, updated_at, updated_by),
+        )
+
+
 def get_port(port_id: int) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM ports WHERE id = ?", (port_id,)).fetchone()
@@ -526,16 +570,20 @@ def replace_year(
     heights: Iterable[tuple[str, float]],
     extrema: Iterable[tuple[str, str, float, float | None]],
     sun_rows: Iterable[tuple[str, str | None, str | None, str | None, str | None]],
+    model: str | None = None,
+    computed_at: str | None = None,
 ) -> None:
     """
     Remplace les données d'UNE année pour un port, en une seule transaction :
     soit tout est écrit, soit rien ne change. Les autres années sont conservées.
+    model : modèle de marée utilisé, enregistré pour l'année (si fourni).
 
     heights  : (ts_utc ISO, height_m)
     extrema  : (ts_utc ISO, 'PM'|'BM', height_m, coefficient|None)
     sun_rows : (date YYYY-MM-DD, sunrise, sunset, nautical_dawn, nautical_dusk)
     """
     start, end = _year_bounds(year)
+    extrema = list(extrema)
     with get_conn() as conn:
         conn.execute(
             "DELETE FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
@@ -555,6 +603,50 @@ def replace_year(
             [(port_id, ts, kind, h, coef) for ts, kind, h, coef in extrema],
         )
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in sun_rows])
+        _rebind_selections(conn, port_id, start, end, extrema)
+        if model:
+            conn.execute(
+                "INSERT OR REPLACE INTO computed_years (port_id, year, model, computed_at) VALUES (?, ?, ?, ?)",
+                (port_id, year, model, computed_at or datetime.now().astimezone().isoformat(timespec="seconds")),
+            )
+
+
+# Écart maximal entre l'ancienne et la nouvelle heure d'une étale pour
+# considérer qu'il s'agit de la même (recalcul, changement de modèle ou de méthode)
+REBIND_TOLERANCE = timedelta(minutes=20)
+
+
+def _rebind_selections(conn, port_id: int, start: str, end: str, extrema: list) -> None:
+    """
+    Recale les créneaux choisis de l'année sur les étales recalculées : un
+    recalcul peut décaler l'horodatage de quelques minutes, et le créneau ne
+    serait plus reconnu dans la recherche (ni protégé contre un second choix).
+    On prend l'étale de même nature la plus proche, dans la tolérance. Les
+    champs d'affichage figés au moment du choix ne changent pas.
+    """
+    by_kind: dict[str, list[tuple[datetime, str]]] = {"PM": [], "BM": []}
+    for ts, kind, _, _ in extrema:
+        by_kind[kind].append((datetime.fromisoformat(ts), ts))
+    known = {ts for ts, *_ in extrema}
+    rows = conn.execute(
+        "SELECT id, structure_id, ts_utc, kind FROM slot_selections "
+        "WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
+        (port_id, start, end),
+    ).fetchall()
+    for r in rows:
+        if r["ts_utc"] in known:
+            continue
+        old = datetime.fromisoformat(r["ts_utc"])
+        near = [(abs(t - old), ts) for t, ts in by_kind[r["kind"]] if abs(t - old) <= REBIND_TOLERANCE]
+        if not near:
+            continue  # étale disparue : le choix reste, avec ses champs figés
+        new_ts = min(near)[1]
+        taken = conn.execute(
+            "SELECT 1 FROM slot_selections WHERE structure_id = ? AND port_id = ? AND ts_utc = ?",
+            (r["structure_id"], port_id, new_ts),
+        ).fetchone()
+        if not taken:
+            conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (new_ts, r["id"]))
 
 
 def clear_port_data(port_id: int) -> None:
@@ -563,6 +655,7 @@ def clear_port_data(port_id: int) -> None:
         conn.execute("DELETE FROM tide_heights WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM tide_extrema WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM sun_times WHERE port_id = ?", (port_id,))
+        conn.execute("DELETE FROM computed_years WHERE port_id = ?", (port_id,))
 
 
 def years_available(port_id: int) -> list[int]:

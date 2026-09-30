@@ -914,6 +914,7 @@ table.picks .c-regs { white-space: nowrap; }
 .users td.contact a:hover { text-decoration: underline; }
 .tag-pending { background: #e6f3f8; color: var(--blue); }
 .tag-warn { background: #fde8ed; color: #b3264a; }
+.tag-stale { background: var(--sand); color: var(--blue-deep); cursor: help; }
 #users-search { min-width: 16rem; }
 
 /* Import CSV */

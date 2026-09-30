@@ -131,9 +131,15 @@
         <div class="sources">
           <div class="panel source">
             <h2>Modèle de marée FES</h2>
+            <form id="model-form" class="inline-form">
+              <label for="calc-model">Modèle utilisé pour les calculs</label>
+              <select id="calc-model"></select>
+              <button type="submit" class="btn-primary" id="calc-model-save" disabled>Enregistrer</button>
+            </form>
+            <p id="calc-model-note" class="hint"></p>
             <div id="fes-summary" class="source-body"></div>
             <form id="fes-form" class="inline-form">
-              <label for="fes-model">Modèle</label>
+              <label for="fes-model">Télécharger</label>
               <select id="fes-model"></select>
               <button type="submit" class="btn-secondary">Télécharger / mettre à jour</button>
             </form>

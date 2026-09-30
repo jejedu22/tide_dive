@@ -21,6 +21,7 @@ x-app: &app
     TZ: Europe/Paris
     TIDE_MODEL_DIRECTORY: /models
     PYTMD_CACHE_DIR: /models        # répertoire par défaut de pyTMD 3.x
+    FES_MODEL: ${FES_MODEL:-FES2014}  # modèle par défaut, tant qu'aucun n'est choisi dans l'administration
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
     COOKIE_SECURE: ${COOKIE_SECURE:-0}          # 1 derrière HTTPS (Traefik)
     SESSION_DAYS: ${SESSION_DAYS:-30}           # durée d'une session de connexion
@@ -46,7 +47,6 @@ x-aviso-env: &aviso-env
   <<: *env
   AVISO_USERNAME: ${AVISO_USERNAME:-}
   AVISO_PASSWORD: ${AVISO_PASSWORD:-}
-  FES_MODEL: ${FES_MODEL:-FES2014}
 
 services:
   api:
