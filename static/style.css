@@ -78,6 +78,24 @@ button#search:hover { transform: translateY(-1px); }
 
 .results { display: grid; gap: 0.75rem; }
 #status { color: var(--blue-deep); font-size: 0.9rem; }
+.results-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.results-bar #status { flex: 1 1 16rem; margin: 0; }
+.btn-export { white-space: nowrap; }
+.btn-export[hidden] { display: none; }
+.picks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.picks-actions .view-switch { margin-left: 0; }
 
 /* ---- Tableau des créneaux ---- */
 .table-wrap {
@@ -1147,6 +1165,8 @@ main.narrow-main { max-width: 32rem; }
   .picks-bar > label:first-child select { flex: 1; }
   .view-switch { flex: 1 1 100%; margin-left: 0; }
   .view-switch button { flex: 1; padding: 0.5rem; }
+  .picks-actions { flex: 1 1 100%; margin-left: 0; }
+  .picks-actions .btn-export { flex: 1 1 100%; }
 
   .cal { padding: 0.6rem; }
   .cal-title { font-size: 1.05rem; min-width: 0; flex: 1; }

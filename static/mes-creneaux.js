@@ -21,6 +21,7 @@ const showPast = $("show-past");
 const onlyMine = $("only-mine");
 const summaryEl = $("summary");
 const emptyEl = $("picks-empty");
+const exportBtn = $("export-xlsx");
 
 const calEl = $("cal-view");
 const calTitle = $("cal-title");
@@ -363,6 +364,7 @@ function render() {
   for (const b of picksEl.querySelectorAll("[data-view]")) b.setAttribute("aria-pressed", String(b.dataset.view === view));
 
   const none = !picks.length;
+  exportBtn.disabled = !list.length;
   emptyEl.hidden = !none;
   if (none) {
     emptyEl.innerHTML = canPick()
@@ -507,6 +509,36 @@ picksEl.addEventListener("click", async e => {
   picks = picks.filter(p => p.id !== id);
   renderTypeFilter();
   render();
+});
+
+// ---- Export Excel des créneaux affichés (filtres compris, quel que soit l'affichage) ----
+
+const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
+
+const EXPORT_COLUMNS = [
+  { header: "Date", type: "date", width: 11, value: p => p.date },
+  { header: "Jour", width: 10, value: p => fmtWeekday.format(asDate(p.date)) },
+  { header: "Date RDV", type: "date", width: 11, value: p => p.rdv.date },
+  { header: "Heure RDV", type: "time", width: 10, value: p => p.rdv.time },
+  { header: "Port", width: 18, value: p => p.port },
+  { header: "Étale", width: 7, value: p => p.kind },
+  { header: "Heure étale", type: "time", width: 11, value: p => p.time },
+  { header: "Hauteur (m)", type: "decimal", width: 11, value: p => p.height_m },
+  { header: "Coefficient", type: "int", width: 11, value: p => (p.coefficient != null ? Math.round(p.coefficient) : null) },
+  { header: "Type", width: 16, value: p => p.type.label },
+  { header: "Nb inscrits", type: "int", width: 11, value: p => p.registrations.length },
+  { header: "Inscrits", width: 40, value: p => p.registrations.map(r => r.display_name).join(", ") },
+  { header: "Inscrit (moi)", width: 12, value: p => (p.registered ? "oui" : "") },
+  { header: "Choisi par", width: 18, value: p => p.picked_by || "compte supprimé" },
+];
+
+exportBtn.addEventListener("click", () => {
+  const list = visiblePicks();
+  if (!list.length) return;
+  const structure = Session.user?.structure?.name || "structure";
+  XlsxExport.download(
+    `creneaux-choisis-${XlsxExport.slug(structure)}-${list[0].date}-au-${list[list.length - 1].date}.xlsx`,
+    "Créneaux choisis", EXPORT_COLUMNS, list);
 });
 
 // ---- Navigation : affichage, mois, jour ----

@@ -26,9 +26,13 @@
         <label class="check"><input type="checkbox" id="only-mine"> Seulement mes inscriptions</label>
         <label class="check"><input type="checkbox" id="show-past"> Afficher les créneaux passés</label>
         <ul id="summary" class="picks-summary" aria-label="Répartition par type"></ul>
-        <div class="view-switch" role="group" aria-label="Affichage">
-          <button type="button" data-view="cal" aria-pressed="true">Calendrier</button>
-          <button type="button" data-view="list" aria-pressed="false">Liste</button>
+        <div class="picks-actions">
+          <button type="button" id="export-xlsx" class="btn-secondary btn-small btn-export"
+                  title="Télécharger les créneaux affichés (filtres compris) au format Excel">Exporter en Excel</button>
+          <div class="view-switch" role="group" aria-label="Affichage">
+            <button type="button" data-view="cal" aria-pressed="true">Calendrier</button>
+            <button type="button" data-view="list" aria-pressed="false">Liste</button>
+          </div>
         </div>
       </div>
       <p id="status" role="status"></p>
@@ -76,6 +80,7 @@
   </main>
 
   <script src="session.js"></script>
+  <script src="xlsx-export.js"></script>
   <script src="mes-creneaux.js"></script>
 </body>
 </html>

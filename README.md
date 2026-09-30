@@ -317,6 +317,10 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+### Export Excel
+
+La recherche et la page des créneaux choisis ont un bouton **« Exporter en Excel »** : il télécharge un fichier `.xlsx` des créneaux **affichés**, filtres compris (filtres de colonnes dans la recherche ; type, « mes inscriptions » et créneaux passés dans les créneaux choisis). Dates, heures, hauteurs et coefficients y sont de vraies valeurs Excel, triables et filtrables ; l'en-tête est figé et porte un filtre automatique. Le fichier est généré dans le navigateur (`static/xlsx-export.js`, sans dépendance ni appel serveur).
+
 Règles :
 
 - les choix sont **propres à chaque structure** et communs à ses membres : deux structures peuvent choisir le même créneau, mais une structure ne peut pas le choisir deux fois (contrainte `UNIQUE (structure_id, port_id, ts_utc)` en base) ; supprimer un compte ne supprime pas les créneaux qu'il a choisis ;
@@ -445,6 +449,7 @@ app/
 static/             frontend (index.html, app.js, style.css)
   admin.html/.js    administration (structures, ports, données, types de créneaux, comptes)
   mes-creneaux.*    créneaux choisis par la structure de l'utilisateur connecté
+  xlsx-export.js    export Excel (.xlsx) des tableaux, généré dans le navigateur
   session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
   modele-import-utilisateurs.csv  modèle d'import CSV
