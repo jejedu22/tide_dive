@@ -10,6 +10,7 @@ const daylightSelect = document.getElementById("daylight");
 const searchBtn = document.getElementById("search");
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results-list");
+const exportBtn = document.getElementById("export-xlsx");
 
 maxCoefInput.addEventListener("input", () => coefVal.textContent = maxCoefInput.value);
 marginInput.addEventListener("input", () => marginVal.textContent = marginInput.value);
@@ -180,6 +181,7 @@ const LEGEND = `
 // ---- Filtres de la ligne de titre (côté client, sur les résultats déjà chargés) ----
 
 let lastData = null;
+let lastShown = [];   // créneaux affichés (filtres compris) : ce que l'export reprend
 let tableEl = null;
 // Filtres de colonnes à appliquer dès que le tableau existe (préférences chargées avant la 1re recherche)
 let pendingFilters = {};
@@ -288,6 +290,9 @@ function renderRows() {
   const active = Object.values(f).some(v => v !== "");
   const all = lastData.results;
   const shown = active ? applyFilters(all, f) : all;
+  lastShown = shown;
+  exportBtn.hidden = false;
+  exportBtn.disabled = !shown.length;
 
   tableEl.tHead.querySelector(".reset-filters").disabled = !active;
   const nPicked = Session.user?.can.view_selections ? all.filter(isPicked).length : 0;
@@ -331,6 +336,8 @@ function setFilterInputs(filters) {
 function renderResults(data) {
   lastData = data;
   if (data.results.length === 0) {
+    lastShown = [];
+    exportBtn.hidden = true;
     resultsEl.hidden = true;
     statusEl.textContent = "Aucun créneau ne correspond à ces critères sur la période choisie.";
     return;
@@ -375,6 +382,47 @@ async function search() {
 }
 
 searchBtn.addEventListener("click", search);
+
+// ---- Export Excel des créneaux affichés ----
+
+const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
+
+function exportColumns() {
+  const cols = [
+    { header: "Date", type: "date", width: 11, value: r => r.date },
+    { header: "Jour", width: 10, value: r => fmtWeekday.format(new Date(r.date + "T12:00:00")) },
+    { header: "Port", width: 18, value: () => lastData.port },
+    { header: "Date RDV", type: "date", width: 11, value: r => r.rdv.date },
+    { header: "Heure RDV", type: "time", width: 10, value: r => r.rdv.time },
+    { header: "Étale", width: 7, value: r => r.kind },
+    { header: "Heure étale", type: "time", width: 11, value: r => r.time },
+    { header: "Hauteur (m)", type: "decimal", width: 11, value: r => r.height_m },
+    { header: "Coefficient", type: "int", width: 11, value: r => (r.coefficient != null ? Math.round(r.coefficient) : null) },
+    { header: "Fenêtre début", type: "time", width: 13, value: r => r.window.start },
+    { header: "Fenêtre fin", type: "time", width: 11, value: r => r.window.end },
+    { header: "Lever soleil", type: "time", width: 11, value: r => r.sun?.sunrise },
+    { header: "Coucher soleil", type: "time", width: 13, value: r => r.sun?.sunset },
+    { header: "Aube nautique", type: "time", width: 13, value: r => r.sun?.nautical_dawn },
+    { header: "Crépuscule nautique", type: "time", width: 18, value: r => r.sun?.nautical_dusk },
+    { header: "Week-end", width: 10, value: r => (r.day?.weekend ? "oui" : "") },
+    { header: "Jour férié", width: 16, value: r => r.day?.holiday || "" },
+    { header: "Vacances scolaires", width: 22, value: r => r.day?.school_holiday || "" },
+  ];
+  if (Session.user?.can.view_selections) {
+    cols.push(
+      { header: "Choix", width: 16, value: r => pickedFor(r)?.type.label || "" },
+      { header: "Choisi par", width: 18, value: r => pickedFor(r)?.picked_by || "" },
+    );
+  }
+  return cols;
+}
+
+exportBtn.addEventListener("click", () => {
+  if (!lastData || !lastShown.length) return;
+  const first = lastShown[0].date, last = lastShown[lastShown.length - 1].date;
+  XlsxExport.download(`creneaux-${XlsxExport.slug(lastData.port)}-${first}-au-${last}.xlsx`,
+    `Créneaux ${lastData.port}`, exportColumns(), lastShown);
+});
 
 startInput.value = todayISO();
 endInput.value = todayISO(13);
