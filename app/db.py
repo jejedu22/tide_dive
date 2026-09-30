@@ -157,6 +157,23 @@ CREATE TABLE IF NOT EXISTS jobs (
     log TEXT NOT NULL DEFAULT ''
 );
 
+-- Réglages de l'application modifiables depuis l'administration (clé → valeur)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+);
+
+-- Modèle de marée utilisé pour chaque année calculée d'un port
+CREATE TABLE IF NOT EXISTS computed_years (
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    year INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+    PRIMARY KEY (port_id, year)
+);
+
 -- Une seule ligne (id = 1) : signe de vie du worker
 CREATE TABLE IF NOT EXISTS worker_status (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -511,6 +528,32 @@ def years_by_port() -> dict[int, list[int]]:
     return out
 
 
+def models_by_port_year() -> dict[int, dict[int, str]]:
+    """{port_id: {année: modèle}} ; une année calculée avant cet enregistrement n'y figure pas."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT port_id, year, model FROM computed_years").fetchall()
+    out: dict[int, dict[int, str]] = {}
+    for r in rows:
+        out.setdefault(r["port_id"], {})[r["year"]] = r["model"]
+    return out
+
+
+def get_setting(key: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_setting(key: str, value: str, updated_at: str, updated_by: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+            (key, value, updated_at, updated_by),
+        )
+
+
 def get_port(port_id: int) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM ports WHERE id = ?", (port_id,)).fetchone()
@@ -527,10 +570,13 @@ def replace_year(
     heights: Iterable[tuple[str, float]],
     extrema: Iterable[tuple[str, str, float, float | None]],
     sun_rows: Iterable[tuple[str, str | None, str | None, str | None, str | None]],
+    model: str | None = None,
+    computed_at: str | None = None,
 ) -> None:
     """
     Remplace les données d'UNE année pour un port, en une seule transaction :
     soit tout est écrit, soit rien ne change. Les autres années sont conservées.
+    model : modèle de marée utilisé, enregistré pour l'année (si fourni).
 
     heights  : (ts_utc ISO, height_m)
     extrema  : (ts_utc ISO, 'PM'|'BM', height_m, coefficient|None)
@@ -558,6 +604,11 @@ def replace_year(
         )
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in sun_rows])
         _rebind_selections(conn, port_id, start, end, extrema)
+        if model:
+            conn.execute(
+                "INSERT OR REPLACE INTO computed_years (port_id, year, model, computed_at) VALUES (?, ?, ?, ?)",
+                (port_id, year, model, computed_at or datetime.now().astimezone().isoformat(timespec="seconds")),
+            )
 
 
 # Écart maximal entre l'ancienne et la nouvelle heure d'une étale pour
@@ -604,6 +655,7 @@ def clear_port_data(port_id: int) -> None:
         conn.execute("DELETE FROM tide_heights WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM tide_extrema WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM sun_times WHERE port_id = ?", (port_id,))
+        conn.execute("DELETE FROM computed_years WHERE port_id = ?", (port_id,))
 
 
 def years_available(port_id: int) -> list[int]:

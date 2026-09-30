@@ -103,6 +103,17 @@ def _window(ds, x0: float, y0: float, d: float = WINDOW_DEG):
     return window
 
 
+def missing_model_files(model: str, directory: str | None = None) -> tuple[list[str], list[str]]:
+    """(fichiers manquants, fichiers attendus) du modèle dans le dossier, pour les seules ondes utilisées."""
+    root = pathlib.Path(directory or TIDE_MODEL_DIRECTORY)
+    expected = json.loads(_definition_json(model))["z"]["model_file"]
+    missing = [
+        f for f in expected
+        if not (root / f).exists() and not (root / f"{f}.gz").exists()
+    ]
+    return missing, expected
+
+
 @functools.lru_cache(maxsize=32)
 def _local_constants(model: str, directory: str, latitude: float, longitude: float):
     """
@@ -116,11 +127,7 @@ def _local_constants(model: str, directory: str, latitude: float, longitude: flo
     # Vérification explicite : si les fichiers manquent, pyTMD 3.x échoue avec
     # une IndexError peu parlante au lieu d'une FileNotFoundError.
     root = pathlib.Path(directory)
-    expected = json.loads(definition)["z"]["model_file"]
-    missing = [
-        f for f in expected
-        if not (root / f).exists() and not (root / f"{f}.gz").exists()
-    ]
+    missing, expected = missing_model_files(model, directory)
     if missing:
         raise FileNotFoundError(
             f"{len(missing)}/{len(expected)} fichiers {model} absents de {root}, "
