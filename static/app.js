@@ -101,11 +101,18 @@ function rdvCell(r) {
   return veille + r.rdv.time;
 }
 
+// Délai étale → RDV, fixé par la structure du compte (2 h sinon) ; RDV au pas de 5 min
+function rdvTitle(offset) {
+  const h = Math.floor(offset / 60), m = offset % 60;
+  const delay = m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
+  return `Heure de rendez-vous (étale − ${delay}, arrondie aux 5 min inférieures)`;
+}
+
 const TABLE_HEAD = `
   <thead>
     <tr>
       <th scope="col">Date</th>
-      <th scope="col"><abbr title="Heure de rendez-vous (étale − 2 h)">RDV</abbr></th>
+      <th scope="col"><abbr class="rdv-abbr" title="${rdvTitle(120)}">RDV</abbr></th>
       <th scope="col"><abbr title="Étale de pleine mer (PM) ou de basse mer (BM)">Étale</abbr></th>
       <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
       <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
@@ -289,6 +296,7 @@ function renderRows() {
   const f = readFilters();
   const active = Object.values(f).some(v => v !== "");
   const all = lastData.results;
+  tableEl.querySelector(".rdv-abbr").title = rdvTitle(lastData.rdv_offset_minutes ?? 120);
   const shown = active ? applyFilters(all, f) : all;
   lastShown = shown;
   exportBtn.hidden = false;

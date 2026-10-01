@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from . import db
 from .auth import CurrentManager, CurrentSuperAdmin, can_manage_structure
+from .slots import rdv_time
 
 router = APIRouter(prefix="/api/admin/structures")
 
@@ -38,6 +40,8 @@ class StructureSettingsIn(BaseModel):
     # Champ absent : inchangé.
     register_lock_days: int | None = Field(None, ge=0, le=365)
     unregister_lock_days: int | None = Field(None, ge=0, le=365)
+    # Heure de rendez-vous = étale moins ce délai, en minutes (0 à 12 h)
+    rdv_offset_minutes: int | None = Field(None, ge=0, le=720)
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -51,6 +55,7 @@ def _out(row: sqlite3.Row) -> dict:
         "selections": row["selections"],
         "register_lock_days": row["register_lock_days"],
         "unregister_lock_days": row["unregister_lock_days"],
+        "rdv_offset_minutes": row["rdv_offset_minutes"],
     }
 
 
@@ -93,9 +98,26 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
     """Règles de la structure : ses administrateurs ou un super administrateur."""
     if not can_manage_structure(actor, structure_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Structure inconnue")
-    _or_404(structure_id)
-    db.update_structure_settings(structure_id, **body.model_dump(exclude_unset=True))
+    before = _or_404(structure_id)
+    fields = body.model_dump(exclude_unset=True)
+    if fields.get("rdv_offset_minutes", 0) is None:
+        del fields["rdv_offset_minutes"]  # pas de « sans délai » : null = inchangé
+    db.update_structure_settings(structure_id, **fields)
+    offset = fields.get("rdv_offset_minutes")
+    if offset is not None and offset != before["rdv_offset_minutes"]:
+        _shift_upcoming_rdvs(structure_id, offset)
     return _out(db.get_structure(structure_id))
+
+
+def _shift_upcoming_rdvs(structure_id: int, offset_minutes: int) -> None:
+    """Nouveau délai : recalcule l'heure de RDV des créneaux choisis à venir ;
+    les créneaux passés gardent celle qu'ils avaient."""
+    today = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
+    rdvs = []
+    for row in db.list_selections(structure_id, today):
+        rdv = rdv_time(datetime.fromisoformat(f"{row['local_date']}T{row['local_time']}"), offset_minutes)
+        rdvs.append((rdv.date().isoformat(), rdv.strftime("%H:%M"), row["id"]))
+    db.update_selection_rdvs(rdvs)
 
 
 @router.delete("/{structure_id}", status_code=204)

@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import admin, auth, calendar_fr, db, recovery, selections, structures, user_import
-from .slots import RDV_AVANT_ETALE, PM_SEARCH_PAD
+from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
 app = FastAPI(title="Aide au choix de plongées")
@@ -97,11 +97,14 @@ def api_dive_windows(
     tide_phase: str = Query("both", pattern="^(PM|BM|both)$"),
     daylight: str = Query("nautical", pattern="^(civil|nautical|none)$"),
     margin_minutes: int = Query(45, ge=0, le=240, description="Demi-largeur de la fenêtre autour de l'étale"),
+    user: Annotated[sqlite3.Row | None, Depends(auth.optional_user)] = None,
 ):
     port = db.get_port(port_id)
     if port is None:
         raise HTTPException(404, "Port inconnu")
     tz = ZoneInfo(port["timezone"])
+    # heure de RDV selon la structure du compte connecté (2 h sinon)
+    rdv_offset = db.get_rdv_offset(user["structure_id"] if user is not None else None)
 
     start_utc = datetime.combine(start, datetime.min.time(), tzinfo=tz).astimezone(ZoneInfo("UTC"))
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
@@ -164,7 +167,7 @@ def api_dive_windows(
         if daylight != "none" and not in_daylight:
             continue
 
-        rdv_dt = local_dt - RDV_AVANT_ETALE
+        rdv_dt = rdv_time(local_dt, rdv_offset)
 
         results.append(
             {
@@ -202,7 +205,7 @@ def api_dive_windows(
         "covered": bool(n_periods) and last_end is not None and last_end > end.isoformat(),
     }
 
-    return {"port": port["name"], "school_holidays": school_holidays_status, "criteria": {
+    return {"port": port["name"], "rdv_offset_minutes": rdv_offset, "school_holidays": school_holidays_status, "criteria": {
         "max_coefficient": max_coefficient, "tide_phase": tide_phase,
         "daylight": daylight, "margin_minutes": margin_minutes,
     }, "results": results}

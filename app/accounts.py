@@ -151,7 +151,9 @@ def public_user(row: sqlite3.Row) -> dict:
         "profile_complete": bool(row["first_name"] and row["last_name"] and row["email"]),
         "is_admin": bool(row["is_admin"]),
         "structure": (
-            {"id": row["structure_id"], "name": row["structure_name"]} if row["structure_id"] is not None else None
+            {"id": row["structure_id"], "name": row["structure_name"],
+             "rdv_offset_minutes": row["structure_rdv_offset_minutes"]}
+            if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],
         "can": permissions(row),

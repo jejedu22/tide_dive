@@ -189,6 +189,17 @@
           <strong id="types-structure-name"></strong>
         </p>
         <form id="settings-form" class="panel settings-form" autocomplete="off">
+          <h2>Heure de rendez-vous</h2>
+          <div class="field">
+            <label for="rdv-offset-hours">Rendez-vous avant l'étale</label>
+            <span class="lock-days">
+              <input id="rdv-offset-hours" name="rdv_offset_hours" type="number" min="0" max="12" step="1" inputmode="numeric" required>
+              <span>h</span>
+              <input id="rdv-offset-minutes" name="rdv_offset_minutes" type="number" min="0" max="59" step="1" inputmode="numeric" required>
+              <span>min</span>
+            </span>
+          </div>
+          <p id="rdv-offset-preview" class="hint"></p>
           <h2>Délais d'inscription</h2>
           <div class="field">
             <label for="register-lock-days">Inscription impossible à partir de</label>
