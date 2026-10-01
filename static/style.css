@@ -604,6 +604,8 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
 /* colonne « Choix » : seulement pour un utilisateur connecté */
 .results:not(.can-pick) .c-pick,
 .results:not(.can-pick) .c-pick-head { display: none; }
+/* Heure de RDV : comptes connectés seulement */
+.results:not(.show-rdv) .c-rdv { display: none; }
 
 .windows .c-pick { white-space: nowrap; }
 .windows .c-pick select {

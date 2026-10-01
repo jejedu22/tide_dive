@@ -40,7 +40,7 @@ Pour un port et une année, `precompute.py` :
 4. calcule les horaires solaires jour par jour ;
 5. remplace en base les données de **cette année uniquement**, en une transaction : les autres années sont conservées, et un échec laisse la base intacte.
 
-L'interface permet ensuite de filtrer par période, phase de marée (PM, BM ou les deux), coefficient maximum, marge autour de l'étale et lumière requise (nautique, civile ou aucune). Chaque créneau affiche aussi une heure de rendez-vous : l'étale moins un délai réglé par les administrateurs de chaque structure (2 h par défaut, onglet « Types de créneaux »), arrondie aux 5 minutes inférieures — étale à 9h37 et délai de 2h15 → rendez-vous à 7h20.
+L'interface permet ensuite de filtrer par période, phase de marée (PM, BM ou les deux), coefficient maximum, marge autour de l'étale et lumière requise (nautique, civile ou aucune). Pour un compte connecté, chaque créneau affiche aussi une heure de rendez-vous (absente pour un visiteur non connecté) : l'étale moins un délai réglé par les administrateurs de chaque structure (2 h par défaut, onglet « Types de créneaux »), arrondie aux 5 minutes inférieures — étale à 9h37 et délai de 2h15 → rendez-vous à 7h20.
 
 ## Démarrage rapide avec Docker
 

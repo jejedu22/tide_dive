@@ -103,8 +103,9 @@ def api_dive_windows(
     if port is None:
         raise HTTPException(404, "Port inconnu")
     tz = ZoneInfo(port["timezone"])
-    # heure de RDV selon la structure du compte connecté (2 h sinon)
-    rdv_offset = db.get_rdv_offset(user["structure_id"] if user is not None else None)
+    # Heure de RDV réservée aux comptes connectés, selon le délai de leur
+    # structure (2 h sans structure) ; None : visiteur anonyme, pas de RDV.
+    rdv_offset = db.get_rdv_offset(user["structure_id"]) if user is not None else None
 
     start_utc = datetime.combine(start, datetime.min.time(), tzinfo=tz).astimezone(ZoneInfo("UTC"))
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
@@ -167,8 +168,6 @@ def api_dive_windows(
         if daylight != "none" and not in_daylight:
             continue
 
-        rdv_dt = rdv_time(local_dt, rdv_offset)
-
         results.append(
             {
                 # clé du créneau (port_id + ts_utc), utilisée pour le choisir
@@ -179,10 +178,6 @@ def api_dive_windows(
                 "time": local_dt.strftime("%H:%M"),
                 "height_m": round(ex["height_m"], 2),
                 "coefficient": coefficient,
-                "rdv": {
-                    "date": rdv_dt.date().isoformat(),
-                    "time": rdv_dt.strftime("%H:%M"),
-                },
                 "day": _day_info(local_dt.date(), holidays, vacations),
                 "sun": _sun_info(sun),
                 "window": {
@@ -193,6 +188,9 @@ def api_dive_windows(
                 "fully_in_daylight": in_daylight,
             }
         )
+        if rdv_offset is not None:
+            rdv_dt = rdv_time(local_dt, rdv_offset)
+            results[-1]["rdv"] = {"date": rdv_dt.date().isoformat(), "time": rdv_dt.strftime("%H:%M")}
 
     results.sort(key=lambda r: (r["date"], r["time"]))
 
