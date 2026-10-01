@@ -605,6 +605,11 @@ async function onSessionChange(user) {
   // connexion / déconnexion : relance la recherche affichée pour ajouter ou retirer le RDV
   let refresh = !!lastData && hasRdv(lastData) !== !!user;
   await loadPicks(user);
+  // port par défaut de la structure ; les préférences du membre, appliquées ensuite, priment
+  const defaultPort = user?.structure?.default_port_id;
+  if (defaultPort != null && portSelect.querySelector(`option[value="${defaultPort}"]`)) {
+    portSelect.value = String(defaultPort);
+  }
   prefsBar.hidden = !user;
   savedPrefs = null;
   prefsRestoreBtn.disabled = true;

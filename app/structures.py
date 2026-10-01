@@ -42,6 +42,8 @@ class StructureSettingsIn(BaseModel):
     unregister_lock_days: int | None = Field(None, ge=0, le=365)
     # Heure de rendez-vous = étale moins ce délai, en minutes (0 à 12 h)
     rdv_offset_minutes: int | None = Field(None, ge=0, le=720)
+    # Port proposé d'office dans la recherche ; None : aucun (le premier de la liste)
+    default_port_id: int | None = None
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -56,6 +58,7 @@ def _out(row: sqlite3.Row) -> dict:
         "register_lock_days": row["register_lock_days"],
         "unregister_lock_days": row["unregister_lock_days"],
         "rdv_offset_minutes": row["rdv_offset_minutes"],
+        "default_port_id": row["default_port_id"],
     }
 
 
@@ -102,6 +105,8 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
     fields = body.model_dump(exclude_unset=True)
     if fields.get("rdv_offset_minutes", 0) is None:
         del fields["rdv_offset_minutes"]  # pas de « sans délai » : null = inchangé
+    if fields.get("default_port_id") is not None and db.get_port(fields["default_port_id"]) is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Port inconnu")
     db.update_structure_settings(structure_id, **fields)
     offset = fields.get("rdv_offset_minutes")
     if offset is not None and offset != before["rdv_offset_minutes"]:
