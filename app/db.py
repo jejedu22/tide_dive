@@ -266,6 +266,7 @@ def init_db() -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
+        _prune_jobs(conn)  # historique d'avant la limite
     _migrate_structures()
     with get_conn() as conn:
         conn.executescript(INDEXES_AFTER_MIGRATION)
@@ -1116,6 +1117,17 @@ def delete_preferences(user_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 JOB_LOG_MAX = 200_000  # caractères : on ne garde que la fin du journal
+JOBS_KEPT = 20         # tâches conservées (avec leur journal) : les plus récentes
+
+
+def _prune_jobs(conn: sqlite3.Connection) -> None:
+    """Supprime les tâches terminées au-delà des JOBS_KEPT plus récentes ;
+    une tâche en attente ou en cours n'est jamais supprimée."""
+    conn.execute(
+        "DELETE FROM jobs WHERE status NOT IN ('queued', 'running')"
+        " AND id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT ?)",
+        (JOBS_KEPT,),
+    )
 
 _JOB_COLUMNS = (
     "id, kind, params_json, status, cancel_requested, created_by, created_at, "
@@ -1136,10 +1148,11 @@ def enqueue_job(kind: str, params_json: str, created_by: str, now: str) -> int |
             "INSERT INTO jobs (kind, params_json, created_by, created_at) VALUES (?, ?, ?, ?)",
             (kind, params_json, created_by, now),
         )
+        _prune_jobs(conn)
         return cur.lastrowid
 
 
-def list_jobs(limit: int = 50) -> list[sqlite3.Row]:
+def list_jobs(limit: int = JOBS_KEPT) -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute(
             f"SELECT {_JOB_COLUMNS} FROM jobs ORDER BY id DESC LIMIT ?", (limit,)
