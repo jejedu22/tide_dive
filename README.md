@@ -22,6 +22,8 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Précision et limites](#précision-et-limites)
 - [Structure du projet](#structure-du-projet)
 - [Pistes](#pistes)
+- [Contribuer](#contribuer)
+- [Licence](#licence)
 
 ## Fonctionnement
 
@@ -478,7 +480,7 @@ data/plongee.db     base générée (non versionnée)
 models/             fichiers FES (non versionnés, licence AVISO+)
 ```
 
-Les fichiers FES sont soumis à la licence AVISO+ : ne pas les redistribuer ni les versionner.
+Les fichiers FES sont soumis à la licence AVISO+ (indépendante de la licence de ce projet) : ne pas les redistribuer ni les versionner.
 
 ## Pistes
 
@@ -488,3 +490,15 @@ Les fichiers FES sont soumis à la licence AVISO+ : ne pas les redistribuer ni l
 - Ajouter les courants de marée pour qualifier chaque site au-delà du coefficient.
 - Mode « deux plongées dans la journée ».
 - Export iCal des créneaux retenus.
+
+## Contribuer
+
+Voir [CONTRIBUTING.md](CONTRIBUTING.md). Pour signaler une faille de sécurité : [SECURITY.md](SECURITY.md).
+
+## Licence
+
+Copyright © Jérôme Sourdin et contributeurs.
+
+Ce programme est un logiciel libre : vous pouvez le redistribuer et/ou le modifier selon les termes de la [GNU General Public License](LICENSE) telle que publiée par la Free Software Foundation, version 3 de la licence ou (à votre choix) toute version ultérieure.
+
+Il est distribué dans l'espoir qu'il sera utile, mais **sans aucune garantie** ; voir le fichier [LICENSE](LICENSE) pour plus de détails.
