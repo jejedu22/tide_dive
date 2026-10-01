@@ -40,7 +40,7 @@ Pour un port et une année, `precompute.py` :
 4. calcule les horaires solaires jour par jour ;
 5. remplace en base les données de **cette année uniquement**, en une transaction : les autres années sont conservées, et un échec laisse la base intacte.
 
-L'interface permet ensuite de filtrer par période, phase de marée (PM, BM ou les deux), coefficient maximum, marge autour de l'étale et lumière requise (nautique, civile ou aucune). Pour un compte connecté, chaque créneau affiche aussi une heure de rendez-vous (absente pour un visiteur non connecté) : l'étale moins un délai réglé par les administrateurs de chaque structure (2 h par défaut, onglet « Types de créneaux »), arrondie aux 5 minutes inférieures — étale à 9h37 et délai de 2h15 → rendez-vous à 7h20.
+L'interface permet ensuite de filtrer par période, phase de marée (PM, BM ou les deux), coefficient maximum, marge autour de l'étale et lumière requise (nautique, civile ou aucune). Pour un compte connecté, chaque créneau affiche aussi une heure de rendez-vous (absente pour un visiteur non connecté) : l'étale moins un délai réglé par les administrateurs de chaque structure (2 h par défaut, onglet « Créneaux »), arrondie aux 5 minutes inférieures — étale à 9h37 et délai de 2h15 → rendez-vous à 7h20.
 
 ## Démarrage rapide avec Docker
 
@@ -205,7 +205,7 @@ python -m app.jobs enqueue school-holidays
 
 ## Comptes, structures et préférences
 
-L'application reste utilisable sans compte. Un compte permet d'accéder aux créneaux choisis par sa **structure** et d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes.
+L'application reste utilisable sans compte. Un compte permet d'accéder aux créneaux choisis par sa **structure** et d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes. Sans préférence de port, la recherche propose le **port par défaut de la structure**, choisi par ses administrateurs dans **`/admin.html` → Créneaux**.
 
 ### Structures et rôles
 

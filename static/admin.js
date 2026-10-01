@@ -764,6 +764,30 @@ function renderRdvPreview() {
 
 for (const input of Object.values(rdvInputs)) input.addEventListener("input", renderRdvPreview);
 
+// Port affiché par défaut dans la recherche (ports ayant des marées précalculées)
+const defaultPortSelect = $("default-port");
+let searchPorts = null;  // null : pas encore chargés
+
+async function loadSearchPorts() {
+  try {
+    searchPorts = await Session.api("/api/ports");
+  } catch (e) {
+    searchPorts = [];
+  }
+}
+
+function renderDefaultPort(st) {
+  const current = st.default_port_id ?? null;
+  const ports = searchPorts || [];
+  const opts = [`<option value="">Aucun (premier de la liste)</option>`, ...ports.map(p =>
+    `<option value="${p.id}"${p.id === current ? " selected" : ""}>${esc(p.name)}</option>`)];
+  // port choisi qui n'a plus de marées précalculées : on le garde visible
+  if (current !== null && !ports.some(p => p.id === current)) {
+    opts.push(`<option value="${current}" selected>Port n° ${current} (sans données)</option>`);
+  }
+  defaultPortSelect.innerHTML = opts.join("");
+}
+
 function loadSettings() {
   const st = scopedStructure();
   settingsForm.hidden = !st;
@@ -775,6 +799,8 @@ function loadSettings() {
   rdvInputs.minutes.value = offset % 60;
   renderRdvPreview();
   renderLockPreview();
+  if (searchPorts === null) loadSearchPorts().then(() => { if (scopedStructure() === st) renderDefaultPort(st); });
+  renderDefaultPort(st);
 }
 
 for (const input of Object.values(lockInputs)) input.addEventListener("input", renderLockPreview);
@@ -801,6 +827,7 @@ settingsForm.addEventListener("submit", async e => {
     return;
   }
   body.rdv_offset_minutes = offset;
+  body.default_port_id = defaultPortSelect.value ? Number(defaultPortSelect.value) : null;
   status.textContent = "";
   try {
     const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
@@ -808,7 +835,10 @@ settingsForm.addEventListener("submit", async e => {
     loadSettings();
     $("settings-form-status").textContent = "Réglages enregistrés.";
     // sa propre structure : l'heure de RDV affichée ailleurs suit le nouveau délai
-    if (Session.user?.structure?.id === st.id) Session.user.structure.rdv_offset_minutes = saved.rdv_offset_minutes;
+    if (Session.user?.structure?.id === st.id) {
+      Session.user.structure.rdv_offset_minutes = saved.rdv_offset_minutes;
+      Session.user.structure.default_port_id = saved.default_port_id;
+    }
   } catch (err) {
     status.textContent = err.message;
   }

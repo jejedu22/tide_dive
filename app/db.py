@@ -76,13 +76,15 @@ CREATE TABLE IF NOT EXISTS school_holidays (
 -- NULL = pas de limite (jusqu'au jour J).
 -- rdv_offset_minutes : heure de rendez-vous = étale moins ce délai (arrondie
 -- au pas de 5 min inférieur).
+-- default_port_id : port proposé d'office dans la recherche (NULL = le premier).
 CREATE TABLE IF NOT EXISTS structures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     created_at TEXT NOT NULL,
     unregister_lock_days INTEGER CHECK (unregister_lock_days BETWEEN 0 AND 365),
     register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365),
-    rdv_offset_minutes INTEGER NOT NULL DEFAULT 120 CHECK (rdv_offset_minutes BETWEEN 0 AND 720)
+    rdv_offset_minutes INTEGER NOT NULL DEFAULT 120 CHECK (rdv_offset_minutes BETWEEN 0 AND 720),
+    default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
@@ -443,6 +445,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE structures ADD COLUMN rdv_offset_minutes INTEGER NOT NULL DEFAULT 120"
             " CHECK (rdv_offset_minutes BETWEEN 0 AND 720)"
         )
+    # Port affiché par défaut dans la recherche pour les membres
+    if "default_port_id" not in structure_cols:
+        conn.execute("ALTER TABLE structures ADD COLUMN default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL")
 
 
 @contextmanager
@@ -792,12 +797,12 @@ def rename_structure(structure_id: int, name: str) -> None:
 
 
 LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
-SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes")
+SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id")
 
 
 def update_structure_settings(structure_id: int, **fields) -> None:
     """Met à jour les réglages fournis (clés de SETTINGS_COLUMNS ; pour les délais,
-    None = pas de limite)."""
+    None = pas de limite ; pour le port par défaut, None = aucun)."""
     fields = {k: v for k, v in fields.items() if k in SETTINGS_COLUMNS}
     if not fields:
         return
@@ -842,6 +847,7 @@ _USER_SELECT = """
     SELECT u.id, u.username, u.is_admin, u.structure_id, u.structure_role,
            u.created_at, u.last_login_at, st.name AS structure_name,
            st.rdv_offset_minutes AS structure_rdv_offset_minutes,
+           st.default_port_id AS structure_default_port_id,
            u.first_name, u.last_name, u.email, u.phone,
            u.must_change_password, u.password_changed_at,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
