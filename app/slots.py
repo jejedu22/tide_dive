@@ -10,8 +10,10 @@ from zoneinfo import ZoneInfo
 
 from . import db
 
-# Heure de rendez-vous = étale moins ce délai
-RDV_AVANT_ETALE = timedelta(hours=2)
+# Heure de rendez-vous = étale moins le délai de la structure (2 h par défaut),
+# arrondie au pas de RDV_STEP_MINUTES inférieur : on n'arrive jamais plus tard
+# que prévu (étale 9h37, délai 2h15 → 7h22 → RDV 7h20).
+RDV_STEP_MINUTES = 5
 
 # Plage autour d'une BM pour retrouver la PM voisine (et son coefficient)
 PM_SEARCH_PAD = timedelta(hours=13)
@@ -31,7 +33,13 @@ def nearest_pm_coef(dt: datetime, pm_list: list[tuple[datetime, float]]):
     return min(pm_list, key=lambda p: abs(p[0] - dt))[1]
 
 
-def describe_extremum(port, ex) -> dict:
+def rdv_time(local_dt: datetime, offset_minutes: int) -> datetime:
+    """Heure de rendez-vous pour une étale à local_dt (heure locale du port)."""
+    dt = local_dt - timedelta(minutes=offset_minutes)
+    return dt.replace(minute=dt.minute - dt.minute % RDV_STEP_MINUTES, second=0, microsecond=0)
+
+
+def describe_extremum(port, ex, rdv_offset_minutes: int) -> dict:
     """Champs affichés d'une étale, recalculés côté serveur à partir de la base."""
     tz = ZoneInfo(port["timezone"])
     local_dt = local_time(ex["ts_utc"], tz)
@@ -47,7 +55,7 @@ def describe_extremum(port, ex) -> dict:
             if e["kind"] == "PM" and e["coefficient"] is not None
         ]
         coefficient = nearest_pm_coef(local_dt, pm_list)
-    rdv_dt = local_dt - RDV_AVANT_ETALE
+    rdv_dt = rdv_time(local_dt, rdv_offset_minutes)
     return {
         "kind": ex["kind"],
         "date": local_dt.date().isoformat(),

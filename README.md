@@ -40,7 +40,7 @@ Pour un port et une année, `precompute.py` :
 4. calcule les horaires solaires jour par jour ;
 5. remplace en base les données de **cette année uniquement**, en une transaction : les autres années sont conservées, et un échec laisse la base intacte.
 
-L'interface permet ensuite de filtrer par période, phase de marée (PM, BM ou les deux), coefficient maximum, marge autour de l'étale et lumière requise (nautique, civile ou aucune). Chaque créneau affiche aussi une heure de rendez-vous (étale − 2 h).
+L'interface permet ensuite de filtrer par période, phase de marée (PM, BM ou les deux), coefficient maximum, marge autour de l'étale et lumière requise (nautique, civile ou aucune). Pour un compte connecté, chaque créneau affiche aussi une heure de rendez-vous (absente pour un visiteur non connecté) : l'étale moins un délai réglé par les administrateurs de chaque structure (2 h par défaut, onglet « Types de créneaux »), arrondie aux 5 minutes inférieures — étale à 9h37 et délai de 2h15 → rendez-vous à 7h20.
 
 ## Démarrage rapide avec Docker
 
@@ -324,7 +324,7 @@ La recherche et la page des créneaux choisis ont un bouton **« Exporter en Exc
 Règles :
 
 - les choix sont **propres à chaque structure** et communs à ses membres : deux structures peuvent choisir le même créneau, mais une structure ne peut pas le choisir deux fois (contrainte `UNIQUE (structure_id, port_id, ts_utc)` en base) ; supprimer un compte ne supprime pas les créneaux qu'il a choisis ;
-- un créneau est identifié par son port et l'horodatage UTC de l'étale ; heure, hauteur, coefficient et RDV sont **recalculés par le serveur** au moment du choix puis figés ;
+- un créneau est identifié par son port et l'horodatage UTC de l'étale ; heure, hauteur, coefficient et RDV sont **recalculés par le serveur** au moment du choix puis figés (seule exception : un changement du délai de rendez-vous de la structure recalcule le RDV de ses créneaux à venir) ;
 - chaque structure a sa liste de types, gérée dans **`/admin.html` → Types de créneaux** : libellé, couleur, ordre, « proposé » ou non. Un type non proposé reste affiché sur les choix existants ; un type utilisé ne peut pas être supprimé.
 
 Tant qu'aucun type n'existe, la colonne « Choix » affiche « aucun type ».

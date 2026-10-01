@@ -733,12 +733,47 @@ function renderLockPreview() {
     "Les administrateurs de la structure peuvent toujours retirer une inscription.";
 }
 
+// Heure de rendez-vous : étale moins le délai, arrondie aux 5 minutes inférieures
+const rdvInputs = { hours: $("rdv-offset-hours"), minutes: $("rdv-offset-minutes") };
+const pad2 = n => String(n).padStart(2, "0");
+const fmtHM = total => `${Math.floor(total / 60)}h${pad2(total % 60)}`;
+
+// délai en minutes (0 à 12 h), ou undefined si invalide
+function parseRdvOffset() {
+  const h = Number(rdvInputs.hours.value.trim() || 0);
+  const m = Number(rdvInputs.minutes.value.trim() || 0);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || m < 0 || m > 59) return undefined;
+  const total = h * 60 + m;
+  return total <= 720 ? total : undefined;
+}
+
+function renderRdvPreview() {
+  const el = $("rdv-offset-preview");
+  const offset = parseRdvOffset();
+  if (offset === undefined) {
+    el.textContent = "Délai de 0 h 00 à 12 h 00 (minutes de 0 à 59).";
+    return;
+  }
+  const tide = 9 * 60 + 37;  // étale à 9h37
+  let rdv = (tide - offset + 1440) % 1440;
+  rdv -= rdv % 5;
+  el.textContent = `Exemple : étale à ${fmtHM(tide)} → rendez-vous à ${fmtHM(rdv)}` +
+    `${tide - offset < 0 ? " la veille" : ""}. L'heure de rendez-vous est arrondie aux 5 minutes inférieures ; ` +
+    "un changement s'applique aussi aux créneaux déjà choisis à venir.";
+}
+
+for (const input of Object.values(rdvInputs)) input.addEventListener("input", renderRdvPreview);
+
 function loadSettings() {
   const st = scopedStructure();
   settingsForm.hidden = !st;
   $("settings-form-status").textContent = "";
   if (!st) return;
   for (const [k, input] of Object.entries(lockInputs)) input.value = st[k] ?? "";
+  const offset = st.rdv_offset_minutes ?? 120;
+  rdvInputs.hours.value = Math.floor(offset / 60);
+  rdvInputs.minutes.value = offset % 60;
+  renderRdvPreview();
   renderLockPreview();
 }
 
@@ -759,12 +794,21 @@ settingsForm.addEventListener("submit", async e => {
     }
     body[k] = v;
   }
+  const offset = parseRdvOffset();
+  if (offset === undefined) {
+    status.textContent = "Délai de rendez-vous de 0 h 00 à 12 h 00 (minutes de 0 à 59).";
+    rdvInputs.hours.focus();
+    return;
+  }
+  body.rdv_offset_minutes = offset;
   status.textContent = "";
   try {
     const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
     Object.assign(st, saved);
     loadSettings();
-    $("settings-form-status").textContent = "Délais enregistrés.";
+    $("settings-form-status").textContent = "Réglages enregistrés.";
+    // sa propre structure : l'heure de RDV affichée ailleurs suit le nouveau délai
+    if (Session.user?.structure?.id === st.id) Session.user.structure.rdv_offset_minutes = saved.rdv_offset_minutes;
   } catch (err) {
     status.textContent = err.message;
   }

@@ -74,12 +74,15 @@ CREATE TABLE IF NOT EXISTS school_holidays (
 -- register_lock_days / unregister_lock_days : inscription / désinscription close
 -- à partir de J-N (N jours avant la date du créneau, heure de Paris) ;
 -- NULL = pas de limite (jusqu'au jour J).
+-- rdv_offset_minutes : heure de rendez-vous = étale moins ce délai (arrondie
+-- au pas de 5 min inférieur).
 CREATE TABLE IF NOT EXISTS structures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     created_at TEXT NOT NULL,
     unregister_lock_days INTEGER CHECK (unregister_lock_days BETWEEN 0 AND 365),
-    register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365)
+    register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365),
+    rdv_offset_minutes INTEGER NOT NULL DEFAULT 120 CHECK (rdv_offset_minutes BETWEEN 0 AND 720)
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
@@ -263,6 +266,7 @@ def init_db() -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
+        _prune_jobs(conn)  # historique d'avant la limite
     _migrate_structures()
     with get_conn() as conn:
         conn.executescript(INDEXES_AFTER_MIGRATION)
@@ -433,6 +437,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for col in ("unregister_lock_days", "register_lock_days"):
         if col not in structure_cols:
             conn.execute(f"ALTER TABLE structures ADD COLUMN {col} INTEGER CHECK ({col} BETWEEN 0 AND 365)")
+    # Délai entre l'heure de rendez-vous et l'étale (2 h, la valeur fixe d'avant)
+    if "rdv_offset_minutes" not in structure_cols:
+        conn.execute(
+            "ALTER TABLE structures ADD COLUMN rdv_offset_minutes INTEGER NOT NULL DEFAULT 120"
+            " CHECK (rdv_offset_minutes BETWEEN 0 AND 720)"
+        )
 
 
 @contextmanager
@@ -782,16 +792,30 @@ def rename_structure(structure_id: int, name: str) -> None:
 
 
 LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
+SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes")
 
 
 def update_structure_settings(structure_id: int, **fields) -> None:
-    """Met à jour les délais fournis (clés de LOCK_COLUMNS ; None = pas de limite)."""
-    fields = {k: v for k, v in fields.items() if k in LOCK_COLUMNS}
+    """Met à jour les réglages fournis (clés de SETTINGS_COLUMNS ; pour les délais,
+    None = pas de limite)."""
+    fields = {k: v for k, v in fields.items() if k in SETTINGS_COLUMNS}
     if not fields:
         return
     sets = ", ".join(f"{k} = ?" for k in fields)
     with get_conn() as conn:
         conn.execute(f"UPDATE structures SET {sets} WHERE id = ?", (*fields.values(), structure_id))
+
+
+DEFAULT_RDV_OFFSET_MINUTES = 120
+
+
+def get_rdv_offset(structure_id: int | None) -> int:
+    """Délai étale → rendez-vous de la structure (2 h sans structure)."""
+    if structure_id is None:
+        return DEFAULT_RDV_OFFSET_MINUTES
+    with get_conn() as conn:
+        row = conn.execute("SELECT rdv_offset_minutes FROM structures WHERE id = ?", (structure_id,)).fetchone()
+    return row["rdv_offset_minutes"] if row else DEFAULT_RDV_OFFSET_MINUTES
 
 
 def get_lock_days(structure_id: int) -> dict[str, int | None]:
@@ -817,6 +841,7 @@ def delete_structure(structure_id: int) -> None:
 _USER_SELECT = """
     SELECT u.id, u.username, u.is_admin, u.structure_id, u.structure_role,
            u.created_at, u.last_login_at, st.name AS structure_name,
+           st.rdv_offset_minutes AS structure_rdv_offset_minutes,
            u.first_name, u.last_name, u.email, u.phone,
            u.must_change_password, u.password_changed_at,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
@@ -1092,6 +1117,17 @@ def delete_preferences(user_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 JOB_LOG_MAX = 200_000  # caractères : on ne garde que la fin du journal
+JOBS_KEPT = 20         # tâches conservées (avec leur journal) : les plus récentes
+
+
+def _prune_jobs(conn: sqlite3.Connection) -> None:
+    """Supprime les tâches terminées au-delà des JOBS_KEPT plus récentes ;
+    une tâche en attente ou en cours n'est jamais supprimée."""
+    conn.execute(
+        "DELETE FROM jobs WHERE status NOT IN ('queued', 'running')"
+        " AND id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT ?)",
+        (JOBS_KEPT,),
+    )
 
 _JOB_COLUMNS = (
     "id, kind, params_json, status, cancel_requested, created_by, created_at, "
@@ -1112,10 +1148,11 @@ def enqueue_job(kind: str, params_json: str, created_by: str, now: str) -> int |
             "INSERT INTO jobs (kind, params_json, created_by, created_at) VALUES (?, ?, ?, ?)",
             (kind, params_json, created_by, now),
         )
+        _prune_jobs(conn)
         return cur.lastrowid
 
 
-def list_jobs(limit: int = 50) -> list[sqlite3.Row]:
+def list_jobs(limit: int = JOBS_KEPT) -> list[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute(
             f"SELECT {_JOB_COLUMNS} FROM jobs ORDER BY id DESC LIMIT ?", (limit,)
@@ -1296,6 +1333,12 @@ def get_selection(structure_id: int, selection_id: int) -> sqlite3.Row | None:
         return conn.execute(
             _SELECTION_SQL + " WHERE s.structure_id = ? AND s.id = ?", (structure_id, selection_id)
         ).fetchone()
+
+
+def update_selection_rdvs(rdvs: list[tuple[str, str, int]]) -> None:
+    """[(rdv_date, rdv_time, selection_id), …]"""
+    with get_conn() as conn:
+        conn.executemany("UPDATE slot_selections SET rdv_date = ?, rdv_time = ? WHERE id = ?", rdvs)
 
 
 def get_extremum(port_id: int, ts_utc: str) -> sqlite3.Row | None:

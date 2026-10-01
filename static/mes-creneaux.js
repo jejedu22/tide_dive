@@ -109,6 +109,14 @@ function registrationsCell(p) {
   return `<div class="regs">${count}${button}</div>`;
 }
 
+// Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min
+function rdvTitle() {
+  const offset = Session.user?.structure?.rdv_offset_minutes ?? 120;
+  const h = Math.floor(offset / 60), m = offset % 60;
+  const delay = m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
+  return `Heure de rendez-vous (étale − ${delay}, arrondie aux 5 min inférieures)`;
+}
+
 const veilleMark = p => (p.rdv.date !== p.date ? `<span class="veille" title="RDV la veille">J-1</span> ` : "");
 const pickedBy = p => (p.picked_by ? esc(p.picked_by) : `<span class="muted">compte supprimé</span>`);
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
@@ -119,7 +127,7 @@ function slotCard(p) {
   return `
     <li class="slot-card${p.past ? " past" : ""}${p.registered ? " mine" : ""}" data-id="${p.id}" style="--type-color:${esc(p.type.color)}">
       <div class="slot-head">
-        <p class="slot-rdv"><abbr title="Heure de rendez-vous (étale − 2 h)">RDV</abbr> ${veilleMark(p)}<strong>${p.rdv.time}</strong></p>
+        <p class="slot-rdv"><abbr title="${rdvTitle()}">RDV</abbr> ${veilleMark(p)}<strong>${p.rdv.time}</strong></p>
         <p class="slot-port">${esc(p.port)}</p>
       </div>
       <p class="slot-tide">
@@ -357,6 +365,7 @@ function renderListCards(list) {
 
 function render() {
   const list = visiblePicks();
+  document.querySelector(".rdv-abbr").title = rdvTitle();
   renderSummary(list);
   statusEl.textContent = picks.length
     ? `${list.length} créneau(x) affiché(s) sur ${picks.length} choisi(s).`

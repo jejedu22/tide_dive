@@ -15,7 +15,9 @@ Créneaux choisis par les structures, et types de créneaux.
   UNIQUE en base) ; deux structures peuvent choisir le même.
 - Les infos affichées (heure, hauteur, coefficient, RDV) sont recalculées
   côté serveur à partir de la base au moment du choix, puis figées : on ne
-  fait jamais confiance à ce que le navigateur envoie.
+  fait jamais confiance à ce que le navigateur envoie. Seule exception : quand
+  la structure change son délai de rendez-vous, l'heure de RDV de ses créneaux
+  à venir est recalculée (voir structures.py).
 """
 
 from __future__ import annotations
@@ -219,7 +221,7 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
     _active_type_or_422(body.type_id, sid)
     try:
         sel_id = db.create_selection(
-            sid, user["id"], body.port_id, body.ts_utc, body.type_id, describe_extremum(port, ex), _now_iso(),
+            sid, user["id"], body.port_id, body.ts_utc, body.type_id, describe_extremum(port, ex, db.get_rdv_offset(sid)), _now_iso(),
         )
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est déjà choisi par votre structure")

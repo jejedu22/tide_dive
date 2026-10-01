@@ -96,16 +96,27 @@ function pair(a, b) {
   return `${show(a)}<span class="sep">/</span>${show(b)}`;
 }
 
+// RDV : réservé aux comptes connectés (absent des résultats d'un visiteur)
+const hasRdv = data => data?.rdv_offset_minutes != null;
+
 function rdvCell(r) {
+  if (!r.rdv) return "";
   const veille = r.rdv.date !== r.date ? `<span class="veille" title="RDV la veille">J-1</span> ` : "";
   return veille + r.rdv.time;
+}
+
+// Délai étale → RDV, fixé par la structure du compte (2 h sinon) ; RDV au pas de 5 min
+function rdvTitle(offset) {
+  const h = Math.floor(offset / 60), m = offset % 60;
+  const delay = m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
+  return `Heure de rendez-vous (étale − ${delay}, arrondie aux 5 min inférieures)`;
 }
 
 const TABLE_HEAD = `
   <thead>
     <tr>
       <th scope="col">Date</th>
-      <th scope="col"><abbr title="Heure de rendez-vous (étale − 2 h)">RDV</abbr></th>
+      <th scope="col" class="c-rdv"><abbr class="rdv-abbr" title="${rdvTitle(120)}">RDV</abbr></th>
       <th scope="col"><abbr title="Étale de pleine mer (PM) ou de basse mer (BM)">Étale</abbr></th>
       <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
       <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
@@ -125,7 +136,7 @@ const TABLE_HEAD = `
           <option value="semaine">En semaine</option>
         </select>
       </th>
-      <th data-label="RDV">
+      <th class="c-rdv" data-label="RDV">
         <div class="range stack">
           <input type="time" data-f="rdvMin" aria-label="RDV à partir de" title="RDV à partir de">
           <input type="time" data-f="rdvMax" aria-label="RDV jusqu'à" title="RDV jusqu'à">
@@ -169,7 +180,7 @@ const LEGEND = `
     <span><b>H</b> hauteur d'eau</span>
     <span><b>Soleil</b> lever/coucher</span>
     <span><b>Naut.</b> aube/crépuscule nautique</span>
-    <span><b>J-1</b> RDV la veille</span>
+    <span class="c-rdv"><b>J-1</b> RDV la veille</span>
     <span><span class="coef ve">VE</span> coef ≥ 90</span>
     <span><span class="coef me">ME</span> coef ≤ 50</span>
     <span><span class="swatch swatch-weekend"></span>samedi/dimanche</span>
@@ -229,13 +240,14 @@ function matchPick(r, mode) {
 }
 
 function applyFilters(results, f) {
+  const rdv = hasRdv(lastData);  // filtre RDV caché et ignoré sans RDV
   const hMin = toNum(f.hMin), hMax = toNum(f.hMax);
   const cMin = toNum(f.coefMin), cMax = toNum(f.coefMax);
   return results.filter(r =>
     matchPick(r, f.pick) &&
     matchDay(r.day, f.day) &&
     (!f.kind || r.kind === f.kind) &&
-    inTimeRange(r.rdv.time, f.rdvMin, f.rdvMax) &&
+    (!rdv || inTimeRange(r.rdv.time, f.rdvMin, f.rdvMax)) &&
     inRange(r.height_m, hMin, hMax) &&
     // on filtre sur la valeur arrondie, celle qui est affichée
     inRange(r.coefficient != null ? Math.round(r.coefficient) : null, cMin, cMax)
@@ -289,6 +301,8 @@ function renderRows() {
   const f = readFilters();
   const active = Object.values(f).some(v => v !== "");
   const all = lastData.results;
+  resultsEl.closest(".results").classList.toggle("show-rdv", hasRdv(lastData));
+  if (hasRdv(lastData)) tableEl.querySelector(".rdv-abbr").title = rdvTitle(lastData.rdv_offset_minutes);
   const shown = active ? applyFilters(all, f) : all;
   lastShown = shown;
   exportBtn.hidden = false;
@@ -392,8 +406,10 @@ function exportColumns() {
     { header: "Date", type: "date", width: 11, value: r => r.date },
     { header: "Jour", width: 10, value: r => fmtWeekday.format(new Date(r.date + "T12:00:00")) },
     { header: "Port", width: 18, value: () => lastData.port },
-    { header: "Date RDV", type: "date", width: 11, value: r => r.rdv.date },
-    { header: "Heure RDV", type: "time", width: 10, value: r => r.rdv.time },
+    ...(hasRdv(lastData) ? [
+      { header: "Date RDV", type: "date", width: 11, value: r => r.rdv.date },
+      { header: "Heure RDV", type: "time", width: 10, value: r => r.rdv.time },
+    ] : []),
     { header: "Étale", width: 7, value: r => r.kind },
     { header: "Heure étale", type: "time", width: 11, value: r => r.time },
     { header: "Hauteur (m)", type: "decimal", width: 11, value: r => r.height_m },
@@ -586,11 +602,16 @@ function showSavedStamp() {
 
 async function onSessionChange(user) {
   resultsEl.closest(".results").classList.toggle("can-pick", !!user?.can.view_selections);
+  // connexion / déconnexion : relance la recherche affichée pour ajouter ou retirer le RDV
+  let refresh = !!lastData && hasRdv(lastData) !== !!user;
   await loadPicks(user);
   prefsBar.hidden = !user;
   savedPrefs = null;
   prefsRestoreBtn.disabled = true;
-  if (!user) return;
+  if (!user) {
+    if (refresh) search();
+    return;
+  }
   try {
     const prefs = await Session.api("/api/me/preferences");
     if (prefs.updated_at) {
@@ -598,11 +619,13 @@ async function onSessionChange(user) {
       prefsRestoreBtn.disabled = false;
       applyPrefs(prefs);
       search();
+      refresh = false;
     }
     showSavedStamp();
   } catch (e) {
     prefsStatus.textContent = `Préférences non chargées : ${e.message}`;
   }
+  if (refresh) search();
 }
 
 prefsSaveBtn.addEventListener("click", async () => {
