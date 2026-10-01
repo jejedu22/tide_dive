@@ -1,5 +1,8 @@
 # Marée — API FastAPI + précalcul annuel des marées/crépuscules
 #
+# Prérequis : la stack Traefik (dépôt traefik-proxy) tourne et a créé le réseau `proxy` ;
+# MAREE_HOST (.env) pointe vers le serveur dans le DNS.
+#
 #   docker compose up -d --build                          # 1. API + worker + planificateur
 #   docker compose run --rm --entrypoint python api -m app.auth create-admin jerome --email jerome@example.fr --first-name Jérôme --last-name "Le Goff"   # 2. 1er admin
 #   puis /admin.html : télécharger FES, ajouter les ports, lancer les calculs
@@ -23,7 +26,7 @@ x-app: &app
     PYTMD_CACHE_DIR: /models        # répertoire par défaut de pyTMD 3.x
     FES_MODEL: ${FES_MODEL:-FES2014}  # modèle par défaut, tant qu'aucun n'est choisi dans l'administration
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
-    COOKIE_SECURE: ${COOKIE_SECURE:-0}          # 1 derrière HTTPS (Traefik)
+    COOKIE_SECURE: ${COOKIE_SECURE:-1}          # HTTPS via Traefik ; 0 en local (http)
     SESSION_DAYS: ${SESSION_DAYS:-30}           # durée d'une session de connexion
     PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
     # E-mails : invitations et mot de passe oublié (voir .env.example)
@@ -54,8 +57,6 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     mem_limit: 256m
     cpus: 0.5
-    ports:
-      - "${API_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ports', timeout=3)"]
@@ -63,12 +64,20 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    # --- Derrière Traefik : retirer "ports" et décommenter ---
-    # labels:
-    #   - traefik.enable=true
-    #   - traefik.http.routers.maree.rule=Host(`maree.localhost`)
-    #   - traefik.http.services.maree.loadbalancer.server.port=8000
-    # networks: [traefik]
+      start_interval: 2s   # Traefik ne route qu'un conteneur « healthy » : raccourcit la coupure au redéploiement
+    # Exposé uniquement via Traefik (dépôt traefik-proxy, réseau externe `proxy`) : aucun port publié.
+    # En local sans Traefik : docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+    networks:
+      - default   # worker, scheduler, maildev
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.maree.rule=Host(`${MAREE_HOST:?MAREE_HOST manquant dans .env}`)
+      - traefik.http.routers.maree.entrypoints=websecure
+      - traefik.http.routers.maree.tls.certresolver=letsencrypt
+      - traefik.http.routers.maree.middlewares=default@file
+      - traefik.http.services.maree.loadbalancer.server.port=8000
 
   # Téléchargement / mise à jour du modèle FES depuis le FTP AVISO+ (one-shot)
   # Ne retélécharge que les fichiers plus récents côté serveur.
@@ -138,13 +147,7 @@ services:
     ports:
       - "${MAILDEV_WEB_PORT:-1080}:1080"   # interface web (le port SMTP 1025 reste interne)
     restart: unless-stopped
-    # --- Derrière Traefik : retirer "ports" et décommenter ---
-    # labels:
-    #   - traefik.enable=true
-    #   - traefik.http.routers.maildev.rule=Host(`maildev.localhost`)
-    #   - traefik.http.services.maildev.loadbalancer.server.port=1080
-    # networks: [default, traefik]
 
-# networks:
-#   traefik:
-#     external: true
+networks:
+  proxy:
+    external: true    # créé par la stack Traefik (dépôt traefik-proxy)
