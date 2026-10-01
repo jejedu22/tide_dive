@@ -52,6 +52,8 @@ services:
   api:
     <<: *app
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    mem_limit: 256m
+    cpus: 0.5
     ports:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped
@@ -77,6 +79,8 @@ services:
     volumes:
       - ${FES_DIR:-./models}:/models          # écriture nécessaire ici
     entrypoint: ["fetch_aviso_fes.py", "--directory", "/models"]
+    mem_limit: 256m
+    cpus: 0.5
     command: ["--tide", "${FES_MODEL:-FES2014}"]
 
   # Précalcul manuel : docker compose run --rm precompute --year 2027 --port binic
@@ -85,7 +89,8 @@ services:
     profiles: ["tools"]
     entrypoint: ["python", "-m", "app.precompute"]
     command: ["--help"]
-    mem_limit: 4g
+    mem_limit: ${WORKER_MEM_LIMIT:-1g}
+    cpus: 1.0
 
   # Exécute les tâches mises en file depuis l'administration ou par le planificateur :
   # précalculs, téléchargement FES, vacances scolaires. Une tâche à la fois.
@@ -97,7 +102,10 @@ services:
       - ${FES_DIR:-./models}:/models          # écriture pour la mise à jour FES
     command: ["python", "-m", "app.jobs", "worker"]
     restart: unless-stopped
-    mem_limit: 4g
+    # Serveur 2 CPU / 4 Go partagé : 1 Go par défaut (ajustable via WORKER_MEM_LIMIT dans .env),
+    # et un seul cœur pour laisser l'autre aux services web pendant un précalcul.
+    mem_limit: ${WORKER_MEM_LIMIT:-1g}
+    cpus: 1.0
     stop_grace_period: 30s                    # laisse le temps d'interrompre proprement la tâche en cours
 
   # Planificateur (voir docker/crontab) : il ne calcule rien lui-même,
@@ -112,6 +120,8 @@ services:
       - -c
       - python -m app.jobs enqueue school-holidays; exec supercronic /etc/crontab.maree
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
 
   # Serveur SMTP de développement : capture tous les e-mails envoyés (rien ne
   # part réellement) et les affiche dans une boîte de réception web.
@@ -123,6 +133,8 @@ services:
       TZ: Europe/Paris
       MAILDEV_SMTP_PORT: 1025
       MAILDEV_WEB_PORT: 1080
+    mem_limit: 128m
+    cpus: 0.25
     ports:
       - "${MAILDEV_WEB_PORT:-1080}:1080"   # interface web (le port SMTP 1025 reste interne)
     restart: unless-stopped

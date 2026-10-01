@@ -75,7 +75,7 @@ docker compose run --rm precompute --year 2026 --port binic
 | Service | Rôle | Lancement |
 |---|---|---|
 | `api` | FastAPI + frontend statique + administration | `docker compose up -d` |
-| `worker` | exécute les tâches en file, une à la fois (4 Go max) | `docker compose up -d` |
+| `worker` | exécute les tâches en file, une à la fois (1 Go max par défaut, `WORKER_MEM_LIMIT`) | `docker compose up -d` |
 | `scheduler` | ajoute les tâches périodiques à la file via [supercronic](https://github.com/aptible/supercronic) | `docker compose up -d` |
 | `fetch-models` | téléchargement FES en direct | profil `tools`, `run --rm` |
 | `precompute` | précalcul en direct | profil `tools`, `run --rm` |
@@ -184,7 +184,7 @@ La page `/admin.html` (administrateurs) comporte trois onglets.
 
 ### File de tâches
 
-L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs`, et le service `worker` (`python -m app.jobs worker`) les exécute **une par une** en sous-processus, en recopiant leur sortie dans le journal. Un précalcul peut donc occuper ses 4 Go sans toucher au serveur web, et deux calculs ne se marchent pas dessus. Une tâche identique déjà en attente ou en cours n'est pas dupliquée. Chaque tâche de calcul retient le modèle choisi au moment de sa mise en file (visible dans son libellé) : changer de modèle ne modifie pas les tâches déjà prévues.
+L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs`, et le service `worker` (`python -m app.jobs worker`) les exécute **une par une** en sous-processus, en recopiant leur sortie dans le journal. Un précalcul peut donc occuper toute sa mémoire (`WORKER_MEM_LIMIT`, 1 Go par défaut) sans toucher au serveur web, et deux calculs ne se marchent pas dessus. Une tâche identique déjà en attente ou en cours n'est pas dupliquée. Chaque tâche de calcul retient le modèle choisi au moment de sa mise en file (visible dans son libellé) : changer de modèle ne modifie pas les tâches déjà prévues.
 
 - Si le worker est arrêté, un bandeau le signale dans l'administration et les tâches restent en attente.
 - Sans identifiants AVISO+, le téléchargement est refusé avec un message clair (le script de pyTMD attendrait sinon une saisie au clavier).
