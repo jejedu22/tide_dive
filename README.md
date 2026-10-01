@@ -48,16 +48,17 @@ Prérequis : Docker + Compose, et un compte gratuit [AVISO+](https://www.aviso.a
 
 ```bash
 cp .env.example .env
-# Renseigner AVISO_USERNAME / AVISO_PASSWORD, HOST_UID / HOST_GID (sortie de `id -u` / `id -g`)
+# Renseigner AVISO_USERNAME / AVISO_PASSWORD, HOST_UID / HOST_GID (sortie de `id -u` / `id -g`),
+# MAREE_HOST (domaine public)
 
-docker compose up -d --build
+docker compose up -d --build      # nécessite la stack Traefik (voir « Derrière Traefik »)
 
 # Premier administrateur
 docker compose run --rm --entrypoint python api -m app.auth create-admin jerome \
     --email jerome@example.fr --first-name Jérôme --last-name "Le Goff"
 ```
 
-Puis ouvrir <http://localhost:8000/admin.html> (port configurable via `API_PORT`) :
+Puis ouvrir `https://<MAREE_HOST>/admin.html` (en local : <http://localhost:8000/admin.html>, voir ci-dessous) :
 
 1. onglet **Données et tâches** : lancer le téléchargement du modèle FES (plusieurs Go la première fois) ;
 2. onglet **Ports** : ajouter les ports depuis le catalogue, vérifier leur niveau moyen, puis **Calculer** l'année voulue ;
@@ -93,7 +94,8 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
 | `FES_MODEL` | `FES2014` | Modèle par défaut (`FES2014` ou `FES2022`), pour le téléchargement et les calculs, tant qu'aucun n'est choisi dans l'administration |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
-| `API_PORT` | `8000` | Port exposé sur l'hôte |
+| `MAREE_HOST` | — | Domaine public routé par Traefik (obligatoire) |
+| `API_PORT` | `8000` | Port exposé sur l'hôte, en local uniquement (`docker-compose.local.yml`) |
 | `HOST_UID`, `HOST_GID` | `1000` | Utilisateur propriétaire de `./data` et `./models` |
 | `MAIL_BACKEND`, `APP_BASE_URL`, `SMTP_*` | — | Envoi d'e-mails (invitations, mot de passe oublié) : voir [Comptes](#comptes-structures-et-préférences) |
 
@@ -103,7 +105,21 @@ Côté application, `tide_model.py` lit `TIDE_MODEL_DIRECTORY` (fixé à `/model
 
 ### Derrière Traefik
 
-Dans `docker-compose.yml`, retirer la section `ports` du service `api`, décommenter les `labels` et le réseau `traefik`, et adapter la règle `Host(...)`.
+Le service `api` est exposé par le reverse proxy mutualisé [traefik-proxy](https://github.com/jejedu22/traefik) : il rejoint le réseau externe `proxy` et ne publie aucun port sur l'hôte. Le routeur `maree` sert `MAREE_HOST` en HTTPS (certificat Let's Encrypt, middlewares `default@file` : en-têtes de sécurité + compression). `worker` et `scheduler` restent sur le réseau interne du projet.
+
+1. Démarrer la stack Traefik (elle crée le réseau `proxy`) ;
+2. Faire pointer `MAREE_HOST` vers le serveur dans le DNS ;
+3. Dans `.env` : `MAREE_HOST`, `COOKIE_SECURE=1`, `APP_BASE_URL=https://<MAREE_HOST>` ;
+4. `docker compose up -d --build`.
+
+Traefik ne route le conteneur qu'une fois son healthcheck au vert (quelques secondes après le démarrage).
+
+**En local, sans Traefik** : `docker-compose.local.yml` publie l'API sur `API_PORT` et désactive le cookie sécurisé :
+
+```bash
+docker network create proxy    # une seule fois, si la stack Traefik ne tourne pas
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
 
 ## Installation sans Docker
 
