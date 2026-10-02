@@ -1,7 +1,7 @@
 """
 Tâches longues lancées depuis l'administration (ou par le planificateur) :
-précalcul d'un port, téléchargement du modèle FES depuis AVISO+,
-synchronisation des vacances scolaires.
+précalcul d'un port, recalage d'un port sur api-maree.fr, téléchargement du
+modèle FES depuis AVISO+, synchronisation des vacances scolaires.
 
 Principe
 --------
@@ -20,6 +20,7 @@ Ligne de commande
     python -m app.jobs enqueue fetch-models [--model FES2014]
     python -m app.jobs enqueue precompute --port-id 3 [--year 2027]
     python -m app.jobs enqueue precompute --auto [--year 2027]   # ports « précalcul annuel »
+    python -m app.jobs enqueue calibrate --port-id 3 | --all     # recalage api-maree.fr
     python -m app.jobs enqueue school-holidays
 
 Sans --year, le précalcul vise l'année suivante (usage du cron de décembre).
@@ -89,6 +90,11 @@ def normalize_params(kind: str, params: dict) -> dict:
         if model not in FES_MODELS:
             raise ValueError(f"modèle inconnu : {model}")
         return {"model": model}
+    if kind == "calibrate":
+        model = params.get("model") or current_fes_model()
+        if model not in FES_MODELS:
+            raise ValueError(f"modèle inconnu : {model}")
+        return {"port_id": int(params["port_id"]), "model": model}
     if kind == "school_holidays":
         return {}
     raise ValueError(f"type de tâche inconnu : {kind}")
@@ -100,6 +106,10 @@ def build_command(kind: str, params: dict) -> list[str]:
         return [sys.executable, "-m", "app.precompute",
                 "--port-id", str(params["port_id"]), "--year", str(params["year"]),
                 "--model", params["model"]]
+    if kind == "calibrate":
+        # --recompute : un recalage modifié relance les précalculs des années à venir
+        return [sys.executable, "-m", "app.calibration",
+                "--port-id", str(params["port_id"]), "--model", params["model"], "--recompute"]
     if kind == "fetch_models":
         exe = shutil.which("fetch_aviso_fes.py") or "fetch_aviso_fes.py"
         return [exe, "--directory", MODEL_DIR, "--tide", params["model"]]
@@ -113,6 +123,8 @@ def preflight(kind: str) -> str | None:
             return "Identifiants AVISO+ absents : renseigner AVISO_USERNAME et AVISO_PASSWORD dans .env."
         if not os.access(MODEL_DIR, os.W_OK):
             return f"Le dossier des modèles {MODEL_DIR} n'est pas accessible en écriture pour le worker."
+    if kind == "calibrate" and not os.environ.get("API_MAREE_KEY"):
+        return "Clé api-maree.fr absente : renseigner API_MAREE_KEY dans .env."
     return None
 
 
@@ -121,6 +133,10 @@ def job_label(kind: str, params: dict, port_names: dict[int, str]) -> str:
         pid = params.get("port_id")
         model = f" ({params['model']})" if params.get("model") else ""
         return f"Précalcul {port_names.get(pid, f'port #{pid}')} {params.get('year')}{model}"
+    if kind == "calibrate":
+        pid = params.get("port_id")
+        model = f" ({params['model']})" if params.get("model") else ""
+        return f"Recalage {port_names.get(pid, f'port #{pid}')} sur api-maree.fr{model}"
     if kind == "fetch_models":
         return f"Téléchargement {params.get('model')} (AVISO+)"
     if kind == "school_holidays":
@@ -145,6 +161,17 @@ def enqueue_annual(year: int, created_by: str) -> list[int]:
     return ids
 
 
+def enqueue_calibrations(created_by: str) -> list[int]:
+    """Une tâche de recalage par port doté d'un identifiant api-maree.fr."""
+    ids = []
+    for p in db.list_ports():
+        if p["api_maree_site"]:
+            job_id = enqueue("calibrate", {"port_id": p["id"]}, created_by)
+            if job_id:
+                ids.append(job_id)
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Worker
 # ---------------------------------------------------------------------------
@@ -156,6 +183,7 @@ class Worker:
         self.info = json.dumps({
             "aviso_configured": bool(os.environ.get("AVISO_USERNAME") and os.environ.get("AVISO_PASSWORD")),
             "model_dir_writable": os.access(MODEL_DIR, os.W_OK),
+            "api_maree_configured": bool(os.environ.get("API_MAREE_KEY")),
             "pid": os.getpid(),
         })
 
@@ -309,6 +337,10 @@ def main(argv: list[str] | None = None) -> int:
     target.add_argument("--port-id", type=int)
     target.add_argument("--auto", action="store_true", help="Tous les ports marqués « précalcul annuel »")
     p_pre.add_argument("--year", type=int, default=None, help="Défaut : année suivante")
+    p_cal = enq.add_parser("calibrate", help="Recaler un port ou tous les ports sur api-maree.fr")
+    cal_target = p_cal.add_mutually_exclusive_group(required=True)
+    cal_target.add_argument("--port-id", type=int)
+    cal_target.add_argument("--all", action="store_true", help="Tous les ports dotés d'un identifiant api-maree.fr")
     enq.add_parser("school-holidays", help="Synchroniser les vacances scolaires")
 
     args = parser.parse_args(argv)
@@ -323,6 +355,10 @@ def main(argv: list[str] | None = None) -> int:
         year = args.year or date.today().year + 1
         ids = enqueue_annual(year, who) if args.auto else [
             i for i in [enqueue("precompute", {"port_id": args.port_id, "year": year}, who)] if i
+        ]
+    elif args.kind == "calibrate":
+        ids = enqueue_calibrations(who) if args.all else [
+            i for i in [enqueue("calibrate", {"port_id": args.port_id}, who)] if i
         ]
     elif args.kind == "fetch-models":
         ids = [i for i in [enqueue("fetch_models", {"model": args.model}, who)] if i]

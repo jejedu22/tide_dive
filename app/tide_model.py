@@ -21,7 +21,8 @@ Le modèle global est moins précis qu'un atlas régional (type Ifremer/
 PREVIMER) dans les ports et zones à géométrie complexe. Avant de faire
 confiance aux horaires calculés pour une vraie sortie, comparez quelques
 valeurs à l'annuaire officiel du SHOM (https://maree.shom.fr) pour le port
-concerné, et ajustez au besoin un décalage de calage (voir README).
+concerné. Le recalage automatique sur api-maree.fr (calibration.py) corrige
+l'essentiel de l'écart : décalage horaire et facteur d'amplitude par port.
 """
 
 from __future__ import annotations
@@ -187,6 +188,26 @@ def compute_heights(
     return heights
 
 
+def compute_series(
+    latitude: float,
+    longitude: float,
+    timestamps_utc: list[datetime],
+    model: str | None = None,
+    directory: str | None = None,
+) -> np.ndarray:
+    """compute_heights sur une longue série, par blocs pour borner la mémoire."""
+    # pyTMD/xarray peuvent consommer beaucoup de mémoire sur un an entier
+    # d'un coup : on calcule par blocs puis on concatène.
+    heights = np.empty(len(timestamps_utc))
+    block = 6000  # ~41 jours à 10 min ; ajuster si besoin selon la RAM dispo
+    for i in range(0, len(timestamps_utc), block):
+        chunk = timestamps_utc[i:i + block]
+        heights[i:i + len(chunk)] = compute_heights(
+            latitude, longitude, chunk, model=model, directory=directory
+        )
+    return heights
+
+
 def compute_year_series(
     latitude: float,
     longitude: float,
@@ -194,24 +215,24 @@ def compute_year_series(
     step_minutes: int = 10,
     model: str | None = None,
     directory: str | None = None,
+    time_shift_minutes: float = 0.0,
 ) -> tuple[list[datetime], np.ndarray]:
-    """Calcule la hauteur d'eau sur toute une année, au pas de temps demandé."""
+    """
+    Calcule la hauteur d'eau sur toute une année, au pas de temps demandé.
+
+    time_shift_minutes (recalage, voir calibration.py) : la hauteur renvoyée
+    pour l'instant t est celle du modèle à t − décalage. Un décalage positif
+    retarde donc toute la marée calculée.
+    """
     start = datetime(year, 1, 1, tzinfo=dt_timezone.utc)
     end = datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc)
     n_steps = int((end - start).total_seconds() // (step_minutes * 60))
     # Borne de fin exclue : le 1er janvier 00:00 de l'année suivante appartient
     # à l'année suivante (sinon doublon quand les deux années sont en base).
     timestamps = [start + timedelta(minutes=step_minutes * i) for i in range(n_steps)]
-
-    # pyTMD/xarray peuvent consommer beaucoup de mémoire sur un an entier
-    # d'un coup : on calcule par blocs mensuels puis on concatène.
-    heights = np.empty(len(timestamps))
-    block = 6000  # ~41 jours à 10 min ; ajuster si besoin selon la RAM dispo
-    for i in range(0, len(timestamps), block):
-        chunk = timestamps[i:i + block]
-        heights[i:i + len(chunk)] = compute_heights(
-            latitude, longitude, chunk, model=model, directory=directory
-        )
+    shift = timedelta(minutes=time_shift_minutes)
+    evaluated = [t - shift for t in timestamps] if shift else timestamps
+    heights = compute_series(latitude, longitude, evaluated, model=model, directory=directory)
     return timestamps, heights
 
 

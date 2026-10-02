@@ -1,6 +1,6 @@
 """
-API d'administration des données : ports, tâches (précalcul, téléchargement
-FES, vacances scolaires) et état général. Réservée aux super administrateurs.
+API d'administration des données : ports, tâches (précalcul, recalage
+api-maree.fr, téléchargement FES, vacances scolaires) et état général. Réservée aux super administrateurs.
 
 Les tâches ne sont jamais exécutées ici : elles sont mises en file et le
 worker (python -m app.jobs worker) les exécute. Voir jobs.py.
@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db, jobs, tide_model
+from . import calendar_fr, db, jobs, tide_model, tide_reference
 from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
@@ -90,6 +90,7 @@ def admin_status(admin: CurrentAdmin):
         "fes_model": jobs.current_fes_model(),
         "worker": _worker_summary(),
         "school_holidays": {"academy": calendar_fr.SCHOOL_ACADEMY, "periods": n_periods, "last_end": last_end},
+        "api_maree_configured": tide_reference.configured(),
     }
 
 
@@ -116,6 +117,10 @@ def _check_tz(v: str) -> str:
     return v
 
 
+# Identifiant de site api-maree.fr, ex. « port-en-bessin »
+SITE_PATTERN = r"^[a-z0-9][a-z0-9-]{0,79}$"
+
+
 class PortIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     latitude: float = Field(ge=-90, le=90)
@@ -123,6 +128,7 @@ class PortIn(BaseModel):
     offset_zh_m: float | None = Field(None, gt=0, le=20, description="Niveau moyen au-dessus du zéro des cartes (m)")
     timezone: str = "Europe/Paris"
     auto_precompute: bool = True
+    api_maree_site: str | None = Field(None, pattern=SITE_PATTERN, description="Identifiant du site api-maree.fr")
 
     @field_validator("name")
     @classmethod
@@ -145,6 +151,7 @@ class PortPatch(BaseModel):
     offset_zh_m: float | None = Field(None, gt=0, le=20)
     timezone: str | None = None
     auto_precompute: bool | None = None
+    api_maree_site: str | None = Field(None, pattern=SITE_PATTERN)
 
     @field_validator("timezone")
     @classmethod
@@ -152,7 +159,14 @@ class PortPatch(BaseModel):
         return v if v is None else _check_tz(v)
 
 
-def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, dict[int, str]] | None = None) -> dict:
+def _calibration_out(cal: sqlite3.Row | None) -> dict | None:
+    if cal is None:
+        return None
+    return {k: cal[k] for k in cal.keys() if k != "port_id"}
+
+
+def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, dict[int, str]] | None = None,
+              calibrations: dict[int, sqlite3.Row] | None = None) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
@@ -161,6 +175,8 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, d
         "timezone": row["timezone"],
         "offset_zh_m": row["offset_zh_m"],
         "auto_precompute": bool(row["auto_precompute"]),
+        "api_maree_site": row["api_maree_site"],
+        "calibration": _calibration_out((calibrations or {}).get(row["id"])),
         "years": years.get(row["id"], []),
         # modèle de chaque année (absent pour une année calculée avant son enregistrement)
         "year_models": {str(y): m for y, m in (models or {}).get(row["id"], {}).items()},
@@ -169,8 +185,8 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, d
 
 @router.get("/ports")
 def admin_list_ports(admin: CurrentAdmin):
-    years, models = db.years_by_port(), db.models_by_port_year()
-    return [_port_out(p, years, models) for p in db.list_ports()]
+    years, models, cals = db.years_by_port(), db.models_by_port_year(), db.calibrations_by_port()
+    return [_port_out(p, years, models, cals) for p in db.list_ports()]
 
 
 @router.get("/ports/catalog")
@@ -211,8 +227,8 @@ def admin_create_port(body: PortIn, admin: CurrentAdmin):
 def admin_update_port(port_id: int, body: PortPatch, admin: CurrentAdmin):
     _get_port_or_404(port_id)
     fields = body.model_dump(exclude_unset=True)
-    # seul l'offset peut être remis à « inconnu » ; un null ailleurs est ignoré
-    fields = {k: v for k, v in fields.items() if v is not None or k == "offset_zh_m"}
+    # seuls l'offset et le site api-maree.fr peuvent être effacés ; un null ailleurs est ignoré
+    fields = {k: v for k, v in fields.items() if v is not None or k in ("offset_zh_m", "api_maree_site")}
     if "name" in fields:
         fields["name"] = fields["name"].strip()
         _check_name_free(fields["name"], except_id=port_id)
@@ -220,7 +236,14 @@ def admin_update_port(port_id: int, body: PortPatch, admin: CurrentAdmin):
         db.update_port(port_id, **fields)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Le port « {fields.get('name')} » existe déjà")
-    return _port_out(db.get_port(port_id), db.years_by_port(), db.models_by_port_year())
+    return _port_out(db.get_port(port_id), db.years_by_port(), db.models_by_port_year(), db.calibrations_by_port())
+
+
+@router.delete("/ports/{port_id}/calibration", status_code=204)
+def admin_delete_calibration(port_id: int, admin: CurrentAdmin):
+    """Abandon du recalage : les prochains calculs du port utiliseront FES brut."""
+    _get_port_or_404(port_id)
+    db.delete_calibration(port_id)
 
 
 @router.delete("/ports/{port_id}", status_code=204)
@@ -234,7 +257,7 @@ def admin_delete_port(port_id: int, admin: CurrentAdmin):
 # ---------------------------------------------------------------------------
 
 class JobIn(BaseModel):
-    kind: Literal["precompute", "fetch_models", "school_holidays"]
+    kind: Literal["precompute", "calibrate", "fetch_models", "school_holidays"]
     params: dict = {}
 
 
@@ -300,10 +323,27 @@ def _check_precompute_port(params: dict) -> None:
         )
 
 
+def _check_calibrate_port(params: dict) -> None:
+    try:
+        port_id = int(params.get("port_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "port_id manquant")
+    port = _get_port_or_404(port_id)
+    if not port["api_maree_site"]:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Renseignez d'abord l'identifiant api-maree.fr de « {port['name']} ».",
+        )
+    if not tide_reference.configured():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Clé api-maree.fr absente : renseigner API_MAREE_KEY dans .env.")
+
+
 @router.post("/jobs", status_code=201)
 def admin_create_job(body: JobIn, admin: CurrentAdmin):
     if body.kind == "precompute":
         _check_precompute_port(body.params)
+    elif body.kind == "calibrate":
+        _check_calibrate_port(body.params)
     try:
         job_id = jobs.enqueue(body.kind, body.params, admin["username"])
     except (ValueError, KeyError, TypeError) as exc:
