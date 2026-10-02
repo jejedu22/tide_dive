@@ -59,13 +59,15 @@ CREATE TABLE IF NOT EXISTS ports (
 );
 
 -- Recalage du modèle FES sur api-maree.fr (voir calibration.py) : la hauteur
--- stockée à t vaut amplitude × FES(t − time_shift_min) + offset_zh_m.
+-- stockée à t vaut amplitude × FES(t − time_shift_min) + correction harmonique
+-- (harmonics_json) + offset_zh_m. Les recalages actuels ont τ = 0 et a = 1.
 CREATE TABLE IF NOT EXISTS tide_calibration (
     port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
     site TEXT NOT NULL,                 -- site api-maree.fr utilisé
     model TEXT NOT NULL,                -- modèle FES recalé (ignoré pour un autre modèle)
     time_shift_min REAL NOT NULL,
     amplitude REAL NOT NULL,
+    harmonics_json TEXT,                -- ondes de correction [{name, speed °/h, cos, sin}], NULL = aucune
     mean_level_m REAL,                  -- niveau moyen de la référence (comparable à offset_zh_m)
     rmse_before_m REAL,
     rmse_after_m REAL,
@@ -91,6 +93,19 @@ CREATE TABLE IF NOT EXISTS tide_extrema (
     height_m REAL NOT NULL,
     coefficient REAL,               -- rempli uniquement pour les PM
     PRIMARY KEY (port_id, ts_utc)
+);
+
+-- Fenêtre glissante où les hauteurs et étales viennent d'api-maree.fr
+-- (rafraîchie chaque jour, voir short_term.py) au lieu du calcul FES
+CREATE TABLE IF NOT EXISTS short_term_windows (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    site TEXT NOT NULL,
+    window_start TEXT NOT NULL,         -- [début, fin[ ISO UTC des données remplacées
+    window_end TEXT NOT NULL,
+    n_extrema INTEGER NOT NULL,
+    max_shift_min REAL,                 -- plus grand écart d'heure avec l'étale FES remplacée
+    level_diff_m REAL,                  -- hauteur moyenne api-maree.fr − FES sur la fenêtre
+    refreshed_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sun_times (
@@ -487,6 +502,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
     if "api_maree_site" not in cols:
         conn.execute("ALTER TABLE ports ADD COLUMN api_maree_site TEXT")
+    if "harmonics_json" not in _columns(conn, "tide_calibration"):
+        conn.execute("ALTER TABLE tide_calibration ADD COLUMN harmonics_json TEXT")
 
     # Profil des comptes : nom, prénom, e-mail, téléphone, mot de passe provisoire
     user_cols = _columns(conn, "users")
@@ -641,7 +658,7 @@ def set_setting(key: str, value: str, updated_at: str, updated_by: str | None) -
 
 
 _CALIBRATION_FIELDS = (
-    "site", "model", "time_shift_min", "amplitude", "mean_level_m", "rmse_before_m", "rmse_after_m",
+    "site", "model", "time_shift_min", "amplitude", "harmonics_json", "mean_level_m", "rmse_before_m", "rmse_after_m",
     "extrema_dt_before_min", "extrema_dt_after_min", "n_points", "window_start", "window_end", "computed_at",
 )
 
@@ -767,6 +784,51 @@ def _rebind_selections(conn, port_id: int, start: str, end: str, extrema: list) 
             conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (new_ts, r["id"]))
 
 
+def replace_range(
+    port_id: int,
+    start: str,
+    end: str,
+    heights: Iterable[tuple[str, float]],
+    extrema: Iterable[tuple[str, str, float, float | None]],
+) -> None:
+    """
+    Remplace hauteurs et étales d'un port sur [start, end[ (ISO UTC), en une
+    transaction, et recale les créneaux choisis sur les nouvelles étales.
+    Mêmes formats que replace_year ; le soleil n'est pas concerné.
+    """
+    extrema = list(extrema)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?", (port_id, start, end))
+        conn.execute("DELETE FROM tide_extrema WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?", (port_id, start, end))
+        conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, ts, h) for ts, h in heights])
+        conn.executemany(_SQL_INSERT_EXTREMA, [(port_id, ts, kind, h, coef) for ts, kind, h, coef in extrema])
+        _rebind_selections(conn, port_id, start, end, extrema)
+
+
+def get_heights_range(port_id: int, start_iso: str, end_iso: str) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT ts_utc, height_m FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ? ORDER BY ts_utc",
+            (port_id, start_iso, end_iso),
+        ).fetchall()
+
+
+def save_short_term_window(port_id: int, site: str, window_start: str, window_end: str, n_extrema: int,
+                           max_shift_min: float | None, level_diff_m: float | None, refreshed_at: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO short_term_windows "
+            "(port_id, site, window_start, window_end, n_extrema, max_shift_min, level_diff_m, refreshed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (port_id, site, window_start, window_end, n_extrema, max_shift_min, level_diff_m, refreshed_at),
+        )
+
+
+def short_term_windows() -> dict[int, sqlite3.Row]:
+    with get_conn() as conn:
+        return {r["port_id"]: r for r in conn.execute("SELECT * FROM short_term_windows")}
+
+
 def clear_port_data(port_id: int) -> None:
     """Supprime TOUTES les années précalculées d'un port (remise à zéro complète)."""
     with get_conn() as conn:
@@ -774,6 +836,7 @@ def clear_port_data(port_id: int) -> None:
         conn.execute("DELETE FROM tide_extrema WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM sun_times WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM computed_years WHERE port_id = ?", (port_id,))
+        conn.execute("DELETE FROM short_term_windows WHERE port_id = ?", (port_id,))
 
 
 def years_available(port_id: int) -> list[int]:

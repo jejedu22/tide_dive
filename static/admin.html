@@ -118,7 +118,7 @@
                   <th scope="col">Port</th>
                   <th scope="col">Coordonnées</th>
                   <th scope="col" class="num"><abbr title="Niveau moyen au-dessus du zéro des cartes">NM/ZH</abbr></th>
-                  <th scope="col"><abbr title="Recalage du modèle sur api-maree.fr : décalage horaire et facteur d'amplitude">Recalage</abbr></th>
+                  <th scope="col"><abbr title="Mois glissant repris chaque jour d'api-maree.fr, et recalage du calcul FES pour le long terme">api-maree.fr</abbr></th>
                   <th scope="col">Années calculées</th>
                   <th scope="col">Annuel</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
@@ -127,7 +127,7 @@
               <tbody id="ports-body"></tbody>
             </table>
           </div>
-          <p class="hint">Seuls les ports ayant au moins une année calculée sont proposés sur la page de recherche. Après une modification des coordonnées ou du niveau moyen, relancez le calcul des années concernées. Un recalage qui change sensiblement relance de lui-même le calcul des années à venir ; il est refait chaque mois (le 2) pour les ports dotés d'un site api-maree.fr.</p>
+          <p class="hint">Seuls les ports ayant au moins une année calculée sont proposés sur la page de recherche. Après une modification des coordonnées ou du niveau moyen, relancez le calcul des années concernées. Pour les ports dotés d'un site api-maree.fr, les horaires de J−1 à J+29 sont repris chaque jour d'api-maree.fr (« 30 jours ») ; au-delà, le calcul FES est recalé chaque mois sur api-maree.fr (« Recaler »), et un recalage qui change sensiblement relance de lui-même le calcul des années à venir.</p>
         </div>
       </section>
 

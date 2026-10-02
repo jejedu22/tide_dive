@@ -28,7 +28,10 @@ Ce script :
      jour via astral (aucune dépendance réseau) ;
   5. remplace en base les données de CETTE année uniquement, en une seule
      transaction : les autres années du port sont conservées, et si un
-     calcul échoue, la base reste inchangée.
+     calcul échoue, la base reste inchangée ;
+  6. si l'année touche le mois glissant et que le port a un site
+     api-maree.fr, remet en file la reprise de ce mois depuis api-maree.fr
+     (short_term.py), que le recalcul vient d'écraser.
 
 Hauteurs d'eau
 --------------
@@ -49,7 +52,7 @@ import sys
 
 import pandas as pd
 
-from . import calendar_fr, db, jobs, tide_model, twilight
+from . import calendar_fr, calibration as calib, db, jobs, short_term, tide_model, twilight
 from .ports_catalog import PORTS
 
 BREST_NAME = "Brest"
@@ -107,31 +110,35 @@ def resolve_port(args) -> tuple[str, float, float, float]:
     return name, lat, lon, float(offset)
 
 
-def port_calibration(port_id: int | None, model: str, label: str) -> tuple[float, float]:
-    """(décalage en minutes, facteur d'amplitude) du recalage du port pour ce modèle, sinon (0, 1)."""
+NO_CALIBRATION = (0.0, 1.0, [])
+
+
+def port_calibration(port_id: int | None, model: str, label: str) -> tuple[float, float, list[dict]]:
+    """(décalage en minutes, facteur d'amplitude, ondes de correction) du recalage du port pour ce modèle."""
     cal = db.get_calibration(port_id) if port_id else None
     if cal is None:
         print(f"[{label}] pas de recalage api-maree.fr : hauteurs {model} brutes.")
-        return 0.0, 1.0
+        return NO_CALIBRATION
     if cal["model"] != model:
         print(f"[{label}] recalage ignoré : établi pour {cal['model']}, calcul avec {model}. Relancer le recalage.")
-        return 0.0, 1.0
-    print(
-        f"[{label}] recalage api-maree.fr du {cal['computed_at'][:10]} : "
-        f"décalage {cal['time_shift_min']:+.0f} min, amplitude × {cal['amplitude']:.3f}"
-    )
-    return float(cal["time_shift_min"]), float(cal["amplitude"])
+        return NO_CALIBRATION
+    waves = calib.waves_of(cal)
+    parts = [f"{len(waves)} ondes corrigées"] if waves else []
+    if (cal["time_shift_min"], cal["amplitude"]) != (0, 1):
+        parts.append(f"décalage {cal['time_shift_min']:+.0f} min, amplitude × {cal['amplitude']:.3f}")
+    print(f"[{label}] recalage api-maree.fr du {cal['computed_at'][:10]} : {', '.join(parts) or 'neutre'}")
+    return float(cal["time_shift_min"]), float(cal["amplitude"]), waves
 
 
 def compute_series(lat: float, lon: float, year: int, step_minutes: int, model: str | None,
-                   calibration: tuple[float, float] = (0.0, 1.0)):
+                   calibration: tuple[float, float, list[dict]] = NO_CALIBRATION):
     """Série annuelle de hauteurs (niveau moyen), recalée, avec un message clair si le modèle manque."""
-    shift, amplitude = calibration
+    shift, amplitude, waves = calibration
     try:
         timestamps, heights = tide_model.compute_year_series(
             lat, lon, year, step_minutes=step_minutes, model=model, time_shift_minutes=shift
         )
-        return timestamps, heights * amplitude
+        return timestamps, heights * amplitude + calib.correction(timestamps, waves)
     except FileNotFoundError as exc:
         print(
             f"\nERREUR : fichier du modèle de marée introuvable : {exc}\n"
@@ -256,7 +263,15 @@ def main() -> None:
     print(f"[{name}] remplacement des données {args.year} en base…")
     db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows, model=args.model)
 
-    # 4. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
+    # 4. Le mois glissant vient d'api-maree.fr : le recalcul vient de l'écraser
+    #    avec FES, on le fait rafraîchir juste après.
+    port_row = db.get_port(port_id)
+    if port_row["api_maree_site"] and short_term.overlaps_window(args.year):
+        job_id = jobs.enqueue("short_term", {"port_id": port_id}, "précalcul")
+        print(f"[{name}] horaires du mois glissant à reprendre d'api-maree.fr : "
+              + (f"tâche #{job_id} en file." if job_id else "tâche déjà en file."))
+
+    # 5. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
     try:
         n = calendar_fr.sync_school_holidays()
         print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {calendar_fr.SCHOOL_ACADEMY}).")

@@ -22,7 +22,8 @@ PREVIMER) dans les ports et zones à géométrie complexe. Avant de faire
 confiance aux horaires calculés pour une vraie sortie, comparez quelques
 valeurs à l'annuaire officiel du SHOM (https://maree.shom.fr) pour le port
 concerné. Le recalage automatique sur api-maree.fr (calibration.py) corrige
-l'essentiel de l'écart : décalage horaire et facteur d'amplitude par port.
+l'essentiel de l'écart, onde par onde, y compris les ondes de petits fonds
+(M4, MS4…) que ce module ne calcule pas.
 """
 
 from __future__ import annotations
