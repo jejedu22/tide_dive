@@ -28,7 +28,10 @@ Ce script :
      jour via astral (aucune dépendance réseau) ;
   5. remplace en base les données de CETTE année uniquement, en une seule
      transaction : les autres années du port sont conservées, et si un
-     calcul échoue, la base reste inchangée.
+     calcul échoue, la base reste inchangée ;
+  6. si l'année touche le mois glissant et que le port a un site
+     api-maree.fr, remet en file la reprise de ce mois depuis api-maree.fr
+     (short_term.py), que le recalcul vient d'écraser.
 
 Hauteurs d'eau
 --------------
@@ -49,7 +52,7 @@ import sys
 
 import pandas as pd
 
-from . import calendar_fr, calibration as calib, db, jobs, tide_model, twilight
+from . import calendar_fr, calibration as calib, db, jobs, short_term, tide_model, twilight
 from .ports_catalog import PORTS
 
 BREST_NAME = "Brest"
@@ -260,7 +263,15 @@ def main() -> None:
     print(f"[{name}] remplacement des données {args.year} en base…")
     db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows, model=args.model)
 
-    # 4. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
+    # 4. Le mois glissant vient d'api-maree.fr : le recalcul vient de l'écraser
+    #    avec FES, on le fait rafraîchir juste après.
+    port_row = db.get_port(port_id)
+    if port_row["api_maree_site"] and short_term.overlaps_window(args.year):
+        job_id = jobs.enqueue("short_term", {"port_id": port_id}, "précalcul")
+        print(f"[{name}] horaires du mois glissant à reprendre d'api-maree.fr : "
+              + (f"tâche #{job_id} en file." if job_id else "tâche déjà en file."))
+
+    # 5. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
     try:
         n = calendar_fr.sync_school_holidays()
         print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {calendar_fr.SCHOOL_ACADEMY}).")

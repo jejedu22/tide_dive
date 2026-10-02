@@ -15,5 +15,9 @@
 # les années déjà calculées (à partir de l'année en cours) sont recalculées.
 30 4 2 * * python -m app.jobs enqueue calibrate --all
 
+# Tous les jours, 05:10 — horaires du mois glissant (J−1 à J+29) repris
+# d'api-maree.fr, à la place du calcul FES, pour chaque port doté d'un site.
+10 5 * * * python -m app.jobs enqueue short-term --all
+
 # 1er de chaque mois, 04:00 — vacances scolaires (open data Éducation nationale)
 0 4 1 * * python -m app.jobs enqueue school-holidays

@@ -89,6 +89,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 - **1er décembre, 02:00** : mise à jour du modèle FES (seuls les fichiers plus récents sont retéléchargés) ;
 - **15 décembre, 03:00** : précalcul de l'année suivante pour chaque port coché « Recalculer automatiquement chaque année » et doté d'un niveau moyen ;
 - **2 de chaque mois, 04:30** : recalage sur api-maree.fr de chaque port doté d'un site api-maree.fr (voir [Recalage](#recalage-sur-api-mareefr)) ;
+- **tous les jours, 05:10** : horaires du mois glissant (J−1 à J+29) repris d'api-maree.fr pour ces mêmes ports ;
 - **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires.
 
 ### Variables d'environnement (`.env`)
@@ -195,7 +196,22 @@ Le coefficient (échelle 20–120) est une notion française définie à Brest. 
 
 ## Recalage sur api-maree.fr
 
-[api-maree.fr](https://api-maree.fr) calcule ses hauteurs à partir de l'atlas régional **Ifremer/PREVIMER** (licence CC BY), plus précis près des côtes que FES, mais seulement sur une fenêtre glissante **J−30 / J+30**. On s'en sert pour corriger FES, port par port.
+[api-maree.fr](https://api-maree.fr) calcule ses hauteurs à partir de l'atlas régional **Ifremer/PREVIMER** (licence CC BY), plus précis près des côtes que FES, mais seulement sur une fenêtre glissante **J−30 / J+30**. Pour chaque port doté d'un identifiant api-maree.fr :
+
+- **court terme** : les horaires du mois glissant sont **ceux d'api-maree.fr**, repris chaque jour ;
+- **long terme** : au-delà, le calcul FES, **recalé** chaque mois sur api-maree.fr.
+
+### Mois glissant (court terme)
+
+Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) remplace en base, de J−1 à J+29, les hauteurs (pas de 10 min) et les pleines / basses mers du calcul FES par celles d'api-maree.fr (3 requêtes par port). Les étales sont déduites de la série api-maree.fr et affinées par interpolation parabolique ; elles coïncident à la minute avec celles d'api-maree.fr. Les jours passés gardent les valeurs api-maree.fr.
+
+- **Coefficients** : chaque PM garde le coefficient de la PM FES qu'elle remplace (le coefficient reste défini à Brest).
+- **Créneaux déjà choisis** : recalés sur la nouvelle heure de l'étale, comme lors d'un recalcul.
+- **Années** : seules les années déjà précalculées sont touchées ; un précalcul d'une année qui touche le mois glissant est aussitôt suivi d'un rafraîchissement, sinon il l'écraserait avec FES.
+- **Contrôle du référentiel** : les hauteurs api-maree.fr et les hauteurs stockées (FES + `offset_zh_m`) sont au-dessus du zéro des cartes. Si leurs moyennes diffèrent de plus de 50 cm (niveau moyen du port erroné, ou site d'un autre port), rien n'est écrit ; au-delà de 15 cm, un avertissement est journalisé.
+- Dans l'onglet Ports, l'étiquette **30 j → date** indique la fin de la fenêtre reprise (signalée si elle n'a pas été rafraîchie depuis 2 jours), et le bouton **30 jours** la rafraîchit tout de suite.
+
+### Recalage du calcul FES (long terme)
 
 **Pourquoi une correction onde par onde.** L'erreur de FES dans un port n'est pas un simple décalage horaire : elle varie d'une marée à l'autre, entre vives-eaux et mortes-eaux, car chaque onde (M2, S2, N2…) a sa propre erreur. De plus, seules les ondes principales de FES sont calculées : les ondes de petits fonds (M4, MS4, MN4…), fortes en Manche, manquent. Un décalage et un facteur d'amplitude uniques, ajustés sur deux mois, ne corrigeaient donc que l'erreur moyenne, souvent proche de zéro.
 
@@ -245,6 +261,7 @@ python -m app.jobs enqueue fetch-models --model FES2022
 python -m app.jobs enqueue precompute --port-id 3 --year 2027
 python -m app.jobs enqueue precompute --auto          # tous les ports annuels, année suivante
 python -m app.jobs enqueue calibrate --port-id 3      # recalage api-maree.fr (--all : tous les ports dotés d'un site)
+python -m app.jobs enqueue short-term --port-id 3     # mois glissant depuis api-maree.fr (--all : idem)
 python -m app.jobs enqueue school-holidays
 ```
 
@@ -461,7 +478,7 @@ Réservée au super administrateur.
 | `GET /api/admin/ports/catalog` | ports du catalogue pas encore en base |
 | `PATCH` / `DELETE /api/admin/ports/{id}` | modification / suppression avec ses données |
 | `DELETE /api/admin/ports/{id}/calibration` | abandon du recalage api-maree.fr du port |
-| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `calibrate` (`port_id`), `fetch_models` (`model`), `school_holidays` |
+| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `calibrate` (`port_id`), `short_term` (`port_id`), `fetch_models` (`model`), `school_holidays` |
 | `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
 | `GET /api/admin/jobs/{id}` | détail avec journal |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
@@ -470,7 +487,7 @@ Réservée au super administrateur.
 
 FES est un modèle **océanique global** : il est moins précis dans les ports, baies et zones à géométrie complexe qu'un atlas régional (Ifremer/PREVIMER) ou que les constantes harmoniques du SHOM.
 
-**Avant toute sortie réelle, vérifier les horaires contre une source officielle** : [maree.shom.fr](https://maree.shom.fr) ou [maree.info](https://maree.info). Le [recalage sur api-maree.fr](#recalage-sur-api-mareefr) corrige l'essentiel du décalage systématique d'un port.
+**Avant toute sortie réelle, vérifier les horaires contre une source officielle** : [maree.shom.fr](https://maree.shom.fr) ou [maree.info](https://maree.info). Pour les ports dotés d'un site [api-maree.fr](#recalage-sur-api-mareefr), le mois à venir en reprend les horaires, et le calcul FES y est recalé au-delà.
 
 Choix techniques à connaître :
 
@@ -488,6 +505,7 @@ app/
   precompute.py     précalcul annuel (CLI)
   tide_model.py     hauteurs d'eau, extrema, coefficient (pyTMD)
   calibration.py    recalage de FES sur api-maree.fr, onde par onde (+ CLI)
+  short_term.py     mois glissant repris chaque jour d'api-maree.fr (+ CLI)
   tide_reference.py client api-maree.fr
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m

@@ -524,6 +524,23 @@ function calibrateBlock(p) {
   return "";
 }
 
+const fmtDay = iso => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+
+// Mois glissant repris d'api-maree.fr : fin de la fenêtre, signalée si pas rafraîchie depuis 2 jours
+function shortTermCell(p) {
+  const w = p.short_term;
+  if (!w) return p.api_maree_site ? `<span class="muted">30 j : à faire</span>` : "";
+  const stale = Date.now() - new Date(w.refreshed_at).getTime() > 2 * 86400e3;
+  const lastDay = new Date(new Date(w.window_end).getTime() - 1);   // fin exclue
+  const title = [
+    `Horaires repris d'api-maree.fr (${w.site}) du ${fmtDay(w.window_start)} au ${fmtDay(lastDay)}, mis à jour le ${new Date(w.refreshed_at).toLocaleString("fr-FR")}`,
+    `${w.n_extrema} pleines / basses mers ; plus grand écart avec le calcul FES remplacé : ${fmtMin(w.max_shift_min)}`,
+    `Hauteur moyenne api-maree.fr − FES : ${w.level_diff_m == null ? "—" : `${fmtNum(w.level_diff_m, 2)} m`}`,
+    stale ? "Pas de mise à jour depuis plus de 2 jours : voir les tâches." : "",
+  ].filter(Boolean).join("\n");
+  return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}">30 j → ${fmtDay(lastDay)}</span>`;
+}
+
 // Recalage : décalage et amplitude, détail des écarts en info-bulle
 function calibrationCell(p) {
   const c = p.calibration;
@@ -541,7 +558,7 @@ function calibrationCell(p) {
     `Niveau moyen de la référence : ${fmtNum(c.mean_level_m, 2)} m`,
   ].join("\n");
   const stale = legacy || (status?.fes_model && c.model !== status.fes_model);
-  const label = `PM/BM ${fmtMin(c.extrema_dt_before_min)} → ${fmtMin(c.extrema_dt_after_min)}`;
+  const label = `FES recalé : ${fmtMin(c.extrema_dt_before_min)} → ${fmtMin(c.extrema_dt_after_min)}`;
   return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}${stale && !legacy ? `\nÉtabli pour ${esc(c.model)} : relancez le recalage.` : ""}">${label}</span>`;
 }
 
@@ -559,13 +576,14 @@ function renderPorts() {
         <th scope="row">${esc(p.name)}</th>
         <td class="muted" data-label="Coordonnées">${fmtNum(p.latitude, 4)}, ${fmtNum(p.longitude, 4)}</td>
         <td class="num" data-label="NM / ZH">${offset}</td>
-        <td data-label="Recalage">${calib}</td>
+        <td data-label="api-maree.fr">${shortTermCell(p)} ${calib}</td>
         <td data-label="Années calculées">${years}</td>
         <td data-label="Recalcul annuel"><input type="checkbox" data-act="auto" ${p.auto_precompute ? "checked" : ""} aria-label="Recalcul annuel de ${esc(p.name)}"></td>
         <td class="actions">
           <input type="number" class="year-input" min="1990" max="2100" value="${defaultYear}" aria-label="Année à calculer">
           <button type="button" class="btn-secondary" data-act="compute" ${p.offset_zh_m == null ? "disabled title=\"Renseignez d'abord le niveau moyen\"" : ""}>Calculer</button>
-          <button type="button" class="btn-quiet" data-act="calibrate" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : ""}>Recaler</button>
+          <button type="button" class="btn-quiet" data-act="short_term" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Reprendre maintenant les horaires de J−1 à J+29 depuis api-maree.fr (fait chaque jour à 5 h)"`}>30 jours</button>
+          <button type="button" class="btn-quiet" data-act="calibrate" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Recaler le calcul FES (long terme) sur api-maree.fr"`}>Recaler</button>
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
@@ -636,7 +654,8 @@ portsBody.addEventListener("click", async e => {
       break;
     }
     case "calibrate":
-      enqueue("calibrate", { port_id: port.id });
+    case "short_term":
+      enqueue(btn.dataset.act, { port_id: port.id });
       break;
     case "edit":
       editPort(port);
