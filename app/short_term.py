@@ -14,8 +14,8 @@ Pour chaque port doté d'un identifiant api-maree.fr :
   2. pleines / basses mers déduites de cette série (tide_model.find_extrema,
      affinées par interpolation parabolique) ; la marge évite de manquer
      une étale aux bords ;
-  3. coefficient de chaque PM : celui de la PM FES qu'elle remplace (le
-     coefficient reste défini à Brest, voir precompute.py) ;
+  3. coefficient de chaque PM : celui d'api-maree.fr (/tide-extrema), pris
+     sur sa PM la plus proche ; à défaut, celui de la PM FES remplacée ;
   4. remplacement en une transaction (db.replace_range) ; les créneaux déjà
      choisis sont recalés sur les nouvelles heures, comme lors d'un recalcul.
 
@@ -46,6 +46,7 @@ PAST = timedelta(days=1)                # début de la fenêtre remplacée : J�
 AHEAD = timedelta(days=29)              # fin : J+29 (api-maree.fr publie jusqu'à J+30)
 MARGIN = timedelta(hours=6)             # étales des bords détectées sans bord de série
 COEF_MATCH = timedelta(hours=3)         # PM FES remplacée, pour reprendre son coefficient
+API_PM_MATCH = timedelta(minutes=30)    # PM /tide-extrema correspondant à une PM de la série
 MAX_LEVEL_DIFF_M = 0.5
 WARN_LEVEL_DIFF_M = 0.15
 
@@ -73,24 +74,39 @@ def year_segments(start: datetime, end: datetime, years: set[int]) -> list[tuple
     return segments
 
 
-def carry_coefficients(new_extrema, old_rows) -> list[tuple[str, str, float, float | None]]:
-    """Lignes (ts ISO, type, hauteur, coefficient) ; coefficient repris de la PM remplacée."""
+def _nearest(pairs: list[tuple[datetime, float]], t: datetime, tolerance: timedelta) -> float | None:
+    """Valeur associée à l'instant de pairs (trié) le plus proche de t, dans la tolérance."""
+    times = [p for p, _ in pairs]
+    i = bisect.bisect_left(times, t)
+    near = [j for j in (i - 1, i) if 0 <= j < len(times)]
+    if not near:
+        return None
+    j = min(near, key=lambda k: abs(times[k] - t))
+    return pairs[j][1] if abs(times[j] - t) <= tolerance else None
+
+
+def assign_coefficients(new_extrema, api_extrema, old_rows) -> tuple[list[tuple[str, str, float, float | None]], int]:
+    """
+    Lignes (ts ISO, type, hauteur, coefficient) et nombre de coefficients
+    api-maree.fr utilisés. Coefficient d'une PM : celui de la PM api-maree.fr
+    la plus proche, sinon celui de la PM FES qu'elle remplace.
+    """
+    api_pm = sorted((t, float(c)) for t, k, _, c in api_extrema if k == "PM" and c is not None)
     old_pm = sorted(
         (datetime.fromisoformat(r["ts_utc"]), r["coefficient"])
         for r in old_rows if r["kind"] == "PM" and r["coefficient"] is not None
     )
-    times = [t for t, _ in old_pm]
-    rows = []
+    rows, from_api = [], 0
     for t, kind, h in new_extrema:
         coef = None
-        if kind == "PM" and times:
-            i = bisect.bisect_left(times, t)
-            near = [j for j in (i - 1, i) if 0 <= j < len(times)]
-            j = min(near, key=lambda k: abs(times[k] - t))
-            if abs(times[j] - t) <= COEF_MATCH:
-                coef = old_pm[j][1]
+        if kind == "PM":
+            coef = _nearest(api_pm, t, API_PM_MATCH)
+            if coef is not None:
+                from_api += 1
+            else:
+                coef = _nearest(old_pm, t, COEF_MATCH)
         rows.append((_iso(t), kind, float(h), coef))
-    return rows
+    return rows, from_api
 
 
 def max_shift(new_extrema, old_rows) -> float | None:
@@ -139,17 +155,24 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
             log(f"[{name}] ATTENTION : écart de niveau notable, offset_zh_m probablement à corriger.")
 
     extrema = tide_model.find_extrema(ref_times, ref_heights)
-    total, shifts = 0, []
+    api_extrema = tide_reference.tide_extrema(site, start, end - timedelta(seconds=1))  # fin exclue
+    log(f"[{name}] {sum(1 for e in api_extrema if e[1] == 'PM' and e[3] is not None)} coefficients api-maree.fr reçus.")
+    total, shifts, from_api, n_pm = 0, [], 0, 0
     for seg_start, seg_end in segments:
         new = [e for e in extrema if seg_start <= e[0] < seg_end]
         old = db.get_extrema_range(port["id"], _iso(seg_start), _iso(seg_end))
         heights = [(_iso(t), float(h)) for t, h in ref if seg_start <= t < seg_end]
-        db.replace_range(port["id"], _iso(seg_start), _iso(seg_end), heights, carry_coefficients(new, old))
+        rows, n_api = assign_coefficients(new, api_extrema, old)
+        db.replace_range(port["id"], _iso(seg_start), _iso(seg_end), heights, rows)
         total += len(new)
+        from_api += n_api
+        n_pm += sum(1 for e in new if e[1] == "PM")
         s = max_shift(new, old)
         if s is not None:
             shifts.append(s)
 
+    if from_api < n_pm:
+        log(f"[{name}] ATTENTION : {n_pm - from_api} PM sans coefficient api-maree.fr, coefficient du calcul FES conservé.")
     biggest = max(shifts) if shifts else None
     log(f"[{name}] {total} pleines / basses mers remplacées"
         + (f" ; plus grand écart avec le calcul précédent : {biggest:.0f} min." if biggest is not None else "."))

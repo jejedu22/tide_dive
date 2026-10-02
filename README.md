@@ -203,9 +203,9 @@ Le coefficient (échelle 20–120) est une notion française définie à Brest. 
 
 ### Mois glissant (court terme)
 
-Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) remplace en base, de J−1 à J+29, les hauteurs (pas de 10 min) et les pleines / basses mers du calcul FES par celles d'api-maree.fr (3 requêtes par port). Les étales sont déduites de la série api-maree.fr et affinées par interpolation parabolique ; elles coïncident à la minute avec celles d'api-maree.fr. Les jours passés gardent les valeurs api-maree.fr.
+Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) remplace en base, de J−1 à J+29, les hauteurs (pas de 10 min), les pleines / basses mers et les coefficients du calcul FES par ceux d'api-maree.fr (`/water-levels` et `/tide-extrema` : 6 requêtes par port). Les étales sont déduites de la série api-maree.fr et affinées par interpolation parabolique ; elles coïncident à la minute avec celles d'api-maree.fr. Les jours passés gardent les valeurs api-maree.fr.
 
-- **Coefficients** : chaque PM garde le coefficient de la PM FES qu'elle remplace (le coefficient reste défini à Brest).
+- **Coefficients** : ceux d'api-maree.fr (`/tide-extrema`), pris sur la PM api-maree.fr la plus proche (à 30 min près). À défaut, la PM garde le coefficient du calcul FES qu'elle remplace, et le journal le signale.
 - **Créneaux déjà choisis** : recalés sur la nouvelle heure de l'étale, comme lors d'un recalcul.
 - **Années** : seules les années déjà précalculées sont touchées ; un précalcul d'une année qui touche le mois glissant est aussitôt suivi d'un rafraîchissement, sinon il l'écraserait avec FES.
 - **Contrôle du référentiel** : les hauteurs api-maree.fr et les hauteurs stockées (FES + `offset_zh_m`) sont au-dessus du zéro des cartes. Si leurs moyennes diffèrent de plus de 50 cm (niveau moyen du port erroné, ou site d'un autre port), rien n'est écrit ; au-delà de 15 cm, un avertissement est journalisé.

@@ -1,6 +1,6 @@
 """
-Client minimal de l'API api-maree.fr, source de référence à court terme
-pour recaler le modèle FES (voir calibration.py).
+Client minimal de l'API api-maree.fr, source de référence à court terme :
+mois glissant (short_term.py) et recalage du modèle FES (calibration.py).
 
 api-maree.fr calcule ses hauteurs à partir de l'atlas harmonique régional
 Ifremer/PREVIMER (licence CC BY) : plus précis que le modèle global FES dans
@@ -117,6 +117,51 @@ def water_levels(site: str, start: datetime, end: datetime, step_minutes: int = 
         points.update(parse_levels(payload))
         t = t_end
     return sorted(points.items())
+
+
+EXTREMA_DAYS_PER_REQUEST = 10
+
+
+def parse_extrema(payload: object) -> list[tuple[datetime, str, float, int | None]]:
+    """
+    (instant UTC, 'PM'|'BM', hauteur m, coefficient|None) d'une réponse
+    /tide-extrema demandée avec tz=UTC. Format documenté :
+        {"data": [{"date": "2026-03-24", "extrema": [
+            {"type": "PM", "time": "01:04", "height": 6.967, "coef": 83}, …]}, …]}
+    """
+    days = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(days, list):
+        raise ApiMareeError(f"réponse /tide-extrema inattendue : {str(payload)[:300]}")
+    out = []
+    for day in days:
+        for e in day.get("extrema", []) if isinstance(day, dict) else []:
+            try:
+                raw = str(e["time"])
+                t = datetime.fromisoformat(raw if "T" in raw else f"{day['date']}T{raw}")
+                kind = str(e["type"]).upper()
+                if kind not in ("PM", "BM"):
+                    raise ValueError(kind)
+                coef = e.get("coef")
+                out.append((
+                    t.replace(tzinfo=timezone.utc) if t.tzinfo is None else t.astimezone(timezone.utc),
+                    kind, float(e["height"]), int(round(float(coef))) if coef is not None else None,
+                ))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ApiMareeError(f"étale /tide-extrema illisible : {str(e)[:200]}") from exc
+    return out
+
+
+def tide_extrema(site: str, start: datetime, end: datetime) -> list[tuple[datetime, str, float, int | None]]:
+    """Pleines / basses mers d'api-maree.fr (avec coefficient des PM) des jours UTC de start à end inclus."""
+    out: dict[tuple[datetime, str], tuple] = {}
+    day, last = start.astimezone(timezone.utc).date(), end.astimezone(timezone.utc).date()
+    while day <= last:
+        to = min(day + timedelta(days=EXTREMA_DAYS_PER_REQUEST - 1), last)
+        payload = _get("/tide-extrema", {"site": site, "from": day.isoformat(), "to": to.isoformat(), "tz": "UTC"})
+        for e in parse_extrema(payload):
+            out[(e[0], e[1])] = e
+        day = to + timedelta(days=1)
+    return sorted(out.values())
 
 
 def default_window(now: datetime | None = None) -> tuple[datetime, datetime]:
