@@ -699,6 +699,7 @@ table.picks .c-actions { white-space: nowrap; }
 table.picks .c-actions button + button { margin-left: 0.3rem; }
 /* intitulé d'un créneau personnalisé */
 .slot-note { display: block; font-size: 0.82rem; font-style: italic; color: var(--blue-deep); }
+.slot-span { display: block; font-size: 0.82rem; font-weight: 600; color: var(--blue-deep); }
 .slot-acts { display: flex; gap: 0.3rem; margin-left: auto; }
 
 /* --- Administration : types de créneaux ------------------------------ */

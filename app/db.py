@@ -34,6 +34,7 @@ SLOT_SELECTIONS_COLUMNS = """(
     type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
     kind TEXT CHECK (kind IN ('PM', 'BM')),
     local_date TEXT NOT NULL,               -- YYYY-MM-DD, jour local de l'étale (ou du créneau personnalisé)
+    end_date TEXT,                          -- dernier jour d'un créneau personnalisé sur plusieurs jours, sinon NULL
     local_time TEXT,                        -- HH:MM, heure de l'étale
     rdv_date TEXT NOT NULL,
     rdv_time TEXT NOT NULL,
@@ -46,7 +47,9 @@ SLOT_SELECTIONS_COLUMNS = """(
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
            AND (ts_utc IS NULL) = (height_m IS NULL)),
     -- un port ou un lieu libre, jamais les deux ; une étale a toujours son port
-    CHECK ((port_id IS NULL) <> (location IS NULL) AND (ts_utc IS NULL OR port_id IS NOT NULL))
+    CHECK ((port_id IS NULL) <> (location IS NULL) AND (ts_utc IS NULL OR port_id IS NOT NULL)),
+    -- plusieurs jours : créneau personnalisé uniquement, fin après le premier jour
+    CHECK (end_date IS NULL OR (ts_utc IS NULL AND end_date > local_date))
 )"""
 
 SCHEMA = """
@@ -458,7 +461,7 @@ def _migrate_custom_selections() -> None:
     Créneaux personnalisés : reconstruit slot_selections pour rendre facultatifs
     les champs de l'étale (ts_utc, kind, local_time, height_m) et ajouter
     l'intitulé (note), puis le port (port_id) au profit d'un lieu libre
-    (location). SQLite ne sait pas retirer un NOT NULL : nouvelle table,
+    (location), et ajouter une date de fin (end_date). SQLite ne sait pas retirer un NOT NULL : nouvelle table,
     copie, renommage, clés étrangères suspendues puis vérifiées (même procédure
     que _migrate_structures). Les inscriptions (slot_registrations) pointent
     vers la table par son nom : elles suivent sans être touchées.
@@ -467,7 +470,7 @@ def _migrate_custom_selections() -> None:
     conn.row_factory = sqlite3.Row
     try:
         old_cols = _columns(conn, "slot_selections")
-        if "location" in old_cols:
+        if "end_date" in old_cols:
             return
         conn.execute("PRAGMA foreign_keys = OFF")  # sans effet dans une transaction : avant BEGIN
         conn.execute("BEGIN IMMEDIATE")
@@ -475,7 +478,7 @@ def _migrate_custom_selections() -> None:
             conn.execute("CREATE TABLE slot_selections_new " + SLOT_SELECTIONS_COLUMNS)
             cols = ("id, structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, "
                     "local_time, rdv_date, rdv_time, height_m, coefficient, created_at"
-                    + (", note" if "note" in old_cols else ""))
+                    + "".join(f", {c}" for c in ("note", "location") if c in old_cols))
             conn.execute(f"INSERT INTO slot_selections_new ({cols}) SELECT {cols} FROM slot_selections")
             conn.execute("DROP TABLE slot_selections")
             conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
@@ -1501,7 +1504,7 @@ def list_selections(structure_id: int, from_date: str | None = None) -> list[sql
     sql = _SELECTION_SQL + " WHERE s.structure_id = ?"
     params: list = [structure_id]
     if from_date:
-        sql += " AND s.local_date >= ?"
+        sql += " AND COALESCE(s.end_date, s.local_date) >= ?"  # séjour en cours compris
         params.append(from_date)
     with get_conn() as conn:
         # RDV puis étale : un créneau personnalisé n'a que son heure de RDV
@@ -1549,27 +1552,33 @@ def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: st
 
 
 def create_custom_selection(structure_id: int, picked_by: int, port_id: int | None, location: str | None,
-                            type_id: int, local_date: str, rdv_time: str, note: str | None, now: str) -> int:
-    """Créneau personnalisé : un jour et une heure de RDV, sans étale, dans un port OU un lieu libre."""
+                            type_id: int, local_date: str, end_date: str | None, rdv_time: str,
+                            note: str | None, now: str) -> int:
+    """
+    Créneau personnalisé : un jour (ou du premier jour à end_date) et une heure
+    de RDV le premier jour, sans étale, dans un port OU un lieu libre.
+    """
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO slot_selections
-                (structure_id, picked_by, port_id, location, type_id, local_date, rdv_date, rdv_time, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (structure_id, picked_by, port_id, location, type_id, local_date, end_date,
+                 rdv_date, rdv_time, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (structure_id, picked_by, port_id, location, type_id, local_date, local_date, rdv_time, note, now),
+            (structure_id, picked_by, port_id, location, type_id, local_date, end_date,
+             local_date, rdv_time, note, now),
         )
         return cur.lastrowid
 
 
 def update_custom_selection(structure_id: int, selection_id: int, port_id: int | None, location: str | None,
-                            local_date: str, rdv_time: str, note: str | None) -> None:
+                            local_date: str, end_date: str | None, rdv_time: str, note: str | None) -> None:
     with get_conn() as conn:
         conn.execute(
-            "UPDATE slot_selections SET port_id = ?, location = ?, local_date = ?, rdv_date = ?, rdv_time = ?, "
-            "note = ? WHERE id = ? AND structure_id = ? AND ts_utc IS NULL",
-            (port_id, location, local_date, local_date, rdv_time, note, selection_id, structure_id),
+            "UPDATE slot_selections SET port_id = ?, location = ?, local_date = ?, end_date = ?, rdv_date = ?, "
+            "rdv_time = ?, note = ? WHERE id = ? AND structure_id = ? AND ts_utc IS NULL",
+            (port_id, location, local_date, end_date, local_date, rdv_time, note, selection_id, structure_id),
         )
 
 

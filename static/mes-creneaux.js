@@ -128,6 +128,13 @@ const removeButton = () => (canPick() ? `<button type="button" class="btn-danger
 const editButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="edit">Modifier</button>` : "");
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
 
+// Séjour sur plusieurs jours (créneau personnalisé) : dernier jour, nombre de jours, mention affichée
+const lastDay = p => p.end_date || p.date;
+const spanDays = p => Math.round((asDate(lastDay(p)) - asDate(p.date)) / 86400e3) + 1;
+const spanLine = p => (p.end_date
+  ? `<span class="slot-span" title="Séjour sur plusieurs jours">Du ${formatDay(p.date)} au ${formatDay(p.end_date)} · ${spanDays(p)} jours</span>`
+  : "");
+
 // Étale (PM/BM et son heure), ou pastille « Perso » pour un créneau personnalisé
 const tideMark = p => (p.custom
   ? `<span class="kind custom" title="Créneau personnalisé, en dehors des étales proposées">Perso</span>`
@@ -143,6 +150,7 @@ function slotCard(p) {
         <p class="slot-port">${esc(p.port)}</p>
       </div>
       ${p.note ? `<p>${noteLine(p)}</p>` : ""}
+      ${p.end_date ? `<p>${spanLine(p)}</p>` : ""}
       <p class="slot-tide">
         <span>${tideMark(p)}</span>
         ${p.custom ? "" : `<span title="Hauteur d'eau à l'étale">${fmtHeight(p.height_m)} m</span>
@@ -157,12 +165,19 @@ function slotCard(p) {
     </li>`;
 }
 
-function groupByDay(list) {
+// everyDay : un séjour figure sur chacun de ses jours (calendrier) ; sinon sur son premier jour (liste)
+function groupByDay(list, { everyDay = false } = {}) {
   const byDay = new Map();
   for (const p of list) {
-    if (!byDay.has(p.date)) byDay.set(p.date, []);
-    byDay.get(p.date).push(p);
+    const days = everyDay ? spanDays(p) : 1;
+    for (let i = 0; i < days; i++) {
+      const day = addDays(p.date, i);
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(p);
+    }
   }
+  // jours suivant le début d'un séjour : ses autres créneaux du jour d'abord, dans l'ordre
+  for (const [day, items] of byDay) items.sort((a, b) => (a.date === day) - (b.date === day) || byWhen(a, b));
   return byDay;
 }
 
@@ -238,7 +253,7 @@ document.addEventListener("scroll", () => closePop(), true);  // capture : aussi
 function visiblePicks() {
   const today = todayISO();
   return picks.filter(p =>
-    (showPast.checked || p.date >= today) &&
+    (showPast.checked || lastDay(p) >= today) &&
     (!onlyMine.checked || p.registered) &&
     (!typeFilter.value || String(p.type.id) === typeFilter.value));
 }
@@ -258,22 +273,26 @@ function renderSummary(list) {
 
 // Jour à détailler en arrivant sur un mois : le prochain créneau du mois,
 // sinon le premier, sinon aujourd'hui s'il en fait partie, sinon le 1er.
+// Séjour commencé avant (le mois ou aujourd'hui) : le jour le plus tardif des deux.
 function defaultDay(m, list) {
   const today = todayISO();
-  const inMonth = list.filter(p => monthOf(p.date) === m);
-  const next = inMonth.find(p => p.date >= today) || inMonth[0];
-  if (next) return next.date;
+  const inMonth = list.filter(p => monthOf(p.date) <= m && monthOf(lastDay(p)) >= m);
+  const next = inMonth.find(p => lastDay(p) >= today) || inMonth[0];
+  if (next) {
+    const from = next === inMonth[0] && lastDay(next) < today ? m : (monthOf(today) === m ? today : m);
+    return next.date > from ? next.date : from;
+  }
   return monthOf(today) === m ? today : m;
 }
 
 function renderCalendar(list) {
   const today = todayISO();
-  const byDay = groupByDay(list);
+  const byDay = groupByDay(list, { everyDay: true });
   const first = asDate(month);
   const lead = (first.getDay() + 6) % 7;  // lundi en premier
   const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
   const start = addDays(month, -lead);
-  const nInMonth = list.filter(p => monthOf(p.date) === month).length;
+  const nInMonth = list.filter(p => monthOf(p.date) <= month && monthOf(lastDay(p)) >= month).length;
 
   calTitle.textContent = cap(fmtMonth.format(first));
   calCount.textContent = nInMonth ? plural(nInMonth, "créneau", "créneaux") : "aucun créneau";
@@ -291,8 +310,9 @@ function renderCalendar(list) {
     const label = cap(fmtLongYear.format(asDate(day))) +
       (items.length ? `, ${plural(items.length, "créneau", "créneaux")}` : "") +
       (mine ? `, inscrit sur ${mine}` : "");
+    // jours suivants d'un séjour : flèche à la place de l'heure de RDV
     const chips = items.slice(0, 3).map(p =>
-      `<span class="cal-chip${p.registered ? " mine" : ""}" style="--type-color:${esc(p.type.color)}"><b>${p.rdv.time}</b> ${esc(p.note || p.port)}</span>`).join("") +
+      `<span class="cal-chip${p.registered ? " mine" : ""}" style="--type-color:${esc(p.type.color)}"><b>${p.date === day ? p.rdv.time : "→"}</b> ${esc(p.note || p.port)}</span>`).join("") +
       (items.length > 3 ? `<span class="cal-more">+${items.length - 3}</span>` : "");
     cells.push(`<button type="button" class="${cls}" data-day="${day}"
       aria-pressed="${day === selectedDay}" tabindex="${day === selectedDay ? 0 : -1}"
@@ -350,7 +370,7 @@ function renderTable(list) {
         <tr data-id="${p.id}" class="${[i === 0 ? "day-start" : "", day < today ? "past" : ""].join(" ").trim()}">
           ${i === 0 ? `<th scope="row" rowspan="${items.length}" class="c-date">${formatDay(day)}</th>` : ""}
           <td class="c-rdv">${veilleMark(p)}${p.rdv.time}</td>
-          <td class="c-port">${esc(p.port)}${noteLine(p)}</td>
+          <td class="c-port">${esc(p.port)}${noteLine(p)}${spanLine(p)}</td>
           <td class="c-tide">${tideMark(p)}</td>
           <td class="num">${fmtHeight(p.height_m)}</td>
           <td class="num"><span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></td>
@@ -602,6 +622,8 @@ async function openCustomDialog(p = null) {
         <input type="text" name="location" maxlength="80" placeholder="ex. carrière de plongée, Marseille, Malte"
           value="${esc(p?.location || "")}"${elsewhere ? " required" : ""}></label>
       <label>Jour <input type="date" name="date" required value="${day}"></label>
+      <label>Jusqu'au <span class="field-hint">(facultatif : séjour sur plusieurs jours)</span>
+        <input type="date" name="end_date" min="${addDays(day, 1)}" value="${p?.end_date || ""}"></label>
       <label>Heure de rendez-vous <input type="time" name="time" required value="${p ? p.rdv.time : ""}"></label>
       ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
       <label>Intitulé <span class="field-hint">(facultatif)</span>
@@ -613,6 +635,7 @@ async function openCustomDialog(p = null) {
         port_id: other ? null : Number(f.get("port_id")),
         location: other ? f.get("location").trim() : null,
         date: f.get("date"),
+        end_date: f.get("end_date") || null,
         time: f.get("time").slice(0, 5),
         note: f.get("note").trim() || null,
       };
@@ -626,6 +649,12 @@ async function openCustomDialog(p = null) {
       if (view === "cal") selectDay(saved.date); else render();
       statusEl.textContent = p ? "Créneau modifié." : "Créneau personnalisé ajouté.";
     },
+  });
+  // la fin d'un séjour suit le premier jour
+  form.date.addEventListener("change", () => {
+    if (!form.date.value) return;
+    form.end_date.min = addDays(form.date.value, 1);
+    if (form.end_date.value && form.end_date.value <= form.date.value) form.end_date.value = "";
   });
   // « Autre lieu… » : affiche le champ libre et le rend obligatoire
   const place = form.querySelector(".location-field");
@@ -652,6 +681,7 @@ const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
 const EXPORT_COLUMNS = [
   { header: "Date", type: "date", width: 11, value: p => p.date },
   { header: "Jour", width: 10, value: p => fmtWeekday.format(asDate(p.date)) },
+  { header: "Date de fin", type: "date", width: 11, value: p => p.end_date },
   { header: "Date RDV", type: "date", width: 11, value: p => p.rdv.date },
   { header: "Heure RDV", type: "time", width: 10, value: p => p.rdv.time },
   { header: "Port", width: 18, value: p => p.port },

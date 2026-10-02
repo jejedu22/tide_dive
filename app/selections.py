@@ -16,7 +16,9 @@ Créneaux choisis par les structures, et types de créneaux.
 - Un administrateur de la structure peut aussi ajouter un créneau
   personnalisé, en dehors des étales proposées par la recherche : port (ou,
   pour une sortie ailleurs, un lieu libre : carrière, ville à l'étranger…),
-  jour, heure de RDV, type et intitulé facultatif. Il n'a ni étale, ni hauteur,
+  jour (ou plage de jours pour un séjour, jusqu'à MAX_SPAN_DAYS), heure de RDV
+  du premier jour, type et intitulé facultatif. Les délais d'inscription
+  comptent depuis le premier jour ; un séjour reste « à venir » jusqu'au dernier. Il n'a ni étale, ni hauteur,
   ni coefficient ; son heure de RDV ne suit pas le délai de la structure. Il se
   modifie (lieu, jour, heure, intitulé) et accepte les inscriptions comme les autres.
 - Les infos affichées (heure, hauteur, coefficient, RDV) sont recalculées
@@ -95,6 +97,17 @@ class SelectionIn(BaseModel):
 TIME_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 # bornes de bon sens : une faute de frappe sur l'année ne crée pas un créneau en l'an 20026
 MIN_DATE, MAX_DATE = date(2000, 1, 1), date(2100, 12, 31)
+MAX_SPAN_DAYS = 60   # séjour : durée maximale, premier et dernier jour compris
+
+
+def check_span(start: date, end: date | None) -> None:
+    """Plage d'un créneau sur plusieurs jours ; lève ValueError si incohérente."""
+    if end is None:
+        return
+    if end <= start:
+        raise ValueError("la date de fin doit être postérieure au premier jour")
+    if (end - start).days + 1 > MAX_SPAN_DAYS:
+        raise ValueError(f"séjour de {MAX_SPAN_DAYS} jours au plus")
 
 
 def _clean_note(v: str | None) -> str | None:
@@ -111,6 +124,7 @@ class CustomSelectionIn(BaseModel):
     port_id: int | None = None
     location: str | None = Field(None, max_length=80)
     date: dt.date = Field(ge=MIN_DATE, le=MAX_DATE)
+    end_date: dt.date | None = Field(None, ge=MIN_DATE, le=MAX_DATE)   # séjour : dernier jour
     time: str = Field(pattern=TIME_PATTERN)   # heure de RDV, HH:MM
     type_id: int
     note: str | None = Field(None, max_length=80)
@@ -129,15 +143,17 @@ class CustomSelectionIn(BaseModel):
     def _port_or_location(self):
         if (self.port_id is None) == (self.location is None):
             raise ValueError("indiquer un port ou un autre lieu (l'un des deux)")
+        check_span(self.date, self.end_date)
         return self
 
 
 class SelectionPatch(BaseModel):
-    """type_id : tout créneau. port_id / location, date, time, note : créneau personnalisé uniquement."""
+    """type_id : tout créneau. port_id / location, date, end_date, time, note : créneau personnalisé uniquement."""
     type_id: int | None = None
     port_id: int | None = None
     location: str | None = Field(None, max_length=80)
     date: dt.date | None = Field(None, ge=MIN_DATE, le=MAX_DATE)
+    end_date: dt.date | None = Field(None, ge=MIN_DATE, le=MAX_DATE)   # null : un seul jour
     time: str | None = Field(None, pattern=TIME_PATTERN)
     note: str | None = Field(None, max_length=80)
 
@@ -213,6 +229,7 @@ def _selection_out(
         "ts_utc": row["ts_utc"],
         "kind": row["kind"],
         "date": row["local_date"],
+        "end_date": row["end_date"],     # séjour : dernier jour, sinon None
         "time": row["local_time"],
         "rdv": {"date": row["rdv_date"], "time": row["rdv_time"]},
         "height_m": row["height_m"],
@@ -227,7 +244,7 @@ def _selection_out(
         "created_at": row["created_at"],
         "registrations": registrations,
         "registered": me_id is not None and any(r["user_id"] == me_id for r in registrations),
-        "past": row["local_date"] < _today(),
+        "past": (row["end_date"] or row["local_date"]) < _today(),
         "register_until": reg_until,
         "can_register": _today() <= reg_until,
         "unregister_until": unreg_until,
@@ -302,8 +319,8 @@ def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
     _active_type_or_422(body.type_id, sid)
     sel_id = db.create_custom_selection(
-        sid, user["id"], body.port_id, body.location, body.type_id, body.date.isoformat(), body.time,
-        body.note, _now_iso(),
+        sid, user["id"], body.port_id, body.location, body.type_id, body.date.isoformat(),
+        body.end_date.isoformat() if body.end_date else None, body.time, body.note, _now_iso(),
     )
     return _one_out(sid, sel_id, user["id"])
 
@@ -315,7 +332,7 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     sent = body.model_fields_set
-    custom_fields = {"port_id", "location", "date", "time", "note"}
+    custom_fields = {"port_id", "location", "date", "end_date", "time", "note"}
     if sent & custom_fields:
         if row["ts_utc"] is not None:
             raise HTTPException(
@@ -333,12 +350,18 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
             port_id, location = row["port_id"], row["location"]
         if port_id is not None and db.get_port(port_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
+        start = body.date or date.fromisoformat(row["local_date"])
+        end = body.end_date if "end_date" in sent else (date.fromisoformat(row["end_date"]) if row["end_date"] else None)
+        try:
+            check_span(start, end)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Dates du séjour : {exc}.")
     if body.type_id is not None:
         _active_type_or_422(body.type_id, sid)
     if sent & custom_fields:
         db.update_custom_selection(
             sid, selection_id, port_id, location,
-            body.date.isoformat() if body.date else row["local_date"],
+            start.isoformat(), end.isoformat() if end else None,
             body.time or row["rdv_time"],
             body.note if "note" in sent else row["note"],
         )
