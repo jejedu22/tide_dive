@@ -333,7 +333,7 @@ class Worker:
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m app.jobs", description="File de tâches Marée")
+    parser = argparse.ArgumentParser(prog="python -m app.jobs", description="File de tâches Calendive")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("worker", help="Exécuter les tâches en attente (boucle)")
 

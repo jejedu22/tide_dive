@@ -669,7 +669,7 @@ def _ask_password(*personal: str | None) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m app.auth", description="Gestion des comptes Marée")
+    parser = argparse.ArgumentParser(prog="python -m app.auth", description="Gestion des comptes Calendive")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_admin = sub.add_parser("create-admin", help="Créer un compte super administrateur (sans structure)")
     p_admin.add_argument("username")

@@ -1,4 +1,4 @@
-# Marée — API FastAPI + précalcul annuel des marées/crépuscules
+# Calendive — API FastAPI + précalcul annuel des marées/crépuscules
 #
 # Prérequis : la stack Traefik (dépôt traefik-proxy) tourne et a créé le réseau `proxy` ;
 # MAREE_HOST (.env) pointe vers le serveur dans le DNS.
@@ -33,7 +33,7 @@ x-app: &app
     # E-mails : invitations et mot de passe oublié (voir .env.example)
     MAIL_BACKEND: ${MAIL_BACKEND:-none}
     APP_BASE_URL: ${APP_BASE_URL:-}
-    APP_NAME: ${APP_NAME:-Marée}
+    APP_NAME: ${APP_NAME:-Calendive}
     SMTP_HOST: ${SMTP_HOST:-}
     SMTP_PORT: ${SMTP_PORT:-587}
     SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
