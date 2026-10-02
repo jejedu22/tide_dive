@@ -87,7 +87,8 @@ button#search:hover { transform: translateY(-1px); }
 }
 .results-bar #status { flex: 1 1 16rem; margin: 0; }
 .btn-export { white-space: nowrap; }
-.btn-export[hidden] { display: none; }
+.btn-export[hidden],
+#add-custom[hidden] { display: none; }
 .picks-actions {
   display: flex;
   flex-wrap: wrap;
@@ -209,6 +210,8 @@ table.windows {
 }
 .kind.PM { background: var(--teal); color: var(--blue-deep); }
 .kind.BM { background: var(--sand); color: var(--blue-deep); }
+/* créneau personnalisé : pas d'étale */
+.kind.custom { width: auto; padding: 0.05rem 0.4em; background: #e4ecf7; color: var(--blue-deep); }
 
 .coef {
   display: inline-block;
@@ -604,8 +607,8 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
 /* colonne « Choix » : seulement pour un utilisateur connecté */
 .results:not(.can-pick) .c-pick,
 .results:not(.can-pick) .c-pick-head { display: none; }
-/* Heure de RDV : comptes connectés seulement */
-.results:not(.show-rdv) .c-rdv { display: none; }
+/* Heure de RDV dans la recherche : comptes connectés seulement (toujours affichée dans les créneaux choisis) */
+.results:not(.show-rdv) .c-rdv:not(table.picks .c-rdv) { display: none; }
 
 .windows .c-pick { white-space: nowrap; }
 .windows .c-pick select {
@@ -692,6 +695,11 @@ table.picks .c-type select,
 }
 table.picks tr.past > :not(.c-date) { color: var(--picked-text); }
 table.picks .c-port { color: #4a6572; }
+table.picks .c-actions { white-space: nowrap; }
+table.picks .c-actions button + button { margin-left: 0.3rem; }
+/* intitulé d'un créneau personnalisé */
+.slot-note { display: block; font-size: 0.82rem; font-style: italic; color: var(--blue-deep); }
+.slot-acts { display: flex; gap: 0.3rem; margin-left: auto; }
 
 /* --- Administration : types de créneaux ------------------------------ */
 
@@ -1169,7 +1177,8 @@ main.narrow-main { max-width: 32rem; }
   .view-switch { flex: 1 1 100%; margin-left: 0; }
   .view-switch button { flex: 1; padding: 0.5rem; }
   .picks-actions { flex: 1 1 100%; margin-left: 0; }
-  .picks-actions .btn-export { flex: 1 1 100%; }
+  .picks-actions .btn-export,
+  .picks-actions #add-custom { flex: 1 1 100%; }
 
   .cal { padding: 0.6rem; }
   .cal-title { font-size: 1.05rem; min-width: 0; flex: 1; }

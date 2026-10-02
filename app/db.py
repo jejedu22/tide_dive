@@ -22,6 +22,30 @@ from typing import Iterable
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "plongee.db"
 
+# Colonnes de slot_selections, partagées par le schéma et la migration qui
+# reconstruit la table (_migrate_custom_selections).
+SLOT_SELECTIONS_COLUMNS = """(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- qui l'a choisi (NULL : compte supprimé)
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    ts_utc TEXT,                            -- = tide_extrema.ts_utc ; NULL : créneau personnalisé
+    type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
+    kind TEXT CHECK (kind IN ('PM', 'BM')),
+    local_date TEXT NOT NULL,               -- YYYY-MM-DD, jour local de l'étale (ou du créneau personnalisé)
+    local_time TEXT,                        -- HH:MM, heure de l'étale
+    rdv_date TEXT NOT NULL,
+    rdv_time TEXT NOT NULL,
+    height_m REAL,
+    coefficient REAL,
+    note TEXT,                              -- intitulé d'un créneau personnalisé
+    created_at TEXT NOT NULL,
+    UNIQUE (structure_id, port_id, ts_utc),
+    -- étale : tous ses champs ; personnalisé : aucun
+    CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
+           AND (ts_utc IS NULL) = (height_m IS NULL))
+)"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,23 +227,11 @@ CREATE TABLE IF NOT EXISTS slot_types (
 -- peut pas choisir deux fois le même créneau ; deux structures le peuvent.
 -- Les champs d'affichage sont figés au moment du choix : un recalcul de l'année
 -- ne fait pas disparaître la sélection.
-CREATE TABLE IF NOT EXISTS slot_selections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
-    picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- qui l'a choisi (NULL : compte supprimé)
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    ts_utc TEXT NOT NULL,                   -- = tide_extrema.ts_utc
-    type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
-    kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
-    local_date TEXT NOT NULL,               -- YYYY-MM-DD, jour local de l'étale
-    local_time TEXT NOT NULL,               -- HH:MM
-    rdv_date TEXT NOT NULL,
-    rdv_time TEXT NOT NULL,
-    height_m REAL NOT NULL,
-    coefficient REAL,
-    created_at TEXT NOT NULL,
-    UNIQUE (structure_id, port_id, ts_utc)
-);
+-- Créneau personnalisé (ajouté par l'administration en dehors des étales
+-- proposées) : ts_utc, kind, local_time et height_m sont NULL ; on saisit le
+-- jour, l'heure de RDV et un intitulé facultatif (note). SQLite tient les NULL
+-- pour distincts : la contrainte UNIQUE ne s'applique pas à ces créneaux.
+CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
@@ -270,6 +282,7 @@ def init_db() -> None:
         _migrate(conn)
         _prune_jobs(conn)  # historique d'avant la limite
     _migrate_structures()
+    _migrate_custom_selections()
     with get_conn() as conn:
         conn.executescript(INDEXES_AFTER_MIGRATION)
 
@@ -393,6 +406,41 @@ def _migrate_structures() -> None:
             problems = conn.execute("PRAGMA foreign_key_check").fetchall()
             if problems:
                 raise RuntimeError(f"Migration structures : clés étrangères invalides {[tuple(p) for p in problems[:5]]}")
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+
+
+def _migrate_custom_selections() -> None:
+    """
+    Créneaux personnalisés : reconstruit slot_selections pour rendre facultatifs
+    les champs de l'étale (ts_utc, kind, local_time, height_m) et ajouter
+    l'intitulé (note). SQLite ne sait pas retirer un NOT NULL : nouvelle table,
+    copie, renommage, clés étrangères suspendues puis vérifiées (même procédure
+    que _migrate_structures). Les inscriptions (slot_registrations) pointent
+    vers la table par son nom : elles suivent sans être touchées.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    try:
+        if "note" in _columns(conn, "slot_selections"):
+            return
+        conn.execute("PRAGMA foreign_keys = OFF")  # sans effet dans une transaction : avant BEGIN
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("CREATE TABLE slot_selections_new " + SLOT_SELECTIONS_COLUMNS)
+            cols = ("id, structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, "
+                    "local_time, rdv_date, rdv_time, height_m, coefficient, created_at")
+            conn.execute(f"INSERT INTO slot_selections_new ({cols}) SELECT {cols} FROM slot_selections")
+            conn.execute("DROP TABLE slot_selections")
+            conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"Migration créneaux personnalisés : clés étrangères invalides {[tuple(p) for p in problems[:5]]}")
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
@@ -1331,7 +1379,8 @@ def list_selections(structure_id: int, from_date: str | None = None) -> list[sql
         sql += " AND s.local_date >= ?"
         params.append(from_date)
     with get_conn() as conn:
-        return conn.execute(sql + " ORDER BY s.local_date, s.local_time", params).fetchall()
+        # RDV puis étale : un créneau personnalisé n'a que son heure de RDV
+        return conn.execute(sql + " ORDER BY s.local_date, s.rdv_date, s.rdv_time, s.local_time", params).fetchall()
 
 
 def get_selection(structure_id: int, selection_id: int) -> sqlite3.Row | None:
@@ -1372,6 +1421,31 @@ def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: st
             ),
         )
         return cur.lastrowid
+
+
+def create_custom_selection(structure_id: int, picked_by: int, port_id: int, type_id: int,
+                            local_date: str, rdv_time: str, note: str | None, now: str) -> int:
+    """Créneau personnalisé : un jour et une heure de RDV, sans étale."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO slot_selections
+                (structure_id, picked_by, port_id, type_id, local_date, rdv_date, rdv_time, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (structure_id, picked_by, port_id, type_id, local_date, local_date, rdv_time, note, now),
+        )
+        return cur.lastrowid
+
+
+def update_custom_selection(structure_id: int, selection_id: int, port_id: int, local_date: str,
+                            rdv_time: str, note: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE slot_selections SET port_id = ?, local_date = ?, rdv_date = ?, rdv_time = ?, note = ? "
+            "WHERE id = ? AND structure_id = ? AND ts_utc IS NULL",
+            (port_id, local_date, local_date, rdv_time, note, selection_id, structure_id),
+        )
 
 
 def update_selection_type(structure_id: int, selection_id: int, type_id: int) -> None:

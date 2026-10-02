@@ -120,6 +120,8 @@ def _shift_upcoming_rdvs(structure_id: int, offset_minutes: int) -> None:
     today = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
     rdvs = []
     for row in db.list_selections(structure_id, today):
+        if row["local_time"] is None:
+            continue  # créneau personnalisé : son heure de RDV est saisie, pas déduite d'une étale
         rdv = rdv_time(datetime.fromisoformat(f"{row['local_date']}T{row['local_time']}"), offset_minutes)
         rdvs.append((rdv.date().isoformat(), rdv.strftime("%H:%M"), row["id"]))
     db.update_selection_rdvs(rdvs)
