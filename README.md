@@ -383,9 +383,11 @@ La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) 
 
 ### Créneaux personnalisés
 
-Un administrateur de structure peut aussi ajouter un créneau **en dehors des étales proposées** par la recherche (plongée de l'après-midi, sortie de nuit, épave à heure fixe…) : bouton **« + Créneau personnalisé »** de la page des créneaux choisis. Il saisit le port, le jour, l'**heure de rendez-vous**, le type et un **intitulé** facultatif (80 caractères, ex. « Épave du Pélican »).
+Un administrateur de structure peut aussi ajouter un créneau **en dehors des étales proposées** par la recherche (plongée de l'après-midi, sortie de nuit, épave à heure fixe…) : bouton **« + Créneau personnalisé »** de la page des créneaux choisis. Il saisit le lieu, le jour, l'**heure de rendez-vous**, le type et un **intitulé** facultatif (80 caractères, ex. « Épave du Pélican »). Le lieu est un port de la liste, ou **« Autre lieu… »** pour une sortie ailleurs (carrière, fosse, ville à l'étranger…) : un champ libre de 80 caractères apparaît alors, et ce lieu s'affiche partout à la place du port.
 
-Le créneau apparaît avec les autres, marqué **Perso**, sans étale, hauteur ni coefficient ; l'intitulé s'affiche sous le port (et à la place du port dans le calendrier). Les membres s'y inscrivent comme sur tout créneau, avec les mêmes délais. Les administrateurs peuvent le **modifier** (port, jour, heure, intitulé ; le type se change dans la liste comme pour les autres) ou le retirer. Son heure de RDV est celle saisie : un changement du délai de rendez-vous de la structure ne la modifie pas. Rien n'empêche deux créneaux personnalisés identiques (deux palanquées, deux sorties le même jour).
+Pour un **séjour de plusieurs jours** (voyage, stage), le champ facultatif **« Jusqu'au »** fixe le dernier jour (60 jours au plus). Le séjour figure sur chacun de ses jours dans le calendrier (l'heure de RDV le premier jour, une flèche les suivants), avec la mention « Du … au … · N jours » ; dans la liste et l'export Excel (colonne « Date de fin »), il apparaît à son premier jour. Les délais d'inscription et de désinscription comptent depuis le premier jour, et le séjour reste parmi les créneaux à venir jusqu'à son dernier jour.
+
+Le créneau apparaît avec les autres, marqué **Perso**, sans étale, hauteur ni coefficient ; l'intitulé s'affiche sous le port (et à la place du port dans le calendrier). Les membres s'y inscrivent comme sur tout créneau, avec les mêmes délais. Les administrateurs peuvent le **modifier** (lieu, jour ou plage de jours, heure, intitulé ; le type se change dans la liste comme pour les autres) ou le retirer. Son heure de RDV est celle saisie : un changement du délai de rendez-vous de la structure ne la modifie pas. Rien n'empêche deux créneaux personnalisés identiques (deux palanquées, deux sorties le même jour).
 
 ### Export Excel
 
@@ -457,15 +459,15 @@ Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes 
 | `GET /api/slot-types` | connecté | types proposés (actifs) de sa structure, dans l'ordre |
 | `GET /api/selections` | membre d'une structure | créneaux de la structure ; `?upcoming=true` : à partir d'aujourd'hui |
 | `POST /api/selections` | admin. structure | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi par la structure |
-| `POST /api/selections/custom` | admin. structure | créneau personnalisé `{port_id, date, time, type_id, note?}` (`time` : heure de RDV `HH:MM`) |
-| `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id?, port_id?, date?, time?, note?}` (port, jour, heure et intitulé : créneau personnalisé uniquement, 422 sinon) / retrait |
+| `POST /api/selections/custom` | admin. structure | créneau personnalisé `{port_id \| location, date, end_date?, time, type_id, note?}` : un port **ou** un lieu libre (`location`, 80 caractères), jamais les deux ; `end_date` : dernier jour d'un séjour (après `date`, 60 jours au plus) ; `time` : heure de RDV `HH:MM` du premier jour |
+| `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id?, port_id?, location?, date?, end_date?, time?, note?}` (`end_date: null` : un seul jour) (lieu, jour, heure et intitulé : créneau personnalisé uniquement, 422 sinon ; un `port_id` remplace le lieu libre et inversement) / retrait |
 | `GET` / `POST /api/admin/slot-types` | admin. structure / super admin | liste (avec nombre d'usages) / création `{label, color, active}` |
 | `PATCH` / `DELETE /api/admin/slot-types/{id}` | admin. structure / super admin | modification / suppression (409 si utilisé) |
 | `PUT /api/admin/slot-types/order` | admin. structure / super admin | `{ids}` : nouvel ordre complet |
 
 Routes `/api/admin/slot-types` : un super administrateur précise la structure par `?structure_id=` (à défaut, la sienne).
 
-Chaque résultat de `/api/dive-windows` contient `port_id` et `ts_utc`, la clé à envoyer pour choisir le créneau. Dans `/api/selections`, `custom: true` signale un créneau personnalisé : `ts_utc`, `kind`, `time`, `height_m` et `coefficient` y valent `null`, `note` porte l'intitulé.
+Chaque résultat de `/api/dive-windows` contient `port_id` et `ts_utc`, la clé à envoyer pour choisir le créneau. Dans `/api/selections`, `custom: true` signale un créneau personnalisé : `ts_utc`, `kind`, `time`, `height_m` et `coefficient` y valent `null`, `note` porte l'intitulé. Pour un créneau dans un autre lieu, `port_id` vaut `null` et `location` porte le lieu ; `port` contient toujours le lieu à afficher (nom du port, ou lieu libre). `end_date` porte le dernier jour d'un séjour, sinon `null`.
 
 ### Administration des données
 

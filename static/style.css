@@ -699,6 +699,7 @@ table.picks .c-actions { white-space: nowrap; }
 table.picks .c-actions button + button { margin-left: 0.3rem; }
 /* intitulé d'un créneau personnalisé */
 .slot-note { display: block; font-size: 0.82rem; font-style: italic; color: var(--blue-deep); }
+.slot-span { display: block; font-size: 0.82rem; font-weight: 600; color: var(--blue-deep); }
 .slot-acts { display: flex; gap: 0.3rem; margin-left: auto; }
 
 /* --- Administration : types de créneaux ------------------------------ */
@@ -852,6 +853,7 @@ table.picks .c-regs { white-space: nowrap; }
   border-radius: 8px;
 }
 .account-dialog label.check { flex-direction: row; font-weight: 400; margin-bottom: 0.4rem; }
+.account-dialog label[hidden] { display: none; }
 .account-dialog label.check input { padding: 0; }
 .field-hint { font-weight: 400; font-size: 0.78rem; color: #607d8b; }
 .dialog-links { margin: -0.3rem 0 0.6rem; font-size: 0.85rem; }
