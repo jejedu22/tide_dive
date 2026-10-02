@@ -486,7 +486,8 @@ async function loadPicks(user) {
         Session.api("/api/selections"),
       ]);
       slotTypes = types;
-      picks = new Map(sels.map(s => [slotKey(s), s]));
+      // les créneaux personnalisés n'ont pas d'étale : rien à griser dans la recherche
+      picks = new Map(sels.filter(s => !s.custom).map(s => [slotKey(s), s]));
     } catch (e) {
       statusEl.textContent = `Créneaux choisis non chargés : ${e.message}`;
     }

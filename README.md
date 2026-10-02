@@ -333,6 +333,12 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+### Créneaux personnalisés
+
+Un administrateur de structure peut aussi ajouter un créneau **en dehors des étales proposées** par la recherche (plongée de l'après-midi, sortie de nuit, épave à heure fixe…) : bouton **« + Créneau personnalisé »** de la page des créneaux choisis. Il saisit le port, le jour, l'**heure de rendez-vous**, le type et un **intitulé** facultatif (80 caractères, ex. « Épave du Pélican »).
+
+Le créneau apparaît avec les autres, marqué **Perso**, sans étale, hauteur ni coefficient ; l'intitulé s'affiche sous le port (et à la place du port dans le calendrier). Les membres s'y inscrivent comme sur tout créneau, avec les mêmes délais. Les administrateurs peuvent le **modifier** (port, jour, heure, intitulé ; le type se change dans la liste comme pour les autres) ou le retirer. Son heure de RDV est celle saisie : un changement du délai de rendez-vous de la structure ne la modifie pas. Rien n'empêche deux créneaux personnalisés identiques (deux palanquées, deux sorties le même jour).
+
 ### Export Excel
 
 La recherche et la page des créneaux choisis ont un bouton **« Exporter en Excel »** : il télécharge un fichier `.xlsx` des créneaux **affichés**, filtres compris (filtres de colonnes dans la recherche ; type, « mes inscriptions » et créneaux passés dans les créneaux choisis). Dates, heures, hauteurs et coefficients y sont de vraies valeurs Excel, triables et filtrables ; l'en-tête est figé et porte un filtre automatique. Le fichier est généré dans le navigateur (`static/xlsx-export.js`, sans dépendance ni appel serveur).
@@ -340,7 +346,7 @@ La recherche et la page des créneaux choisis ont un bouton **« Exporter en Exc
 Règles :
 
 - les choix sont **propres à chaque structure** et communs à ses membres : deux structures peuvent choisir le même créneau, mais une structure ne peut pas le choisir deux fois (contrainte `UNIQUE (structure_id, port_id, ts_utc)` en base) ; supprimer un compte ne supprime pas les créneaux qu'il a choisis ;
-- un créneau est identifié par son port et l'horodatage UTC de l'étale ; heure, hauteur, coefficient et RDV sont **recalculés par le serveur** au moment du choix puis figés (seule exception : un changement du délai de rendez-vous de la structure recalcule le RDV de ses créneaux à venir) ;
+- un créneau est identifié par son port et l'horodatage UTC de l'étale (un créneau personnalisé n'en a pas : `ts_utc` est vide) ; heure, hauteur, coefficient et RDV sont **recalculés par le serveur** au moment du choix puis figés (seule exception : un changement du délai de rendez-vous de la structure recalcule le RDV de ses créneaux à venir) ;
 - chaque structure a sa liste de types, gérée dans **`/admin.html` → Types de créneaux** : libellé, couleur, ordre, « proposé » ou non. Un type non proposé reste affiché sur les choix existants ; un type utilisé ne peut pas être supprimé.
 
 Tant qu'aucun type n'existe, la colonne « Choix » affiche « aucun type ».
@@ -403,14 +409,15 @@ Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes 
 | `GET /api/slot-types` | connecté | types proposés (actifs) de sa structure, dans l'ordre |
 | `GET /api/selections` | membre d'une structure | créneaux de la structure ; `?upcoming=true` : à partir d'aujourd'hui |
 | `POST /api/selections` | admin. structure | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi par la structure |
-| `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id}` / retrait |
+| `POST /api/selections/custom` | admin. structure | créneau personnalisé `{port_id, date, time, type_id, note?}` (`time` : heure de RDV `HH:MM`) |
+| `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id?, port_id?, date?, time?, note?}` (port, jour, heure et intitulé : créneau personnalisé uniquement, 422 sinon) / retrait |
 | `GET` / `POST /api/admin/slot-types` | admin. structure / super admin | liste (avec nombre d'usages) / création `{label, color, active}` |
 | `PATCH` / `DELETE /api/admin/slot-types/{id}` | admin. structure / super admin | modification / suppression (409 si utilisé) |
 | `PUT /api/admin/slot-types/order` | admin. structure / super admin | `{ids}` : nouvel ordre complet |
 
 Routes `/api/admin/slot-types` : un super administrateur précise la structure par `?structure_id=` (à défaut, la sienne).
 
-Chaque résultat de `/api/dive-windows` contient `port_id` et `ts_utc`, la clé à envoyer pour choisir le créneau.
+Chaque résultat de `/api/dive-windows` contient `port_id` et `ts_utc`, la clé à envoyer pour choisir le créneau. Dans `/api/selections`, `custom: true` signale un créneau personnalisé : `ts_utc`, `kind`, `time`, `height_m` et `coefficient` y valent `null`, `note` porte l'intitulé.
 
 ### Administration des données
 

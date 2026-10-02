@@ -3,7 +3,8 @@
 // délais fixés par la structure (le serveur fait foi).
 // Administration de la structure : en plus, changer le type, retirer un
 // créneau (qui redevient disponible dans la recherche), retirer l'inscription
-// d'un membre.
+// d'un membre, ajouter et modifier des créneaux personnalisés (port, jour,
+// heure de RDV et intitulé saisis, en dehors des étales de la recherche).
 //
 // Deux affichages, mémorisés dans le navigateur :
 //  - Calendrier : grille du mois + fiches des créneaux du jour sélectionné ;
@@ -22,6 +23,7 @@ const onlyMine = $("only-mine");
 const summaryEl = $("summary");
 const emptyEl = $("picks-empty");
 const exportBtn = $("export-xlsx");
+const addCustomBtn = $("add-custom");
 
 const calEl = $("cal-view");
 const calTitle = $("cal-title");
@@ -38,7 +40,8 @@ const narrow = window.matchMedia("(max-width: 700px)");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 let types = [];       // types actifs, ordre de l'administration
-let picks = [];       // triés par date puis heure d'étale
+let picks = [];       // triés par date puis heure de RDV
+let ports = null;     // ports proposés dans le formulaire des créneaux personnalisés (chargés à la demande)
 
 const canPick = () => !!Session.user?.can.pick;
 
@@ -109,8 +112,10 @@ function registrationsCell(p) {
   return `<div class="regs">${count}${button}</div>`;
 }
 
-// Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min
-function rdvTitle() {
+// Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
+// Créneau personnalisé : heure saisie telle quelle.
+function rdvTitle(p) {
+  if (p?.custom) return "Heure de rendez-vous (créneau personnalisé)";
   const offset = Session.user?.structure?.rdv_offset_minutes ?? 120;
   const h = Math.floor(offset / 60), m = offset % 60;
   const delay = m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
@@ -120,6 +125,13 @@ function rdvTitle() {
 const veilleMark = p => (p.rdv.date !== p.date ? `<span class="veille" title="RDV la veille">J-1</span> ` : "");
 const pickedBy = p => (p.picked_by ? esc(p.picked_by) : `<span class="muted">compte supprimé</span>`);
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
+const editButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="edit">Modifier</button>` : "");
+const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
+
+// Étale (PM/BM et son heure), ou pastille « Perso » pour un créneau personnalisé
+const tideMark = p => (p.custom
+  ? `<span class="kind custom" title="Créneau personnalisé, en dehors des étales proposées">Perso</span>`
+  : `<span class="kind ${p.kind}" title="Étale de ${p.kind === "PM" ? "pleine" : "basse"} mer">${p.kind}</span>${p.time}`);
 
 // Fiche d'un créneau (calendrier et liste sur mobile) : l'heure de RDV d'abord,
 // c'est elle qui compte pour venir plonger.
@@ -127,19 +139,20 @@ function slotCard(p) {
   return `
     <li class="slot-card${p.past ? " past" : ""}${p.registered ? " mine" : ""}" data-id="${p.id}" style="--type-color:${esc(p.type.color)}">
       <div class="slot-head">
-        <p class="slot-rdv"><abbr title="${rdvTitle()}">RDV</abbr> ${veilleMark(p)}<strong>${p.rdv.time}</strong></p>
+        <p class="slot-rdv"><abbr title="${rdvTitle(p)}">RDV</abbr> ${veilleMark(p)}<strong>${p.rdv.time}</strong></p>
         <p class="slot-port">${esc(p.port)}</p>
       </div>
+      ${p.note ? `<p>${noteLine(p)}</p>` : ""}
       <p class="slot-tide">
-        <span><span class="kind ${p.kind}" title="Étale de ${p.kind === "PM" ? "pleine" : "basse"} mer">${p.kind}</span>${p.time}</span>
-        <span title="Hauteur d'eau à l'étale">${fmtHeight(p.height_m)} m</span>
-        <span title="Coefficient de marée (indicatif)">coef <span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></span>
+        <span>${tideMark(p)}</span>
+        ${p.custom ? "" : `<span title="Hauteur d'eau à l'étale">${fmtHeight(p.height_m)} m</span>
+        <span title="Coefficient de marée (indicatif)">coef <span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></span>`}
       </p>
       <div class="slot-row c-type">${typeCell(p)}</div>
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
-        <span class="slot-by">Choisi par ${pickedBy(p)}</span>
-        ${removeButton()}
+        <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
+        <span class="slot-acts">${editButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -279,7 +292,7 @@ function renderCalendar(list) {
       (items.length ? `, ${plural(items.length, "créneau", "créneaux")}` : "") +
       (mine ? `, inscrit sur ${mine}` : "");
     const chips = items.slice(0, 3).map(p =>
-      `<span class="cal-chip${p.registered ? " mine" : ""}" style="--type-color:${esc(p.type.color)}"><b>${p.rdv.time}</b> ${esc(p.port)}</span>`).join("") +
+      `<span class="cal-chip${p.registered ? " mine" : ""}" style="--type-color:${esc(p.type.color)}"><b>${p.rdv.time}</b> ${esc(p.note || p.port)}</span>`).join("") +
       (items.length > 3 ? `<span class="cal-more">+${items.length - 3}</span>` : "");
     cells.push(`<button type="button" class="${cls}" data-day="${day}"
       aria-pressed="${day === selectedDay}" tabindex="${day === selectedDay ? 0 : -1}"
@@ -337,14 +350,14 @@ function renderTable(list) {
         <tr data-id="${p.id}" class="${[i === 0 ? "day-start" : "", day < today ? "past" : ""].join(" ").trim()}">
           ${i === 0 ? `<th scope="row" rowspan="${items.length}" class="c-date">${formatDay(day)}</th>` : ""}
           <td class="c-rdv">${veilleMark(p)}${p.rdv.time}</td>
-          <td class="c-port">${esc(p.port)}</td>
-          <td class="c-tide"><span class="kind ${p.kind}">${p.kind}</span>${p.time}</td>
+          <td class="c-port">${esc(p.port)}${noteLine(p)}</td>
+          <td class="c-tide">${tideMark(p)}</td>
           <td class="num">${fmtHeight(p.height_m)}</td>
           <td class="num"><span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></td>
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${removeButton()}</td>
+          <td class="c-actions">${editButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -374,10 +387,11 @@ function render() {
 
   const none = !picks.length;
   exportBtn.disabled = !list.length;
+  addCustomBtn.hidden = !canPick();
   emptyEl.hidden = !none;
   if (none) {
     emptyEl.innerHTML = canPick()
-      ? `Aucun créneau choisi pour l'instant. <a href="index.html">Chercher des créneaux</a>, puis choisissez un type dans la colonne « Choix ».`
+      ? `Aucun créneau choisi pour l'instant. <a href="index.html">Chercher des créneaux</a>, puis choisissez un type dans la colonne « Choix », ou ajoutez un créneau personnalisé.`
       : "Aucun créneau choisi pour l'instant par votre structure.";
   }
 
@@ -414,7 +428,8 @@ function renderTypeFilter() {
   if (seen.has(Number(current))) typeFilter.value = current;
 }
 
-const byWhen = (a, b) => (a.date + a.time).localeCompare(b.date + b.time);
+// même ordre que le serveur : jour, puis RDV (un créneau personnalisé n'a pas d'heure d'étale)
+const byWhen = (a, b) => (a.date + a.rdv.date + a.rdv.time + (a.time || "")).localeCompare(b.date + b.rdv.date + b.rdv.time + (b.time || ""));
 
 async function load() {
   closePop();
@@ -520,6 +535,105 @@ picksEl.addEventListener("click", async e => {
   render();
 });
 
+// ---- Créneaux personnalisés (administration) : ajout et modification ----
+
+function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
+  const d = document.createElement("dialog");
+  d.className = "account-dialog";
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>${esc(title)}</h2>
+      ${body}
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+        <button type="submit" class="btn-primary">${esc(submitLabel)}</button>
+      </div>
+    </form>`;
+  document.body.append(d);
+  const form = d.querySelector("form");
+  d.addEventListener("close", () => d.remove());
+  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = form.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await onSubmit(form);
+      d.close();
+    } catch (err) {
+      d.querySelector(".dialog-error").textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  d.showModal();
+  return form;
+}
+
+async function openCustomDialog(p = null) {
+  try {
+    ports ??= await Session.api("/api/ports");
+  } catch (err) {
+    statusEl.textContent = `Ports non chargés : ${err.message}`;
+    return;
+  }
+  if (!ports.length) {
+    statusEl.textContent = "Aucun port disponible : un super administrateur doit d'abord en ajouter.";
+    return;
+  }
+  if (!p && !types.length) {
+    statusEl.textContent = "Créez d'abord un type de créneau (administration → Types de créneaux).";
+    return;
+  }
+  // nouveau créneau : port par défaut de la structure, jour affiché dans le calendrier (s'il n'est pas passé)
+  const today = todayISO();
+  const portId = p ? p.port_id : (Session.user?.structure?.default_port_id ?? ports[0].id);
+  const day = p ? p.date : (view === "cal" && selectedDay && selectedDay >= today ? selectedDay : today);
+  const portOptions = ports.map(x => `<option value="${x.id}"${x.id === portId ? " selected" : ""}>${esc(x.name)}</option>`);
+  if (p && !ports.some(x => x.id === p.port_id)) {
+    portOptions.unshift(`<option value="${p.port_id}" selected>${esc(p.port)}</option>`);
+  }
+  openDialog({
+    title: p ? "Modifier le créneau personnalisé" : "Nouveau créneau personnalisé",
+    submitLabel: p ? "Enregistrer" : "Ajouter",
+    body: `
+      <p class="dialog-hint">En dehors des étales proposées par la recherche : vous fixez vous-même le jour et l'heure de rendez-vous.</p>
+      <label>Port <select name="port_id" required>${portOptions.join("")}</select></label>
+      <label>Jour <input type="date" name="date" required value="${day}"></label>
+      <label>Heure de rendez-vous <input type="time" name="time" required value="${p ? p.rdv.time : ""}"></label>
+      ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
+      <label>Intitulé <span class="field-hint">(facultatif)</span>
+        <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>`,
+    onSubmit: async form => {
+      const f = new FormData(form);
+      const body = {
+        port_id: Number(f.get("port_id")),
+        date: f.get("date"),
+        time: f.get("time").slice(0, 5),
+        note: f.get("note").trim() || null,
+      };
+      if (!p) body.type_id = Number(f.get("type_id"));
+      const saved = await Session.api(p ? `/api/selections/${p.id}` : "/api/selections/custom",
+        { method: p ? "PATCH" : "POST", body });
+      picks = p ? picks.map(x => (x.id === saved.id ? saved : x)) : [...picks, saved];
+      picks.sort(byWhen);
+      renderTypeFilter();
+      // on montre le créneau là où il est
+      if (view === "cal") selectDay(saved.date); else render();
+      statusEl.textContent = p ? "Créneau modifié." : "Créneau personnalisé ajouté.";
+    },
+  });
+}
+
+addCustomBtn.addEventListener("click", () => openCustomDialog());
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=edit]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openCustomDialog(p);
+});
+
 // ---- Export Excel des créneaux affichés (filtres compris, quel que soit l'affichage) ----
 
 const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
@@ -530,15 +644,16 @@ const EXPORT_COLUMNS = [
   { header: "Date RDV", type: "date", width: 11, value: p => p.rdv.date },
   { header: "Heure RDV", type: "time", width: 10, value: p => p.rdv.time },
   { header: "Port", width: 18, value: p => p.port },
-  { header: "Étale", width: 7, value: p => p.kind },
+  { header: "Étale", width: 7, value: p => p.kind || "Perso" },
   { header: "Heure étale", type: "time", width: 11, value: p => p.time },
   { header: "Hauteur (m)", type: "decimal", width: 11, value: p => p.height_m },
   { header: "Coefficient", type: "int", width: 11, value: p => (p.coefficient != null ? Math.round(p.coefficient) : null) },
   { header: "Type", width: 16, value: p => p.type.label },
+  { header: "Intitulé", width: 24, value: p => p.note || "" },
   { header: "Nb inscrits", type: "int", width: 11, value: p => p.registrations.length },
   { header: "Inscrits", width: 40, value: p => p.registrations.map(r => r.display_name).join(", ") },
   { header: "Inscrit (moi)", width: 12, value: p => (p.registered ? "oui" : "") },
-  { header: "Choisi par", width: 18, value: p => p.picked_by || "compte supprimé" },
+  { header: "Choisi / ajouté par", width: 18, value: p => p.picked_by || "compte supprimé" },
 ];
 
 exportBtn.addEventListener("click", () => {
@@ -618,7 +733,7 @@ Session.onChange(user => {
     return;
   }
   $("picks-hint").textContent = user.can.pick
-    ? "Liste commune à la structure. Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche."
+    ? "Liste commune à la structure. Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche. « + Créneau personnalisé » ajoute un créneau à l'heure de votre choix, en dehors des étales proposées."
     : "Liste commune à la structure : inscrivez-vous sur les créneaux qui vous intéressent. Seuls ses administrateurs choisissent les créneaux. Les heures sont celles calculées au moment du choix.";
   load();
 });
