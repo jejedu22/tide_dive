@@ -54,7 +54,27 @@ CREATE TABLE IF NOT EXISTS ports (
     longitude REAL NOT NULL,
     timezone TEXT NOT NULL DEFAULT 'Europe/Paris',
     offset_zh_m REAL,                         -- niveau moyen au-dessus du zéro des cartes (NULL = inconnu)
-    auto_precompute INTEGER NOT NULL DEFAULT 1 -- inclus dans le précalcul annuel automatique
+    auto_precompute INTEGER NOT NULL DEFAULT 1, -- inclus dans le précalcul annuel automatique
+    api_maree_site TEXT                       -- identifiant du site api-maree.fr (recalage), NULL = aucun
+);
+
+-- Recalage du modèle FES sur api-maree.fr (voir calibration.py) : la hauteur
+-- stockée à t vaut amplitude × FES(t − time_shift_min) + offset_zh_m.
+CREATE TABLE IF NOT EXISTS tide_calibration (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    site TEXT NOT NULL,                 -- site api-maree.fr utilisé
+    model TEXT NOT NULL,                -- modèle FES recalé (ignoré pour un autre modèle)
+    time_shift_min REAL NOT NULL,
+    amplitude REAL NOT NULL,
+    mean_level_m REAL,                  -- niveau moyen de la référence (comparable à offset_zh_m)
+    rmse_before_m REAL,
+    rmse_after_m REAL,
+    extrema_dt_before_min REAL,         -- écart moyen des heures de PM/BM, avant / après
+    extrema_dt_after_min REAL,
+    n_points INTEGER NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    computed_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tide_heights (
@@ -465,6 +485,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 )
     if "auto_precompute" not in cols:
         conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
+    if "api_maree_site" not in cols:
+        conn.execute("ALTER TABLE ports ADD COLUMN api_maree_site TEXT")
 
     # Profil des comptes : nom, prénom, e-mail, téléphone, mot de passe provisoire
     user_cols = _columns(conn, "users")
@@ -546,18 +568,19 @@ def list_ports(with_data_only: bool = False) -> list[sqlite3.Row]:
 
 
 def create_port(name: str, latitude: float, longitude: float, timezone: str,
-                offset_zh_m: float | None, auto_precompute: bool) -> int:
+                offset_zh_m: float | None, auto_precompute: bool,
+                api_maree_site: str | None = None) -> int:
     """Lève sqlite3.IntegrityError si le nom existe déjà."""
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO ports (name, latitude, longitude, timezone, offset_zh_m, auto_precompute) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, latitude, longitude, timezone, offset_zh_m, int(auto_precompute)),
+            "INSERT INTO ports (name, latitude, longitude, timezone, offset_zh_m, auto_precompute, api_maree_site) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, latitude, longitude, timezone, offset_zh_m, int(auto_precompute), api_maree_site),
         )
         return cur.lastrowid
 
 
-_PORT_FIELDS = {"name", "latitude", "longitude", "timezone", "offset_zh_m", "auto_precompute"}
+_PORT_FIELDS = {"name", "latitude", "longitude", "timezone", "offset_zh_m", "auto_precompute", "api_maree_site"}
 
 
 def update_port(port_id: int, **fields) -> None:
@@ -615,6 +638,38 @@ def set_setting(key: str, value: str, updated_at: str, updated_by: str | None) -
             "updated_at = excluded.updated_at, updated_by = excluded.updated_by",
             (key, value, updated_at, updated_by),
         )
+
+
+_CALIBRATION_FIELDS = (
+    "site", "model", "time_shift_min", "amplitude", "mean_level_m", "rmse_before_m", "rmse_after_m",
+    "extrema_dt_before_min", "extrema_dt_after_min", "n_points", "window_start", "window_end", "computed_at",
+)
+
+
+def save_calibration(port_id: int, **fields) -> None:
+    """Remplace le recalage du port (un seul par port : le plus récent)."""
+    values = [fields.get(k) for k in _CALIBRATION_FIELDS]
+    with get_conn() as conn:
+        conn.execute(
+            f"INSERT OR REPLACE INTO tide_calibration (port_id, {', '.join(_CALIBRATION_FIELDS)}) "
+            f"VALUES (?{', ?' * len(_CALIBRATION_FIELDS)})",
+            (port_id, *values),
+        )
+
+
+def get_calibration(port_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM tide_calibration WHERE port_id = ?", (port_id,)).fetchone()
+
+
+def calibrations_by_port() -> dict[int, sqlite3.Row]:
+    with get_conn() as conn:
+        return {r["port_id"]: r for r in conn.execute("SELECT * FROM tide_calibration")}
+
+
+def delete_calibration(port_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM tide_calibration WHERE port_id = ?", (port_id,))
 
 
 def get_port(port_id: int) -> sqlite3.Row | None:

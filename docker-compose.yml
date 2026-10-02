@@ -26,6 +26,7 @@ x-app: &app
     PYTMD_CACHE_DIR: /models        # répertoire par défaut de pyTMD 3.x
     FES_MODEL: ${FES_MODEL:-FES2014}  # modèle par défaut, tant qu'aucun n'est choisi dans l'administration
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
+    API_MAREE_KEY: ${API_MAREE_KEY:-}           # recalage FES sur api-maree.fr (facultatif)
     COOKIE_SECURE: ${COOKIE_SECURE:-1}          # HTTPS via Traefik ; 0 en local (http)
     SESSION_DAYS: ${SESSION_DAYS:-30}           # durée d'une session de connexion
     PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}

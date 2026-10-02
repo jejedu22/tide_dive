@@ -10,5 +10,10 @@
 # coché « Recalculer automatiquement chaque année » dans l'administration.
 0 3 15 12 * python -m app.jobs enqueue precompute --auto
 
+# 2 de chaque mois, 04:30 — recalage du modèle FES sur api-maree.fr pour chaque
+# port doté d'un identifiant api-maree.fr. Si le recalage change sensiblement,
+# les années déjà calculées (à partir de l'année en cours) sont recalculées.
+30 4 2 * * python -m app.jobs enqueue calibrate --all
+
 # 1er de chaque mois, 04:00 — vacances scolaires (open data Éducation nationale)
 0 4 1 * * python -m app.jobs enqueue school-holidays

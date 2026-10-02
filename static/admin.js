@@ -515,11 +515,38 @@ function yearTag(year, model) {
   return `<span class="tag" title="Calculée avec ${esc(model)}">${year}</span>`;
 }
 
+const fmtMin = v => (v == null ? "—" : `${fmtNum(v, 1)} min`);
+
+// Motif empêchant de lancer un recalage, ou "" s'il est possible
+function calibrateBlock(p) {
+  if (!p.api_maree_site) return "Renseignez d'abord le site api-maree.fr (Modifier)";
+  if (status && !status.api_maree_configured) return "Clé api-maree.fr absente : API_MAREE_KEY dans .env";
+  return "";
+}
+
+// Recalage : décalage et amplitude, détail des écarts en info-bulle
+function calibrationCell(p) {
+  const c = p.calibration;
+  if (!c) return p.api_maree_site
+    ? `<span class="muted" title="Site ${esc(p.api_maree_site)}">à faire</span>`
+    : `<span class="muted">aucun</span>`;
+  const shift = `${c.time_shift_min >= 0 ? "+" : ""}${fmtNum(c.time_shift_min, 0)} min`;
+  const title = [
+    `Site api-maree.fr : ${c.site}, modèle ${c.model}, le ${c.computed_at.slice(0, 10)}`,
+    `Écart quadratique : ${fmtNum(c.rmse_before_m, 3)} m → ${fmtNum(c.rmse_after_m, 3)} m`,
+    `Écart moyen des heures de PM/BM : ${fmtMin(c.extrema_dt_before_min)} → ${fmtMin(c.extrema_dt_after_min)}`,
+    `Niveau moyen de la référence : ${fmtNum(c.mean_level_m, 2)} m`,
+  ].join("\n");
+  const stale = status?.fes_model && c.model !== status.fes_model;
+  return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}${stale ? `\nÉtabli pour ${esc(c.model)} : relancez le recalage.` : ""}">${shift} · ×${fmtNum(c.amplitude, 3)}</span>`;
+}
+
 function renderPorts() {
   portsBody.innerHTML = ports.length ? ports.map(p => {
     const years = p.years.length
       ? p.years.map(y => yearTag(y, p.year_models[y])).join(" ")
       : `<span class="muted">aucune</span>`;
+    const calib = calibrationCell(p);
     const offset = p.offset_zh_m != null
       ? `${fmtNum(p.offset_zh_m, 2)} m`
       : `<span class="tag job-failed" title="Obligatoire pour calculer">à renseigner</span>`;
@@ -528,17 +555,19 @@ function renderPorts() {
         <th scope="row">${esc(p.name)}</th>
         <td class="muted" data-label="Coordonnées">${fmtNum(p.latitude, 4)}, ${fmtNum(p.longitude, 4)}</td>
         <td class="num" data-label="NM / ZH">${offset}</td>
+        <td data-label="Recalage">${calib}</td>
         <td data-label="Années calculées">${years}</td>
         <td data-label="Recalcul annuel"><input type="checkbox" data-act="auto" ${p.auto_precompute ? "checked" : ""} aria-label="Recalcul annuel de ${esc(p.name)}"></td>
         <td class="actions">
           <input type="number" class="year-input" min="1990" max="2100" value="${defaultYear}" aria-label="Année à calculer">
           <button type="button" class="btn-secondary" data-act="compute" ${p.offset_zh_m == null ? "disabled title=\"Renseignez d'abord le niveau moyen\"" : ""}>Calculer</button>
+          <button type="button" class="btn-quiet" data-act="calibrate" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : ""}>Recaler</button>
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
       </tr>`;
   }).join("")
-    : `<tr><td colspan="6" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
 }
 
 catalogSelect.addEventListener("change", () => {
@@ -565,6 +594,7 @@ portForm.addEventListener("submit", async e => {
         longitude: Number(portForm.longitude.value),
         offset_zh_m: numOrNull(portForm.offset_zh_m.value),
         auto_precompute: portForm.auto_precompute.checked,
+        api_maree_site: portForm.api_maree_site.value.trim() || null,
       },
     });
     portForm.reset();
@@ -601,6 +631,9 @@ portsBody.addEventListener("click", async e => {
       enqueue("precompute", { port_id: port.id, year });
       break;
     }
+    case "calibrate":
+      enqueue("calibrate", { port_id: port.id });
+      break;
     case "edit":
       editPort(port);
       break;
@@ -629,6 +662,10 @@ function editPort(port) {
       <label>Niveau moyen / zéro des cartes (m)
         <input name="offset_zh_m" type="number" step="0.01" min="0.01" max="20" value="${port.offset_zh_m ?? ""}">
       </label>
+      <label>Site api-maree.fr (recalage)
+        <input name="api_maree_site" maxlength="80" pattern="[a-z0-9][a-z0-9\\-]*" value="${esc(port.api_maree_site ?? "")}">
+      </label>
+      ${port.calibration ? `<label class="check"><input type="checkbox" name="drop_calibration"> Abandonner le recalage actuel (prochains calculs en FES brut)</label>` : ""}
       <p class="dialog-hint">${port.years.length ? `Les années déjà calculées (${port.years.join(", ")}) ne sont pas recalculées automatiquement.` : ""}</p>
       <p class="dialog-error" role="alert"></p>
       <div class="dialog-actions">
@@ -650,8 +687,12 @@ function editPort(port) {
           latitude: Number(form.latitude.value),
           longitude: Number(form.longitude.value),
           offset_zh_m: numOrNull(form.offset_zh_m.value),
+          api_maree_site: form.api_maree_site.value.trim() || null,
         },
       });
+      if (form.drop_calibration?.checked) {
+        await Session.api(`/api/admin/ports/${port.id}/calibration`, { method: "DELETE" });
+      }
       d.close();
       loadPorts();
     } catch (err) {

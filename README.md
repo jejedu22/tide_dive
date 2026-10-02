@@ -15,6 +15,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Installation sans Docker](#installation-sans-docker)
 - [Précalcul](#précalcul)
 - [Ports et zéro des cartes](#ports-et-zéro-des-cartes)
+- [Recalage sur api-maree.fr](#recalage-sur-api-mareefr)
 - [Administration des données](#administration-des-données)
 - [Comptes, structures et préférences](#comptes-structures-et-préférences)
 - [Créneaux choisis](#créneaux-choisis)
@@ -87,6 +88,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 
 - **1er décembre, 02:00** : mise à jour du modèle FES (seuls les fichiers plus récents sont retéléchargés) ;
 - **15 décembre, 03:00** : précalcul de l'année suivante pour chaque port coché « Recalculer automatiquement chaque année » et doté d'un niveau moyen ;
+- **2 de chaque mois, 04:30** : recalage sur api-maree.fr de chaque port doté d'un site api-maree.fr (voir [Recalage](#recalage-sur-api-mareefr)) ;
 - **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires.
 
 ### Variables d'environnement (`.env`)
@@ -94,6 +96,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | Variable | Défaut | Description |
 |---|---|---|
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
+| `API_MAREE_KEY` | — | Clé [api-maree.fr](https://api-maree.fr) pour le recalage du modèle (facultative : sans clé, hauteurs FES brutes) |
 | `FES_MODEL` | `FES2014` | Modèle par défaut (`FES2014` ou `FES2022`), pour le téléchargement et les calculs, tant qu'aucun n'est choisi dans l'administration |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
 | `MAREE_HOST` | — | Domaine public routé par Traefik (obligatoire) |
@@ -190,6 +193,25 @@ Source officielle : colonne « NM » des Références Altimétriques Maritimes (
 
 Le coefficient (échelle 20–120) est une notion française définie à Brest. Il n'est pas fourni par pyTMD : il est estimé à partir de la hauteur de chaque PM de Brest au-dessus du niveau moyen, divisée par l'unité de hauteur (`U_BREST = 3,05 m`), **sans** offset. Chaque PM d'un autre port reçoit le coefficient de la PM de Brest la plus proche ; dans l'API, une BM reçoit celui de la PM voisine. Ces coefficients sont **indicatifs**.
 
+## Recalage sur api-maree.fr
+
+FES, modèle global, est souvent en avance ou en retard de quelques minutes dans les ports, et sur- ou sous-estime le marnage. [api-maree.fr](https://api-maree.fr) calcule ses hauteurs à partir de l'atlas régional **Ifremer/PREVIMER** (licence CC BY), plus précis près des côtes, mais seulement sur une fenêtre glissante **J−30 / J+30**. On combine les deux :
+
+1. la tâche **Recalage** (`app/calibration.py`) récupère les hauteurs api-maree.fr de J−29 à J+29 au pas de 10 min (6 requêtes par port, sous le quota de 360 requêtes/heure) et calcule FES sur la même période ;
+2. elle ajuste `référence(t) ≈ a × FES(t − τ) + b` : **τ**, décalage horaire à la minute près (±90 min), et **a**, facteur d'amplitude (0,7 à 1,3), sont enregistrés par port (table `tide_calibration`), avec les écarts avant / après recalage ;
+3. le précalcul applique τ et a à **toute l'année** : la hauteur stockée vaut `a × FES(t − τ) + offset_zh_m`. L'erreur systématique mesurée sur deux mois est ainsi corrigée aussi pour les dates hors de la fenêtre d'api-maree.fr. Si Brest est en base et recalé, son recalage sert aussi aux coefficients.
+
+Le niveau moyen **b** de la référence n'est pas appliqué, mais un écart de plus de 15 cm avec `offset_zh_m` est signalé dans le journal : c'est une bonne façon de contrôler le niveau moyen saisi.
+
+Mise en place :
+
+- renseigner `API_MAREE_KEY` dans `.env` (clé gratuite sur api-maree.fr) ;
+- dans l'administration (onglet **Ports**, **Modifier**), saisir l'**identifiant du site api-maree.fr** du port (ex. `saint-quay-portrieux`, voir la liste des sites sur api-maree.fr), puis cliquer sur **Recaler**.
+
+Le recalage est refait le 2 de chaque mois. S'il change sensiblement (≥ 2 min ou ≥ 0,01 sur l'amplitude), les années déjà calculées, à partir de l'année en cours, sont remises en file. Un recalage établi pour FES2014 n'est pas appliqué aux calculs FES2022 (et inversement) : relancer le recalage après un changement de modèle. Un résultat invraisemblable (décalage en butée, amplitude hors plage, trop peu de données) est refusé et l'ancien recalage est conservé. Dans l'onglet Ports, la colonne **Recalage** affiche `τ · ×a`, avec le détail en info-bulle. **Modifier → Abandonner le recalage** revient à FES brut pour les prochains calculs.
+
+Un décalage et un facteur uniques ne corrigent pas tout (les ondes M2 et S2 n'ont pas exactement la même erreur locale) : l'écart résiduel sur les heures de PM/BM reste visible en info-bulle.
+
 ## Administration des données
 
 La page `/admin.html` (administrateurs) comporte trois onglets.
@@ -216,6 +238,7 @@ La base passe en mode WAL pour que l'API continue de répondre pendant qu'un pr�
 python -m app.jobs enqueue fetch-models --model FES2022
 python -m app.jobs enqueue precompute --port-id 3 --year 2027
 python -m app.jobs enqueue precompute --auto          # tous les ports annuels, année suivante
+python -m app.jobs enqueue calibrate --port-id 3      # recalage api-maree.fr (--all : tous les ports dotés d'un site)
 python -m app.jobs enqueue school-holidays
 ```
 
@@ -431,7 +454,8 @@ Réservée au super administrateur.
 | `GET` / `POST /api/admin/ports` | liste (avec années calculées) / création |
 | `GET /api/admin/ports/catalog` | ports du catalogue pas encore en base |
 | `PATCH` / `DELETE /api/admin/ports/{id}` | modification / suppression avec ses données |
-| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `fetch_models` (`model`), `school_holidays` |
+| `DELETE /api/admin/ports/{id}/calibration` | abandon du recalage api-maree.fr du port |
+| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `calibrate` (`port_id`), `fetch_models` (`model`), `school_holidays` |
 | `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
 | `GET /api/admin/jobs/{id}` | détail avec journal |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
@@ -440,11 +464,11 @@ Réservée au super administrateur.
 
 FES est un modèle **océanique global** : il est moins précis dans les ports, baies et zones à géométrie complexe qu'un atlas régional (Ifremer/PREVIMER) ou que les constantes harmoniques du SHOM.
 
-**Avant toute sortie réelle, vérifier les horaires contre une source officielle** : [maree.shom.fr](https://maree.shom.fr) ou [maree.info](https://maree.info). Un décalage systématique observé sur un port peut être corrigé dans `tide_model.py`.
+**Avant toute sortie réelle, vérifier les horaires contre une source officielle** : [maree.shom.fr](https://maree.shom.fr) ou [maree.info](https://maree.info). Le [recalage sur api-maree.fr](#recalage-sur-api-mareefr) corrige l'essentiel du décalage systématique d'un port.
 
 Choix techniques à connaître :
 
-- **Pourquoi pas une API ?** api-maree.fr limite ses horaires à une fenêtre glissante J−30 / J+30, et les API SHOM ne permettent pas de récupération multi-mois gratuite. Un précalcul annuel exige un calcul local.
+- **Pourquoi pas une API ?** api-maree.fr limite ses horaires à une fenêtre glissante J−30 / J+30, et les API SHOM ne permettent pas de récupération multi-mois gratuite. Un précalcul annuel exige un calcul local ; api-maree.fr sert seulement à le recaler.
 - **Mémoire** : seules les 8 ondes principales (+ 2N2, requise pour l'inférence des ondes secondaires) sont chargées, sur une fenêtre de grille de ±0,5° autour du port. Charger tout FES provoque des OOM.
 - **Courants FES2014 non requis** : seul le groupe « z » (hauteurs) est utilisé ; la définition pyTMD est réduite en conséquence.
 - **Heure des étales** : la série est calculée au pas de 10 min, mais chaque PM/BM est affinée par interpolation parabolique sur les trois points qui l'entourent, puis arrondie à la minute. Un pas d'une minute donnerait le même résultat pour ~10 fois plus de calcul et de place en base. Un recalcul qui décale une étale de quelques minutes (≤ 20 min) y recale automatiquement les créneaux choisis.
@@ -457,6 +481,8 @@ app/
   main.py           API FastAPI + service du frontend
   precompute.py     précalcul annuel (CLI)
   tide_model.py     hauteurs d'eau, extrema, coefficient (pyTMD)
+  calibration.py    recalage de FES sur api-maree.fr (décalage horaire, amplitude) (+ CLI)
+  tide_reference.py client api-maree.fr
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m
   db.py             schéma et accès SQLite

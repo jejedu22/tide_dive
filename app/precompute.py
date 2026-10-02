@@ -15,7 +15,8 @@ Exemples
 
 Ce script :
   1. calcule la hauteur d'eau toute l'année au pas de 10 min via pyTMD
-     (modèle FES2014/2022, cf. tide_model.py) ;
+     (modèle FES2014/2022, cf. tide_model.py), corrigée par le recalage
+     du port sur api-maree.fr s'il existe pour ce modèle (calibration.py) ;
   2. en déduit les pleines mers / basses mers (extrema locaux), affinées
      par interpolation parabolique entre deux pas de temps ;
   3. attribue à chaque pleine mer le coefficient de marée de la pleine mer
@@ -106,10 +107,31 @@ def resolve_port(args) -> tuple[str, float, float, float]:
     return name, lat, lon, float(offset)
 
 
-def compute_series(lat: float, lon: float, year: int, step_minutes: int, model: str | None):
-    """Série annuelle de hauteurs (niveau moyen), avec un message clair si le modèle manque."""
+def port_calibration(port_id: int | None, model: str, label: str) -> tuple[float, float]:
+    """(décalage en minutes, facteur d'amplitude) du recalage du port pour ce modèle, sinon (0, 1)."""
+    cal = db.get_calibration(port_id) if port_id else None
+    if cal is None:
+        print(f"[{label}] pas de recalage api-maree.fr : hauteurs {model} brutes.")
+        return 0.0, 1.0
+    if cal["model"] != model:
+        print(f"[{label}] recalage ignoré : établi pour {cal['model']}, calcul avec {model}. Relancer le recalage.")
+        return 0.0, 1.0
+    print(
+        f"[{label}] recalage api-maree.fr du {cal['computed_at'][:10]} : "
+        f"décalage {cal['time_shift_min']:+.0f} min, amplitude × {cal['amplitude']:.3f}"
+    )
+    return float(cal["time_shift_min"]), float(cal["amplitude"])
+
+
+def compute_series(lat: float, lon: float, year: int, step_minutes: int, model: str | None,
+                   calibration: tuple[float, float] = (0.0, 1.0)):
+    """Série annuelle de hauteurs (niveau moyen), recalée, avec un message clair si le modèle manque."""
+    shift, amplitude = calibration
     try:
-        return tide_model.compute_year_series(lat, lon, year, step_minutes=step_minutes, model=model)
+        timestamps, heights = tide_model.compute_year_series(
+            lat, lon, year, step_minutes=step_minutes, model=model, time_shift_minutes=shift
+        )
+        return timestamps, heights * amplitude
     except FileNotFoundError as exc:
         print(
             f"\nERREUR : fichier du modèle de marée introuvable : {exc}\n"
@@ -134,7 +156,10 @@ def brest_pm_coefficients(
         p = find_catalog_port(BREST_NAME)
         lat, lon = (p["latitude"], p["longitude"]) if p else BREST_FALLBACK_COORDS
         print(f"[{port_name}] calcul de la série de référence de Brest pour les coefficients…")
-        timestamps, heights = compute_series(lat, lon, year, step_minutes, model)
+        # Recalage de Brest s'il est en base : améliore les coefficients (amplitude)
+        brest = next((r for r in db.list_ports() if r["name"].lower() == BREST_NAME.lower()), None)
+        calibration = port_calibration(brest["id"] if brest else None, model, BREST_NAME)
+        timestamps, heights = compute_series(lat, lon, year, step_minutes, model, calibration)
         extrema = tide_model.find_extrema(timestamps, heights)
         del timestamps, heights  # libère la mémoire avant la suite
 
@@ -186,7 +211,8 @@ def main() -> None:
     # 1. Tous les calculs se font en mémoire ; rien n'est écrit avant la fin.
     print(f"[{name}] modèle de marée : {args.model}")
     print(f"[{name}] calcul de la hauteur d'eau {args.year} (pas {args.step_minutes} min) via pyTMD…")
-    timestamps, heights = compute_series(lat, lon, args.year, args.step_minutes, args.model)
+    calibration = port_calibration(port_id, args.model, name)
+    timestamps, heights = compute_series(lat, lon, args.year, args.step_minutes, args.model, calibration)
     # Hauteurs stockées au-dessus du zéro des cartes
     height_rows = [(t.isoformat(), float(h) + offset_zh) for t, h in zip(timestamps, heights)]
     print(f"[{name}] {len(height_rows)} points calculés.")
