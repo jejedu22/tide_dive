@@ -20,6 +20,7 @@ const Session = (() => {
   const FIELD_LABELS = {
     username: "Identifiant", first_name: "Prénom", last_name: "Nom", email: "Adresse e-mail",
     phone: "Téléphone", password: "Mot de passe", new_password: "Mot de passe",
+    structure_name: "Nom de la structure", contact_name: "Votre nom", consent: "Consentement",
   };
 
   // Message lisible à partir d'une erreur FastAPI (detail texte ou liste de validation)
@@ -255,9 +256,10 @@ const Session = (() => {
         { name: "username", label: "Identifiant ou adresse e-mail", autocomplete: "username", value: prefill },
         { name: "password", label: "Mot de passe", type: "password", autocomplete: "current-password" },
       ],
-      extra: config.password_reset
+      extra: (config.password_reset
         ? `<p class="dialog-links"><button type="button" class="link-btn" data-forgot>Mot de passe oublié ?</button></p>`
-        : "",
+        : "") +
+        `<p class="dialog-links">Votre club n'a pas encore de compte ? <a href="demande-structure.html">Demander la création d'une structure</a></p>`,
       onSubmit: v => login(v.username.trim(), v.password),
       setup: form => form.querySelector("[data-forgot]")?.addEventListener("click", () => {
         openForgot(form.username.value.trim());

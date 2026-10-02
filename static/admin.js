@@ -92,7 +92,7 @@ function showTab(name) {
   }
   for (const t of ALL_TABS) $(`tab-${t}`).hidden = t !== name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
-  if (name === "structures") loadStructures();
+  if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "types") loadTypes();
   if (name === "utilisateurs") loadUsers();
@@ -394,6 +394,126 @@ function renderStructures() {
   }).join("")
     : `<tr><td colspan="6" class="empty">Aucune structure. Créez-en une, puis ajoutez-lui des comptes dans « Utilisateurs ».</td></tr>`;
 }
+
+// ---------------------------------------------------------------------------
+// Demandes de création de structure (formulaire public)
+// ---------------------------------------------------------------------------
+
+let requests = [];
+const REQUEST_STATUS = { new: "nouvelle", done: "traitée", rejected: "sans suite" };
+
+async function loadRequests() {
+  if (!isSuper()) return;
+  try {
+    requests = await Session.api("/api/admin/structure-requests");
+  } catch (e) {
+    $("requests-list").innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    return;
+  }
+  renderRequests();
+}
+
+function requestCard(r) {
+  const when = new Date(r.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+  const status = r.status === "done" && r.structure
+    ? `structure « ${esc(r.structure.name)} » créée`
+    : REQUEST_STATUS[r.status];
+  const acts = [];
+  if (r.status === "new") {
+    acts.push(`<button type="button" class="btn-primary btn-small" data-act="create">Créer la structure</button>`);
+    acts.push(`<button type="button" class="btn-quiet btn-small" data-act="reject">Classer sans suite</button>`);
+  } else {
+    acts.push(`<button type="button" class="btn-quiet btn-small" data-act="reopen">Remettre en attente</button>`);
+  }
+  if (r.structure) acts.push(`<button type="button" class="btn-secondary btn-small" data-act="account">Préparer le compte</button>`);
+  acts.push(`<button type="button" class="btn-danger btn-small" data-act="delete">Supprimer</button>`);
+  return `
+    <article class="request-card${r.status === "new" ? " is-new" : ""}" data-id="${r.id}">
+      <div class="request-head">
+        <strong>${esc(r.structure_name)}</strong>${r.city ? ` <span class="muted">· ${esc(r.city)}</span>` : ""}
+        <span class="tag${r.status === "new" ? " tag-pending" : ""}">${status}</span>
+      </div>
+      <p class="request-contact">${esc(r.contact_name)} · <a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.phone ? ` · <a href="tel:${esc(r.phone.replace(/\s/g, ""))}">${esc(r.phone)}</a>` : ""}</p>
+      ${r.message ? `<p class="request-message">${esc(r.message)}</p>` : ""}
+      <p class="request-meta muted">Reçue le ${when}${r.handled_by ? ` · traitée par ${esc(r.handled_by)}` : ""}</p>
+      <div class="request-acts">${acts.join("")}</div>
+    </article>`;
+}
+
+function renderRequests() {
+  const pending = requests.filter(r => r.status === "new").length;
+  const count = $("requests-count");
+  count.hidden = !pending;
+  count.textContent = `${pending} à traiter`;
+  $("requests-list").innerHTML = requests.length
+    ? requests.map(requestCard).join("")
+    : `<p class="empty">Aucune demande pour le moment.</p>`;
+}
+
+// Formulaire « Ajouter un utilisateur » prérempli avec le contact, administrateur de la structure créée
+function prepareAccount(r) {
+  showTab("utilisateurs");
+  const [first, ...rest] = r.contact_name.split(" ");
+  createForm.first_name.value = rest.length ? first : "";
+  createForm.last_name.value = rest.length ? rest.join(" ") : first;
+  createForm.email.value = r.email;
+  createForm.phone.value = r.phone || "";
+  if ([...createForm.structure_id.options].some(o => o.value === String(r.structure.id))) {
+    createForm.structure_id.value = String(r.structure.id);
+  }
+  // compte de structure, jamais super administrateur ; les écouteurs du formulaire suivent
+  createForm.is_admin.checked = false;
+  syncCreateRole();
+  createForm.role.value = "manager";
+  for (const name of ["first_name", "last_name", "email"]) {
+    createForm[name].dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  createForm.scrollIntoView({ block: "start" });
+  createForm.first_name.focus();
+  flash(`Compte de ${esc(r.contact_name)} prérempli : vérifiez le prénom et le nom, puis validez.`);
+}
+
+$("requests-list").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const r = requests.find(x => x.id === Number(btn.closest("[data-id]").dataset.id));
+  const update = saved => { requests = requests.map(x => (x.id === saved.id ? saved : x)); renderRequests(); };
+  try {
+    switch (btn.dataset.act) {
+      case "create":
+        openDialog({
+          title: "Créer la structure demandée",
+          submitLabel: "Créer",
+          body: `<label>Nom de la structure <input name="name" required maxlength="80" value="${esc(r.structure_name)}"></label>
+                 <p class="dialog-hint">La demande sera classée comme traitée. Vous pourrez ensuite préparer le compte de ${esc(r.contact_name)}.</p>`,
+          onSubmit: async form => {
+            update(await Session.api(`/api/admin/structure-requests/${r.id}/create-structure`,
+              { method: "POST", body: { name: form.name.value.trim() } }));
+            loadStructures();
+            flash(`Structure créée. <button type="button" class="btn-secondary btn-small" id="flash-account">Préparer le compte de ${esc(r.contact_name)}</button>`);
+            $("flash-account")?.addEventListener("click", () => prepareAccount(requests.find(x => x.id === r.id)));
+          },
+        });
+        break;
+      case "account":
+        prepareAccount(r);
+        break;
+      case "reject":
+      case "reopen":
+        update(await Session.api(`/api/admin/structure-requests/${r.id}`,
+          { method: "PATCH", body: { status: btn.dataset.act === "reject" ? "rejected" : "new" } }));
+        break;
+      case "delete":
+        if (!confirm(`Supprimer la demande de « ${r.structure_name} » ? Les coordonnées du contact seront effacées.`)) return;
+        await Session.api(`/api/admin/structure-requests/${r.id}`, { method: "DELETE" });
+        requests = requests.filter(x => x.id !== r.id);
+        renderRequests();
+        break;
+    }
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
 
 // Listes déroulantes de structures (types, création de compte, filtre des comptes)
 function renderStructureSelects() {

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demander la création d'une structure — Aide au choix de plongées</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  main.request-main { max-width: 40rem; }
+  .request-main .panel { margin-bottom: 1.25rem; }
+  .request-main p { font-size: 0.92rem; line-height: 1.55; }
+  .request-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; }
+  .request-form .span-all { grid-column: 1 / -1; }
+  .request-form input, .request-form textarea {
+    font: inherit; padding: 0.55rem 0.65rem; border: 1px solid #b0c4cc; border-radius: 8px; background: #fff;
+  }
+  .request-form textarea { min-height: 8rem; resize: vertical; }
+  .request-form .check { align-items: flex-start; padding-bottom: 0; }
+  .request-form .check input { margin-top: 0.2rem; }
+  .request-form .optional { font-weight: 400; color: #607d8b; }
+  /* champ piège pour les robots : hors écran, ignoré des lecteurs d'écran */
+  .request-form .trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+  .request-done { border-left: 4px solid var(--teal, #06d6a0); padding-left: 1rem; }
+  @media (max-width: 560px) { .request-form { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>🤿 Aide au choix de plongées</h1>
+      <p class="subtitle"><a href="index.html">Retour à la recherche de créneaux</a></p>
+    </div>
+  </header>
+
+  <main class="request-main">
+    <section class="panel">
+      <h2>Demander la création d'une structure</h2>
+      <p>
+        Votre club, association ou centre de plongée souhaite utiliser le site pour organiser ses sorties ?
+        Décrivez-nous votre structure : nous la créerons et vous enverrons une invitation pour en devenir
+        administrateur. Vous pourrez ensuite inviter vos membres.
+      </p>
+
+      <form id="request-form" class="request-form" novalidate>
+        <div class="field span-all">
+          <label for="structure_name">Nom de la structure</label>
+          <input id="structure_name" name="structure_name" required maxlength="80" autocomplete="organization"
+                 placeholder="ex. Club de plongée de Binic">
+        </div>
+        <div class="field span-all">
+          <label for="city">Ville ou port d'attache <span class="optional">(facultatif)</span></label>
+          <input id="city" name="city" maxlength="80" autocomplete="address-level2">
+        </div>
+        <div class="field span-all">
+          <label for="contact_name">Votre nom</label>
+          <input id="contact_name" name="contact_name" required maxlength="60" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="email">Adresse e-mail</label>
+          <input id="email" name="email" type="email" required maxlength="254" autocomplete="email">
+        </div>
+        <div class="field">
+          <label for="phone">Téléphone <span class="optional">(facultatif)</span></label>
+          <input id="phone" name="phone" type="tel" maxlength="30" autocomplete="tel">
+        </div>
+        <div class="field span-all">
+          <label for="message">Message <span class="optional">(facultatif)</span></label>
+          <textarea id="message" name="message" maxlength="2000"
+                    placeholder="Nombre de membres, ports où vous plongez, questions…"></textarea>
+        </div>
+        <div class="trap" aria-hidden="true">
+          <label for="website">Ne pas remplir</label>
+          <input id="website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+        <label class="check span-all">
+          <input type="checkbox" name="consent" required>
+          <span>J'accepte que ces informations soient utilisées pour traiter ma demande et me recontacter
+            (voir les <a href="mentions-legales.html#donnees-personnelles">mentions légales</a>).</span>
+        </label>
+        <div class="span-all">
+          <button type="submit" class="btn-primary">Envoyer la demande</button>
+          <p id="request-status" class="form-status" role="status"></p>
+        </div>
+      </form>
+
+      <div id="request-done" class="request-done" hidden>
+        <p><strong>Merci, votre demande a bien été envoyée.</strong></p>
+        <p>Nous vous répondrons à l'adresse indiquée. <a href="index.html">Retour à la recherche de créneaux</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="index.html">Accueil</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="demande-structure.js"></script>
+</body>
+</html>
