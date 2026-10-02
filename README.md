@@ -195,22 +195,28 @@ Le coefficient (échelle 20–120) est une notion française définie à Brest. 
 
 ## Recalage sur api-maree.fr
 
-FES, modèle global, est souvent en avance ou en retard de quelques minutes dans les ports, et sur- ou sous-estime le marnage. [api-maree.fr](https://api-maree.fr) calcule ses hauteurs à partir de l'atlas régional **Ifremer/PREVIMER** (licence CC BY), plus précis près des côtes, mais seulement sur une fenêtre glissante **J−30 / J+30**. On combine les deux :
+[api-maree.fr](https://api-maree.fr) calcule ses hauteurs à partir de l'atlas régional **Ifremer/PREVIMER** (licence CC BY), plus précis près des côtes que FES, mais seulement sur une fenêtre glissante **J−30 / J+30**. On s'en sert pour corriger FES, port par port.
 
-1. la tâche **Recalage** (`app/calibration.py`) récupère les hauteurs api-maree.fr de J−29 à J+29 au pas de 10 min (6 requêtes par port, sous le quota de 360 requêtes/heure) et calcule FES sur la même période ;
-2. elle ajuste `référence(t) ≈ a × FES(t − τ) + b` : **τ**, décalage horaire à la minute près (±90 min), et **a**, facteur d'amplitude (0,7 à 1,3), sont enregistrés par port (table `tide_calibration`), avec les écarts avant / après recalage ;
-3. le précalcul applique τ et a à **toute l'année** : la hauteur stockée vaut `a × FES(t − τ) + offset_zh_m`. L'erreur systématique mesurée sur deux mois est ainsi corrigée aussi pour les dates hors de la fenêtre d'api-maree.fr. Si Brest est en base et recalé, son recalage sert aussi aux coefficients.
+**Pourquoi une correction onde par onde.** L'erreur de FES dans un port n'est pas un simple décalage horaire : elle varie d'une marée à l'autre, entre vives-eaux et mortes-eaux, car chaque onde (M2, S2, N2…) a sa propre erreur. De plus, seules les ondes principales de FES sont calculées : les ondes de petits fonds (M4, MS4, MN4…), fortes en Manche, manquent. Un décalage et un facteur d'amplitude uniques, ajustés sur deux mois, ne corrigeaient donc que l'erreur moyenne, souvent proche de zéro.
 
-Le niveau moyen **b** de la référence n'est pas appliqué, mais un écart de plus de 15 cm avec `offset_zh_m` est signalé dans le journal : c'est une bonne façon de contrôler le niveau moyen saisi.
+**Méthode** (`app/calibration.py`) :
+
+1. la tâche **Recalage** récupère les hauteurs api-maree.fr de J−29 à J+29 au pas de 10 min (6 requêtes par port, sous le quota de 360 requêtes/heure) et calcule FES aux mêmes instants ;
+2. l'écart référence − FES est lui-même une marée : il est ajusté par moindres carrés sur M2, S2, N2, K1, O1, M4, MS4, MN4, L2, Q1, M6 et 2MS6, toutes séparables sur deux mois. K2 et P1, trop proches de S2 et K1 pour être séparées sur cette durée, sont **inférées** : elles reçoivent la même correction relative que S2 et K1, dans leur rapport astronomique (0,272 et 0,331). Sans cela, l'erreur sur K2 reviendrait en sens inverse trois mois plus tard ;
+3. le précalcul ajoute cette correction à FES pour **toute l'année** : `hauteur = FES(t) + correction(t) + offset_zh_m`.
+
+Sur une marée synthétique de type Saint-Quay-Portrieux (FES sans ondes de petits fonds, erreurs de quelques degrés par onde), l'écart moyen des heures de PM/BM passe de 11 min à moins d'une minute (2 min au pire), dans la fenêtre comme 14 mois plus tard. Sur un vrai port, le résultat dépend de la qualité de la référence ; le journal de la tâche et l'info-bulle de l'administration donnent les écarts mesurés.
+
+Le niveau moyen de la référence n'est pas appliqué, mais un écart de plus de 15 cm avec `offset_zh_m` est signalé dans le journal : c'est une bonne façon de contrôler le niveau moyen saisi.
 
 Mise en place :
 
 - renseigner `API_MAREE_KEY` dans `.env` (clé gratuite sur api-maree.fr) ;
 - dans l'administration (onglet **Ports**, **Modifier**), saisir l'**identifiant du site api-maree.fr** du port (ex. `saint-quay-portrieux`, voir la liste des sites sur api-maree.fr), puis cliquer sur **Recaler**.
 
-Le recalage est refait le 2 de chaque mois. S'il change sensiblement (≥ 2 min ou ≥ 0,01 sur l'amplitude), les années déjà calculées, à partir de l'année en cours, sont remises en file. Un recalage établi pour FES2014 n'est pas appliqué aux calculs FES2022 (et inversement) : relancer le recalage après un changement de modèle. Un résultat invraisemblable (décalage en butée, amplitude hors plage, trop peu de données) est refusé et l'ancien recalage est conservé. Dans l'onglet Ports, la colonne **Recalage** affiche `τ · ×a`, avec le détail en info-bulle. **Modifier → Abandonner le recalage** revient à FES brut pour les prochains calculs.
+Le recalage est refait le 2 de chaque mois. S'il change sensiblement (correction modifiée d'au moins 3 cm), les années déjà calculées, à partir de l'année en cours, sont remises en file. Un recalage établi pour FES2014 n'est pas appliqué aux calculs FES2022 (et inversement) : relancer le recalage après un changement de modèle. Un résultat invraisemblable (correction de plus d'1 m sur une onde, écart résiduel de plus de 25 cm, moins de 15 jours de données) est refusé et l'ancien recalage est conservé. Dans l'onglet Ports, la colonne **Recalage** affiche l'écart moyen des heures de PM/BM avant → après, avec la correction de chaque onde en info-bulle. **Modifier → Abandonner le recalage** revient à FES brut pour les prochains calculs.
 
-Un décalage et un facteur uniques ne corrigent pas tout (les ondes M2 et S2 n'ont pas exactement la même erreur locale) : l'écart résiduel sur les heures de PM/BM reste visible en info-bulle.
+**Recalages faits avec la version précédente** (décalage et amplitude uniques) : ils restent appliqués et sont signalés dans l'administration. Cliquer sur **Recaler** (ou attendre le recalage mensuel) les remplace et relance le précalcul des années à venir.
 
 ## Administration des données
 
@@ -481,7 +487,7 @@ app/
   main.py           API FastAPI + service du frontend
   precompute.py     précalcul annuel (CLI)
   tide_model.py     hauteurs d'eau, extrema, coefficient (pyTMD)
-  calibration.py    recalage de FES sur api-maree.fr (décalage horaire, amplitude) (+ CLI)
+  calibration.py    recalage de FES sur api-maree.fr, onde par onde (+ CLI)
   tide_reference.py client api-maree.fr
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m

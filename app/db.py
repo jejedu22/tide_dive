@@ -59,13 +59,15 @@ CREATE TABLE IF NOT EXISTS ports (
 );
 
 -- Recalage du modèle FES sur api-maree.fr (voir calibration.py) : la hauteur
--- stockée à t vaut amplitude × FES(t − time_shift_min) + offset_zh_m.
+-- stockée à t vaut amplitude × FES(t − time_shift_min) + correction harmonique
+-- (harmonics_json) + offset_zh_m. Les recalages actuels ont τ = 0 et a = 1.
 CREATE TABLE IF NOT EXISTS tide_calibration (
     port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
     site TEXT NOT NULL,                 -- site api-maree.fr utilisé
     model TEXT NOT NULL,                -- modèle FES recalé (ignoré pour un autre modèle)
     time_shift_min REAL NOT NULL,
     amplitude REAL NOT NULL,
+    harmonics_json TEXT,                -- ondes de correction [{name, speed °/h, cos, sin}], NULL = aucune
     mean_level_m REAL,                  -- niveau moyen de la référence (comparable à offset_zh_m)
     rmse_before_m REAL,
     rmse_after_m REAL,
@@ -487,6 +489,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
     if "api_maree_site" not in cols:
         conn.execute("ALTER TABLE ports ADD COLUMN api_maree_site TEXT")
+    if "harmonics_json" not in _columns(conn, "tide_calibration"):
+        conn.execute("ALTER TABLE tide_calibration ADD COLUMN harmonics_json TEXT")
 
     # Profil des comptes : nom, prénom, e-mail, téléphone, mot de passe provisoire
     user_cols = _columns(conn, "users")
@@ -641,7 +645,7 @@ def set_setting(key: str, value: str, updated_at: str, updated_by: str | None) -
 
 
 _CALIBRATION_FIELDS = (
-    "site", "model", "time_shift_min", "amplitude", "mean_level_m", "rmse_before_m", "rmse_after_m",
+    "site", "model", "time_shift_min", "amplitude", "harmonics_json", "mean_level_m", "rmse_before_m", "rmse_after_m",
     "extrema_dt_before_min", "extrema_dt_after_min", "n_points", "window_start", "window_end", "computed_at",
 )
 

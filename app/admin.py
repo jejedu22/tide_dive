@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
@@ -162,7 +163,14 @@ class PortPatch(BaseModel):
 def _calibration_out(cal: sqlite3.Row | None) -> dict | None:
     if cal is None:
         return None
-    return {k: cal[k] for k in cal.keys() if k != "port_id"}
+    out = {k: cal[k] for k in cal.keys() if k not in ("port_id", "harmonics_json")}
+    # amplitude de correction de chaque onde (m), par importance décroissante
+    waves = json.loads(cal["harmonics_json"]) if cal["harmonics_json"] else []
+    out["waves"] = sorted(
+        ({"name": w["name"], "amplitude_m": round(float(np.hypot(w["cos"], w["sin"])), 3)} for w in waves),
+        key=lambda w: -w["amplitude_m"],
+    )
+    return out
 
 
 def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, dict[int, str]] | None = None,

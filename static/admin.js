@@ -530,15 +530,19 @@ function calibrationCell(p) {
   if (!c) return p.api_maree_site
     ? `<span class="muted" title="Site ${esc(p.api_maree_site)}">à faire</span>`
     : `<span class="muted">aucun</span>`;
-  const shift = `${c.time_shift_min >= 0 ? "+" : ""}${fmtNum(c.time_shift_min, 0)} min`;
+  const legacy = !c.waves.length;   // ancien recalage : décalage et amplitude uniques
   const title = [
     `Site api-maree.fr : ${c.site}, modèle ${c.model}, le ${c.computed_at.slice(0, 10)}`,
-    `Écart quadratique : ${fmtNum(c.rmse_before_m, 3)} m → ${fmtNum(c.rmse_after_m, 3)} m`,
-    `Écart moyen des heures de PM/BM : ${fmtMin(c.extrema_dt_before_min)} → ${fmtMin(c.extrema_dt_after_min)}`,
+    legacy
+      ? `Ancien recalage : décalage ${fmtNum(c.time_shift_min, 0)} min, amplitude × ${fmtNum(c.amplitude, 3)}. Relancez-le pour une correction onde par onde.`
+      : `Correction par onde : ${c.waves.map(w => `${w.name} ${fmtNum(100 * w.amplitude_m, 0)} cm`).join(", ")}`,
+    `Écart moyen des heures de PM/BM sur la fenêtre api-maree.fr : ${fmtMin(c.extrema_dt_before_min)} → ${fmtMin(c.extrema_dt_after_min)}`,
+    `Écart quadratique des hauteurs : ${fmtNum(c.rmse_before_m, 3)} m → ${fmtNum(c.rmse_after_m, 3)} m`,
     `Niveau moyen de la référence : ${fmtNum(c.mean_level_m, 2)} m`,
   ].join("\n");
-  const stale = status?.fes_model && c.model !== status.fes_model;
-  return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}${stale ? `\nÉtabli pour ${esc(c.model)} : relancez le recalage.` : ""}">${shift} · ×${fmtNum(c.amplitude, 3)}</span>`;
+  const stale = legacy || (status?.fes_model && c.model !== status.fes_model);
+  const label = `PM/BM ${fmtMin(c.extrema_dt_before_min)} → ${fmtMin(c.extrema_dt_after_min)}`;
+  return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}${stale && !legacy ? `\nÉtabli pour ${esc(c.model)} : relancez le recalage.` : ""}">${label}</span>`;
 }
 
 function renderPorts() {
