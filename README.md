@@ -283,6 +283,15 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 
 Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
+### Demande de création de structure
+
+Un club qui n'a pas encore de structure peut la demander depuis la page publique **`/demande-structure.html`** (lien en bas de la page de recherche et dans la fenêtre de connexion) : nom de la structure, ville ou port d'attache, nom, e-mail, téléphone et message facultatifs, et accord sur le traitement des données.
+
+- La demande est enregistrée, et les super administrateurs qui ont une adresse e-mail sont prévenus (si l'envoi d'e-mails est configuré ; un échec d'envoi n'empêche pas l'enregistrement). Aucun e-mail n'est envoyé à l'adresse saisie, pour que le formulaire ne puisse pas servir à écrire à un tiers.
+- Anti-abus : champ piège invisible pour les robots (la demande est ignorée sans le dire), 3 demandes par adresse e-mail et 30 au total par 24 h.
+- **`/admin.html` → Structures → Demandes de création** : **Créer la structure** (nom modifiable), puis **Préparer le compte**, qui ouvre « Ajouter un utilisateur » prérempli avec le contact, en administration de la nouvelle structure ; ou **Classer sans suite**, **Remettre en attente**, **Supprimer**.
+- Une demande traitée est supprimée au bout d'un an ; une demande en attente reste jusqu'à son traitement.
+
 **Mise à jour d'une base existante** : au premier démarrage, les comptes, types et créneaux existants sont rattachés à une structure « Structure principale » ; les super administrateurs y sont en administration, **les autres comptes en visualisation** (à promouvoir si besoin). Si plusieurs comptes avaient choisi le même créneau, seul le premier choix est conservé.
 
 ### Profil
@@ -447,6 +456,10 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET /api/admin/structures` | admin. structure / super admin | structures avec effectifs (la sienne seulement pour un admin. de structure) |
 | `POST /api/admin/structures` | super admin | `{name}` |
 | `PATCH` / `DELETE /api/admin/structures/{id}` | super admin | `{name}` / suppression (409 s'il reste des membres) |
+| `POST /api/structure-requests` | public | demande de création `{structure_name, city?, contact_name, email, phone?, message?, consent, website?}` (`website` : champ piège, à laisser vide) ; 429 au-delà des plafonds |
+| `GET /api/admin/structure-requests` | super admin | demandes, en attente d'abord |
+| `POST /api/admin/structure-requests/{id}/create-structure` | super admin | `{name?}` : crée la structure et classe la demande (409 si le nom existe) |
+| `PATCH` / `DELETE /api/admin/structure-requests/{id}` | super admin | `{status: new \| done \| rejected}` / suppression |
 
 Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes les routes connectées répondent 403 (en-tête `X-Password-Change-Required: 1`) sauf `/api/auth/me`, `/api/auth/config`, `/api/auth/logout` et `/api/me/password`.
 
@@ -519,6 +532,7 @@ app/
   user_import.py    import CSV de comptes
   mailer.py         envoi d'e-mails (SMTP ou console)
   structures.py     API des structures (super administrateur)
+  contact.py        demandes de création de structure : formulaire public, notification, administration
   admin.py          API d'administration : ports, tâches, état des données
   selections.py     types de créneaux et créneaux choisis, par structure
   slots.py          description d'une étale (coefficient, RDV), partagée
@@ -530,6 +544,7 @@ static/             frontend (index.html, app.js, style.css)
   xlsx-export.js    export Excel (.xlsx) des tableaux, généré dans le navigateur
   session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
+  demande-structure.*  formulaire public de demande de création de structure
   modele-import-utilisateurs.csv  modèle d'import CSV
 docker/crontab      tâches périodiques mises en file par le scheduler
 Dockerfile

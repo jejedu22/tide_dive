@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, db, recovery, selections, structures, user_import
+from . import admin, auth, calendar_fr, contact, db, recovery, selections, structures, user_import
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -50,6 +50,8 @@ app.include_router(admin.router)
 app.include_router(structures.router)
 # Types de créneaux et créneaux choisis par structure (/api/slot-types, /api/selections, /api/admin/slot-types)
 app.include_router(selections.router)
+# Demandes de création de structure : formulaire public et administration (/api/structure-requests)
+app.include_router(contact.router)
 
 
 @app.on_event("startup")
