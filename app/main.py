@@ -25,7 +25,7 @@ from . import admin, auth, calendar_fr, contact, db, recovery, selections, struc
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
-app = FastAPI(title="Aide au choix de plongées")
+app = FastAPI(title="Calendive")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 

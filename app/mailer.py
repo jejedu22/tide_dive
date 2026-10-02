@@ -15,8 +15,8 @@ d'environnement :
                    à partir de l'en-tête Host de la requête, qui peut être forgé)
     SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD
     SMTP_SECURITY  starttls (défaut) | ssl | none
-    MAIL_FROM      ex. "Marée <no-reply@example.fr>" (défaut : SMTP_USER)
-    APP_NAME       nom affiché dans les e-mails (défaut : Marée)
+    MAIL_FROM      ex. "Calendive <no-reply@calendive.fr>" (défaut : SMTP_USER)
+    APP_NAME       nom affiché dans les e-mails (défaut : Calendive)
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from typing import Iterable
 
 BACKEND = os.environ.get("MAIL_BACKEND", "none").strip().lower()
 BASE_URL = os.environ.get("APP_BASE_URL", "").strip().rstrip("/")
-APP_NAME = os.environ.get("APP_NAME", "Marée").strip() or "Marée"
+APP_NAME = os.environ.get("APP_NAME", "Calendive").strip() or "Calendive"
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "0") or 0)

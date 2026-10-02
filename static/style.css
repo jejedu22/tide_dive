@@ -1,3 +1,20 @@
+/* Sora (SIL Open Font License, voir fonts/Sora-OFL.txt) : logo et titres.
+   Hébergée sur le site : aucune police chargée chez un tiers. */
+@font-face {
+  font-family: "Sora";
+  src: url("fonts/sora-latin-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Sora";
+  src: url("fonts/sora-latin-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --blue-deep: #073b4c;
   --blue: #118ab2;
@@ -20,7 +37,7 @@ body {
 }
 
 header {
-  background: linear-gradient(135deg, var(--blue-deep), var(--blue));
+  background: var(--blue-deep);
   color: white;
   padding: 1.5rem 2rem;
   display: flex;
@@ -31,7 +48,15 @@ header {
 }
 header a { color: inherit; }
 
-header h1 { margin: 0; font-size: 1.5rem; }
+/* Logo Calendive (symbole + nom) puis titre de la page */
+.brand { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+.logo { display: inline-flex; align-items: center; gap: 0.6rem; color: white; text-decoration: none; }
+.logo img { display: block; width: 44px; height: 44px; }
+.wordmark { font-family: "Sora", -apple-system, "Segoe UI", sans-serif; font-weight: 700; font-size: 1.75rem; letter-spacing: -0.03em; line-height: 1; }
+.wordmark span { color: var(--teal); }
+.brand-text { padding-left: 1.25rem; border-left: 1px solid rgba(255, 255, 255, 0.25); }
+
+header h1 { margin: 0; font-family: "Sora", -apple-system, "Segoe UI", sans-serif; font-weight: 600; font-size: 1.25rem; }
 .subtitle { margin: 0.3rem 0 0; opacity: 0.85; font-size: 0.9rem; }
 
 main {
@@ -1171,7 +1196,10 @@ main.narrow-main { max-width: 32rem; }
 
 @media (max-width: 700px) {
   header { padding: 1rem; }
-  header h1 { font-size: 1.25rem; }
+  header h1 { font-size: 1.1rem; }
+  .logo img { width: 38px; height: 38px; }
+  .wordmark { font-size: 1.5rem; }
+  .brand-text { flex: 1 1 100%; padding-left: 0; border-left: 0; }
 
   .picks-bar { gap: 0.5rem 0.75rem; }
   .picks-bar > label:first-child { flex: 1 1 100%; display: flex; align-items: center; gap: 0.5rem; }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Version simplifiée du logo, lisible à 16 px : page, vague, étale -->
+  <rect x="4" y="8" width="56" height="52" rx="13" fill="#073b4c"/>
+  <path d="M4 40 C13 29 23 29 32 40 C41 51 51 51 60 40 L60 47 A13 13 0 0 1 47 60 L17 60 A13 13 0 0 1 4 47 Z" fill="#118ab2"/>
+  <circle cx="18" cy="32" r="7" fill="#ffd166"/>
+</svg>

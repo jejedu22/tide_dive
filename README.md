@@ -1,4 +1,4 @@
-# Marée — aide au choix de créneaux de plongée
+# Calendive — aide au choix de créneaux de plongée
 
 Application web qui croise, pour un port donné, les **marées** (horaires, hauteurs, coefficients) et la **lumière du jour** (crépuscule nautique, lever/coucher civil) pour proposer des créneaux de plongée autour de l'étale, selon des critères réglables.
 
@@ -338,12 +338,12 @@ Invitations et mot de passe oublié nécessitent l'envoi d'e-mails. Sans configu
 | Variable | Défaut | Description |
 |---|---|---|
 | `MAIL_BACKEND` | `none` | `none`, `console` (messages écrits dans les logs du conteneur `api`, pour tester) ou `smtp` |
-| `APP_BASE_URL` | — | URL publique, ex. `https://maree.example.fr` (**obligatoire** : les liens ne sont jamais construits à partir de l'en-tête `Host`, falsifiable) |
-| `APP_NAME` | `Marée` | Nom affiché dans les e-mails |
+| `APP_BASE_URL` | — | URL publique, ex. `https://calendive.fr` (**obligatoire** : les liens ne sont jamais construits à partir de l'en-tête `Host`, falsifiable) |
+| `APP_NAME` | `Calendive` | Nom affiché dans les e-mails |
 | `SMTP_HOST`, `SMTP_PORT` | —, `587` | Serveur d'envoi |
 | `SMTP_SECURITY` | `starttls` | `starttls` (587), `ssl` (465) ou `none` |
 | `SMTP_USER`, `SMTP_PASSWORD` | — | Authentification (facultative) |
-| `MAIL_FROM` | `SMTP_USER` | Expéditeur, ex. `Marée <no-reply@example.fr>` |
+| `MAIL_FROM` | `SMTP_USER` | Expéditeur, ex. `Calendive <no-reply@calendive.fr>` |
 | `INVITE_DAYS` | `7` | Validité d'un lien d'invitation |
 | `RESET_TOKEN_MINUTES` | `60` | Validité d'un lien de réinitialisation |
 
@@ -546,6 +546,9 @@ static/             frontend (index.html, app.js, style.css)
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
   demande-structure.*  formulaire public de demande de création de structure
   modele-import-utilisateurs.csv  modèle d'import CSV
+  logo.svg, logo-sombre.svg  logo Calendive (page d'agenda dont le bas est la mer ; point sable : l'étale)
+  favicon.svg, favicon-32.png, apple-touch-icon.png  icônes (onglet, écran d'accueil)
+  fonts/            police Sora (logo et titres), SIL OFL, hébergée localement
 docker/crontab      tâches périodiques mises en file par le scheduler
 Dockerfile
 docker-compose.yml
