@@ -578,28 +578,29 @@ async function openCustomDialog(p = null) {
     statusEl.textContent = `Ports non chargés : ${err.message}`;
     return;
   }
-  if (!ports.length) {
-    statusEl.textContent = "Aucun port disponible : un super administrateur doit d'abord en ajouter.";
-    return;
-  }
   if (!p && !types.length) {
     statusEl.textContent = "Créez d'abord un type de créneau (administration → Types de créneaux).";
     return;
   }
   // nouveau créneau : port par défaut de la structure, jour affiché dans le calendrier (s'il n'est pas passé)
   const today = todayISO();
-  const portId = p ? p.port_id : (Session.user?.structure?.default_port_id ?? ports[0].id);
+  const elsewhere = p ? p.port_id == null : !ports.length;   // « Autre lieu » : saisie libre
+  const portId = p ? p.port_id : (Session.user?.structure?.default_port_id ?? ports[0]?.id);
   const day = p ? p.date : (view === "cal" && selectedDay && selectedDay >= today ? selectedDay : today);
-  const portOptions = ports.map(x => `<option value="${x.id}"${x.id === portId ? " selected" : ""}>${esc(x.name)}</option>`);
-  if (p && !ports.some(x => x.id === p.port_id)) {
+  const portOptions = ports.map(x => `<option value="${x.id}"${!elsewhere && x.id === portId ? " selected" : ""}>${esc(x.name)}</option>`);
+  if (p && p.port_id != null && !ports.some(x => x.id === p.port_id)) {
     portOptions.unshift(`<option value="${p.port_id}" selected>${esc(p.port)}</option>`);
   }
-  openDialog({
+  portOptions.push(`<option value="other"${elsewhere ? " selected" : ""}>Autre lieu…</option>`);
+  const form = openDialog({
     title: p ? "Modifier le créneau personnalisé" : "Nouveau créneau personnalisé",
     submitLabel: p ? "Enregistrer" : "Ajouter",
     body: `
       <p class="dialog-hint">En dehors des étales proposées par la recherche : vous fixez vous-même le jour et l'heure de rendez-vous.</p>
-      <label>Port <select name="port_id" required>${portOptions.join("")}</select></label>
+      <label>Lieu <select name="port_id" required>${portOptions.join("")}</select></label>
+      <label class="location-field"${elsewhere ? "" : " hidden"}>Autre lieu
+        <input type="text" name="location" maxlength="80" placeholder="ex. carrière de plongée, Marseille, Malte"
+          value="${esc(p?.location || "")}"${elsewhere ? " required" : ""}></label>
       <label>Jour <input type="date" name="date" required value="${day}"></label>
       <label>Heure de rendez-vous <input type="time" name="time" required value="${p ? p.rdv.time : ""}"></label>
       ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
@@ -607,8 +608,10 @@ async function openCustomDialog(p = null) {
         <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>`,
     onSubmit: async form => {
       const f = new FormData(form);
+      const other = f.get("port_id") === "other";
       const body = {
-        port_id: Number(f.get("port_id")),
+        port_id: other ? null : Number(f.get("port_id")),
+        location: other ? f.get("location").trim() : null,
         date: f.get("date"),
         time: f.get("time").slice(0, 5),
         note: f.get("note").trim() || null,
@@ -623,6 +626,14 @@ async function openCustomDialog(p = null) {
       if (view === "cal") selectDay(saved.date); else render();
       statusEl.textContent = p ? "Créneau modifié." : "Créneau personnalisé ajouté.";
     },
+  });
+  // « Autre lieu… » : affiche le champ libre et le rend obligatoire
+  const place = form.querySelector(".location-field");
+  form.port_id.addEventListener("change", () => {
+    const other = form.port_id.value === "other";
+    place.hidden = !other;
+    form.location.required = other;
+    if (other) form.location.focus();
   });
 }
 

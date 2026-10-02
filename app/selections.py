@@ -14,10 +14,11 @@ Créneaux choisis par les structures, et types de créneaux.
 - Une structure ne peut pas choisir deux fois le même créneau (contrainte
   UNIQUE en base) ; deux structures peuvent choisir le même.
 - Un administrateur de la structure peut aussi ajouter un créneau
-  personnalisé, en dehors des étales proposées par la recherche : port, jour,
-  heure de RDV, type et intitulé facultatif. Il n'a ni étale, ni hauteur, ni
-  coefficient ; son heure de RDV ne suit pas le délai de la structure. Il se
-  modifie (port, jour, heure, intitulé) et accepte les inscriptions comme les autres.
+  personnalisé, en dehors des étales proposées par la recherche : port (ou,
+  pour une sortie ailleurs, un lieu libre : carrière, ville à l'étranger…),
+  jour, heure de RDV, type et intitulé facultatif. Il n'a ni étale, ni hauteur,
+  ni coefficient ; son heure de RDV ne suit pas le délai de la structure. Il se
+  modifie (lieu, jour, heure, intitulé) et accepte les inscriptions comme les autres.
 - Les infos affichées (heure, hauteur, coefficient, RDV) sont recalculées
   côté serveur à partir de la base au moment du choix, puis figées : on ne
   fait jamais confiance à ce que le navigateur envoie. Seule exception : quand
@@ -33,7 +34,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import db
 from .auth import CurrentManager, CurrentMember, CurrentPicker, CurrentUser, can_manage_structure, scope_structure
@@ -101,9 +102,14 @@ def _clean_note(v: str | None) -> str | None:
     return v or None
 
 
+def _clean_location(v: str | None) -> str | None:
+    return _clean_note(v)
+
+
 class CustomSelectionIn(BaseModel):
-    """Créneau personnalisé : jour et heure de rendez-vous saisis, sans étale."""
-    port_id: int
+    """Créneau personnalisé : jour et heure de rendez-vous saisis, sans étale ; un port OU un lieu libre."""
+    port_id: int | None = None
+    location: str | None = Field(None, max_length=80)
     date: dt.date = Field(ge=MIN_DATE, le=MAX_DATE)
     time: str = Field(pattern=TIME_PATTERN)   # heure de RDV, HH:MM
     type_id: int
@@ -114,11 +120,23 @@ class CustomSelectionIn(BaseModel):
     def _note(cls, v: str | None) -> str | None:
         return _clean_note(v)
 
+    @field_validator("location")
+    @classmethod
+    def _location(cls, v: str | None) -> str | None:
+        return _clean_location(v)
+
+    @model_validator(mode="after")
+    def _port_or_location(self):
+        if (self.port_id is None) == (self.location is None):
+            raise ValueError("indiquer un port ou un autre lieu (l'un des deux)")
+        return self
+
 
 class SelectionPatch(BaseModel):
-    """type_id : tout créneau. port_id, date, time, note : créneau personnalisé uniquement."""
+    """type_id : tout créneau. port_id / location, date, time, note : créneau personnalisé uniquement."""
     type_id: int | None = None
     port_id: int | None = None
+    location: str | None = Field(None, max_length=80)
     date: dt.date | None = Field(None, ge=MIN_DATE, le=MAX_DATE)
     time: str | None = Field(None, pattern=TIME_PATTERN)
     note: str | None = Field(None, max_length=80)
@@ -127,6 +145,11 @@ class SelectionPatch(BaseModel):
     @classmethod
     def _note(cls, v: str | None) -> str | None:
         return _clean_note(v)
+
+    @field_validator("location")
+    @classmethod
+    def _location(cls, v: str | None) -> str | None:
+        return _clean_location(v)
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +207,9 @@ def _selection_out(
         "structure_id": row["structure_id"],
         "custom": row["ts_utc"] is None,   # créneau personnalisé : kind, time, height_m, coefficient à None
         "note": row["note"],
-        "port_id": row["port_id"],
-        "port": row["port_name"],
+        "port_id": row["port_id"],       # None : créneau personnalisé dans un autre lieu
+        "location": row["location"],     # lieu libre, sinon None
+        "port": row["port_name"],        # à afficher : nom du port, ou lieu libre
         "ts_utc": row["ts_utc"],
         "kind": row["kind"],
         "date": row["local_date"],
@@ -274,11 +298,12 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
 def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
     """Créneau personnalisé, en dehors des étales proposées par la recherche."""
     sid = user["structure_id"]
-    if db.get_port(body.port_id) is None:
+    if body.port_id is not None and db.get_port(body.port_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
     _active_type_or_422(body.type_id, sid)
     sel_id = db.create_custom_selection(
-        sid, user["id"], body.port_id, body.type_id, body.date.isoformat(), body.time, body.note, _now_iso(),
+        sid, user["id"], body.port_id, body.location, body.type_id, body.date.isoformat(), body.time,
+        body.note, _now_iso(),
     )
     return _one_out(sid, sel_id, user["id"])
 
@@ -290,20 +315,29 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     sent = body.model_fields_set
-    if sent & {"port_id", "date", "time", "note"}:
+    custom_fields = {"port_id", "location", "date", "time", "note"}
+    if sent & custom_fields:
         if row["ts_utc"] is not None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Seul le type d'un créneau d'étale se modifie : port, jour et heure sont ceux de l'étale.",
             )
-        port_id = body.port_id if body.port_id is not None else row["port_id"]
-        if db.get_port(port_id) is None:
+        # lieu : un port OU un lieu libre ; l'un remplace l'autre
+        if "location" in sent and body.location:
+            port_id, location = None, body.location
+        elif "port_id" in sent and body.port_id is not None:
+            port_id, location = body.port_id, None
+        elif sent & {"port_id", "location"}:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Indiquez un port ou un autre lieu.")
+        else:
+            port_id, location = row["port_id"], row["location"]
+        if port_id is not None and db.get_port(port_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
     if body.type_id is not None:
         _active_type_or_422(body.type_id, sid)
-    if sent & {"port_id", "date", "time", "note"}:
+    if sent & custom_fields:
         db.update_custom_selection(
-            sid, selection_id, port_id,
+            sid, selection_id, port_id, location,
             body.date.isoformat() if body.date else row["local_date"],
             body.time or row["rdv_time"],
             body.note if "note" in sent else row["note"],

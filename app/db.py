@@ -28,7 +28,8 @@ SLOT_SELECTIONS_COLUMNS = """(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
     picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- qui l'a choisi (NULL : compte supprimé)
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    port_id INTEGER REFERENCES ports(id) ON DELETE CASCADE,  -- NULL : créneau personnalisé dans un autre lieu
+    location TEXT,                          -- lieu libre (ville, carrière…) d'un créneau personnalisé hors port
     ts_utc TEXT,                            -- = tide_extrema.ts_utc ; NULL : créneau personnalisé
     type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
     kind TEXT CHECK (kind IN ('PM', 'BM')),
@@ -43,7 +44,9 @@ SLOT_SELECTIONS_COLUMNS = """(
     UNIQUE (structure_id, port_id, ts_utc),
     -- étale : tous ses champs ; personnalisé : aucun
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
-           AND (ts_utc IS NULL) = (height_m IS NULL))
+           AND (ts_utc IS NULL) = (height_m IS NULL)),
+    -- un port ou un lieu libre, jamais les deux ; une étale a toujours son port
+    CHECK ((port_id IS NULL) <> (location IS NULL) AND (ts_utc IS NULL OR port_id IS NOT NULL))
 )"""
 
 SCHEMA = """
@@ -454,7 +457,8 @@ def _migrate_custom_selections() -> None:
     """
     Créneaux personnalisés : reconstruit slot_selections pour rendre facultatifs
     les champs de l'étale (ts_utc, kind, local_time, height_m) et ajouter
-    l'intitulé (note). SQLite ne sait pas retirer un NOT NULL : nouvelle table,
+    l'intitulé (note), puis le port (port_id) au profit d'un lieu libre
+    (location). SQLite ne sait pas retirer un NOT NULL : nouvelle table,
     copie, renommage, clés étrangères suspendues puis vérifiées (même procédure
     que _migrate_structures). Les inscriptions (slot_registrations) pointent
     vers la table par son nom : elles suivent sans être touchées.
@@ -462,14 +466,16 @@ def _migrate_custom_selections() -> None:
     conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
     conn.row_factory = sqlite3.Row
     try:
-        if "note" in _columns(conn, "slot_selections"):
+        old_cols = _columns(conn, "slot_selections")
+        if "location" in old_cols:
             return
         conn.execute("PRAGMA foreign_keys = OFF")  # sans effet dans une transaction : avant BEGIN
         conn.execute("BEGIN IMMEDIATE")
         try:
             conn.execute("CREATE TABLE slot_selections_new " + SLOT_SELECTIONS_COLUMNS)
             cols = ("id, structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, "
-                    "local_time, rdv_date, rdv_time, height_m, coefficient, created_at")
+                    "local_time, rdv_date, rdv_time, height_m, coefficient, created_at"
+                    + (", note" if "note" in old_cols else ""))
             conn.execute(f"INSERT INTO slot_selections_new ({cols}) SELECT {cols} FROM slot_selections")
             conn.execute("DROP TABLE slot_selections")
             conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
@@ -1479,11 +1485,12 @@ def delete_slot_type(type_id: int) -> None:
 
 
 _SELECTION_SQL = """
-    SELECT s.*, p.name AS port_name, t.label AS type_label, t.color AS type_color, t.active AS type_active,
+    SELECT s.*, COALESCE(p.name, s.location) AS port_name,  -- lieu affiché : port, ou lieu libre
+           t.label AS type_label, t.color AS type_color, t.active AS type_active,
            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                AS picked_by_name
     FROM slot_selections s
-    JOIN ports p ON p.id = s.port_id
+    LEFT JOIN ports p ON p.id = s.port_id
     JOIN slot_types t ON t.id = s.type_id
     LEFT JOIN users u ON u.id = s.picked_by
 """
@@ -1541,28 +1548,28 @@ def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: st
         return cur.lastrowid
 
 
-def create_custom_selection(structure_id: int, picked_by: int, port_id: int, type_id: int,
-                            local_date: str, rdv_time: str, note: str | None, now: str) -> int:
-    """Créneau personnalisé : un jour et une heure de RDV, sans étale."""
+def create_custom_selection(structure_id: int, picked_by: int, port_id: int | None, location: str | None,
+                            type_id: int, local_date: str, rdv_time: str, note: str | None, now: str) -> int:
+    """Créneau personnalisé : un jour et une heure de RDV, sans étale, dans un port OU un lieu libre."""
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO slot_selections
-                (structure_id, picked_by, port_id, type_id, local_date, rdv_date, rdv_time, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (structure_id, picked_by, port_id, location, type_id, local_date, rdv_date, rdv_time, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (structure_id, picked_by, port_id, type_id, local_date, local_date, rdv_time, note, now),
+            (structure_id, picked_by, port_id, location, type_id, local_date, local_date, rdv_time, note, now),
         )
         return cur.lastrowid
 
 
-def update_custom_selection(structure_id: int, selection_id: int, port_id: int, local_date: str,
-                            rdv_time: str, note: str | None) -> None:
+def update_custom_selection(structure_id: int, selection_id: int, port_id: int | None, location: str | None,
+                            local_date: str, rdv_time: str, note: str | None) -> None:
     with get_conn() as conn:
         conn.execute(
-            "UPDATE slot_selections SET port_id = ?, local_date = ?, rdv_date = ?, rdv_time = ?, note = ? "
-            "WHERE id = ? AND structure_id = ? AND ts_utc IS NULL",
-            (port_id, local_date, local_date, rdv_time, note, selection_id, structure_id),
+            "UPDATE slot_selections SET port_id = ?, location = ?, local_date = ?, rdv_date = ?, rdv_time = ?, "
+            "note = ? WHERE id = ? AND structure_id = ? AND ts_utc IS NULL",
+            (port_id, location, local_date, local_date, rdv_time, note, selection_id, structure_id),
         )
 
 
