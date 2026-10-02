@@ -1,5 +1,5 @@
 fastapi==0.115.*
-uvicorn[standard]==0.32.*
+uvicorn[standard]==0.54.*
 pyTMD==3.0.*
 astral==3.2
 numpy>=1.24
