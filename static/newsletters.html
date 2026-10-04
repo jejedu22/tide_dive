@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Newsletters — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="index.html" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Newsletters <span id="structure-name" class="h1-sub"></span></h1>
+        <p class="subtitle"><a href="mes-creneaux.html">Retour aux créneaux choisis</a></p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="nl-main">
+    <p id="gate" class="gate" hidden></p>
+    <p id="flash" class="flash" role="status"></p>
+
+    <!-- ============ Liste ============ -->
+    <section id="view-list" class="nl-view" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Newsletters de la structure</h2>
+          <button type="button" id="new-newsletter" class="btn-primary">Nouvelle newsletter</button>
+        </div>
+        <p id="mailjet-warning" class="nl-warning" hidden></p>
+        <div class="table-wrap">
+          <table class="users nl-table">
+            <thead>
+              <tr>
+                <th scope="col">Objet</th>
+                <th scope="col">Statut</th>
+                <th scope="col">Destinataires</th>
+                <th scope="col">Date</th>
+                <th scope="col" class="num">Envoyés</th>
+                <th scope="col" class="num">Ouverts</th>
+                <th scope="col" class="num">Cliqués</th>
+              </tr>
+            </thead>
+            <tbody id="nl-list-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <details class="panel nl-unsubs">
+        <summary>Désinscriptions <span id="unsub-count" class="tag"></span></summary>
+        <p class="hint">Adresses qui ne reçoivent plus les newsletters de la structure : lien de désinscription, choix dans « Mon compte », ou signalement comme indésirable. Seule la personne peut se réinscrire, depuis « Mon compte ».</p>
+        <ul id="unsub-list" class="nl-unsub-list"></ul>
+      </details>
+    </section>
+
+    <!-- ============ Édition ============ -->
+    <section id="view-edit" class="nl-view" hidden>
+      <p class="nl-back"><a href="#">← Toutes les newsletters</a></p>
+      <div class="nl-edit">
+        <form id="nl-form" class="panel nl-form" autocomplete="off" novalidate>
+          <div class="panel-head">
+            <h2 id="edit-title">Nouvelle newsletter</h2>
+            <span id="edit-status" class="tag"></span>
+          </div>
+          <div class="field">
+            <label for="nl-subject">Objet</label>
+            <input id="nl-subject" name="subject" maxlength="150" required placeholder="ex. Sorties de novembre">
+          </div>
+          <div class="field">
+            <label for="nl-preheader">Pré-en-tête <span class="optional">facultatif : texte affiché après l'objet dans la boîte de réception</span></label>
+            <input id="nl-preheader" name="preheader" maxlength="200">
+          </div>
+          <div class="field">
+            <label for="nl-audience">Destinataires</label>
+            <select id="nl-audience" name="audience"></select>
+            <small id="audience-hint" class="hint"></small>
+          </div>
+          <div class="field">
+            <label for="nl-body">Contenu</label>
+            <div class="nl-toolbar" role="toolbar" aria-label="Mise en forme">
+              <button type="button" data-insert="title" title="Titre">Titre</button>
+              <button type="button" data-insert="bold" title="Gras"><strong>G</strong></button>
+              <button type="button" data-insert="italic" title="Italique"><em>I</em></button>
+              <button type="button" data-insert="link">Lien</button>
+              <button type="button" data-insert="list">Liste</button>
+              <button type="button" data-insert="button">Bouton</button>
+              <button type="button" data-insert="image">Image</button>
+              <button type="button" data-insert="rule">Séparateur</button>
+              <button type="button" data-insert="firstname">Prénom</button>
+            </div>
+            <textarea id="nl-body" name="body" rows="18" maxlength="50000" spellcheck="true"></textarea>
+            <details class="nl-help">
+              <summary>Mise en forme</summary>
+              <ul>
+                <li>Paragraphes séparés par une ligne vide.</li>
+                <li><code>## Titre</code>, <code>### Sous-titre</code> en début de ligne.</li>
+                <li><code>**gras**</code>, <code>*italique*</code>, <code>[texte du lien](https://…)</code>.</li>
+                <li>Liste : une ligne par élément, commençant par <code>- </code>.</li>
+                <li>Bouton, seul sur sa ligne : <code>[[Je m'inscris|https://…]]</code>.</li>
+                <li>Image en ligne, seule sur sa ligne : <code>![Description](https://…/photo.jpg)</code>.</li>
+                <li><code>{{prenom}}</code>, <code>{{nom}}</code>, <code>{{structure}}</code> : remplacés pour chaque destinataire.</li>
+              </ul>
+              <p>Le lien de désinscription est ajouté automatiquement en bas de chaque e-mail.</p>
+            </details>
+          </div>
+          <div class="form-actions nl-actions" id="draft-actions">
+            <button type="submit" class="btn-primary">Enregistrer</button>
+            <button type="button" id="send-test" class="btn-secondary">M'envoyer un test</button>
+            <button type="button" id="send-now" class="btn-secondary">Envoyer…</button>
+            <button type="button" id="schedule" class="btn-secondary">Programmer…</button>
+            <button type="button" id="delete" class="btn-danger">Supprimer</button>
+          </div>
+          <div class="form-actions nl-actions" id="scheduled-actions" hidden>
+            <button type="button" id="unschedule" class="btn-secondary">Annuler la programmation</button>
+            <button type="button" id="duplicate-scheduled" class="btn-quiet">Dupliquer</button>
+          </div>
+          <p id="edit-status-line" class="form-status" role="status"></p>
+        </form>
+        <div class="panel nl-preview">
+          <div class="panel-head">
+            <h2>Aperçu</h2>
+            <div class="view-switch" role="group" aria-label="Format de l'aperçu">
+              <button type="button" data-preview="html" aria-pressed="true">E-mail</button>
+              <button type="button" data-preview="text" aria-pressed="false">Texte</button>
+            </div>
+          </div>
+          <p class="hint" id="preview-subject"></p>
+          <iframe id="preview-frame" class="nl-frame" title="Aperçu de la newsletter" sandbox=""></iframe>
+          <pre id="preview-text" class="nl-text" hidden></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Rapport d'envoi ============ -->
+    <section id="view-report" class="nl-view" hidden>
+      <p class="nl-back"><a href="#">← Toutes les newsletters</a></p>
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="report-title"></h2>
+          <span id="report-status" class="tag"></span>
+        </div>
+        <p id="report-meta" class="hint"></p>
+        <p id="report-error" class="nl-warning" hidden></p>
+        <div id="report-progress" class="nl-progress" hidden><span></span></div>
+        <ul id="report-tiles" class="nl-tiles"></ul>
+        <p id="report-tracking" class="hint"></p>
+        <div class="form-actions">
+          <button type="button" id="report-refresh" class="btn-secondary">Actualiser</button>
+          <button type="button" id="report-resume" class="btn-primary" hidden>Reprendre l'envoi</button>
+          <button type="button" id="report-content" class="btn-quiet">Voir le contenu</button>
+          <button type="button" id="report-duplicate" class="btn-quiet">Dupliquer</button>
+          <button type="button" id="report-export" class="btn-quiet">Exporter en Excel</button>
+          <button type="button" id="report-delete" class="btn-danger">Supprimer</button>
+        </div>
+      </div>
+
+      <div class="panel" id="links-panel" hidden>
+        <h2>Liens cliqués</h2>
+        <div class="table-wrap">
+          <table class="users">
+            <thead><tr><th scope="col">Lien</th><th scope="col" class="num">Clics</th><th scope="col" class="num">Personnes</th></tr></thead>
+            <tbody id="links-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Destinataires</h2>
+          <div class="nl-filters">
+            <label for="recip-filter" class="visually-hidden">Filtrer</label>
+            <select id="recip-filter">
+              <option value="">Tous</option>
+              <option value="opened">Ont ouvert</option>
+              <option value="unopened">N'ont pas ouvert</option>
+              <option value="clicked">Ont cliqué</option>
+              <option value="problem">Problèmes (refus, rebond, blocage, spam)</option>
+              <option value="unsubscribed">Désinscrits</option>
+            </select>
+            <label for="recip-search" class="visually-hidden">Rechercher</label>
+            <input id="recip-search" type="search" placeholder="Rechercher un nom, une adresse…">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="users nl-recipients">
+            <thead>
+              <tr>
+                <th scope="col">Destinataire</th>
+                <th scope="col">État</th>
+                <th scope="col">Ouvert</th>
+                <th scope="col">Cliqué</th>
+                <th scope="col">Détail</th>
+              </tr>
+            </thead>
+            <tbody id="recip-body"></tbody>
+          </table>
+        </div>
+        <p id="recip-count" class="hint"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="xlsx-export.js"></script>
+  <script src="newsletters.js"></script>
+</body>
+</html>
