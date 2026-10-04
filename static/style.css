@@ -1548,3 +1548,13 @@ main.unsub-main { max-width: 40rem; }
   .nl-preview { position: static; }
   .nl-frame { height: 60vh; }
 }
+
+/* Groupes d'envoi (newsletters) */
+.nl-group-dialog { width: min(640px, 94vw); }
+.nl-members { border: 1px solid #d5e3e8; border-radius: 10px; padding: 0.5rem 0.8rem; margin: 0 0 0.6rem; }
+.nl-members legend { font-size: 0.85rem; font-weight: 600; color: var(--blue-deep); padding: 0 0.3rem; }
+.nl-members-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.4rem; }
+.nl-members-bar input { flex: 1 1 12rem; font: inherit; padding: 0.35rem 0.5rem; border: 1px solid #b0c4cc; border-radius: 8px; }
+.nl-member-list { list-style: none; margin: 0; padding: 0; max-height: 45vh; overflow-y: auto; }
+.nl-member-list li[hidden] { display: none; }
+.nl-member-list .check { font-size: 0.9rem; margin: 0; padding: 0.25rem 0; }

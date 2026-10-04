@@ -330,6 +330,24 @@ CREATE TABLE IF NOT EXISTS newsletter_events (
     UNIQUE (recipient_id, event, at, url)
 );
 
+-- Groupes d'envoi d'une structure (encadrants, préparants N1…), gérés par ses gestionnaires.
+-- Les membres sont des comptes de la structure ; un compte qui la quitte n'est plus visé
+-- (audience_members filtre sur la structure), même s'il reste inscrit au groupe.
+CREATE TABLE IF NOT EXISTS mailing_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (structure_id, name COLLATE NOCASE)
+);
+CREATE TABLE IF NOT EXISTS mailing_group_members (
+    group_id INTEGER NOT NULL REFERENCES mailing_groups(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, user_id)
+);
+
 -- Désinscriptions des newsletters, par structure et adresse
 CREATE TABLE IF NOT EXISTS newsletter_unsubscribes (
     structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
@@ -1983,13 +2001,17 @@ def due_newsletters(now: str) -> list[int]:
 def audience_members(structure_id: int, audience: dict) -> list[sqlite3.Row]:
     """
     Comptes visés (avec une adresse e-mail), avant exclusion des désinscrits :
-    kind all | managers | viewers | selection (inscrits au créneau selection_id).
+    kind all | managers | viewers | selection (inscrits au créneau selection_id) | group (group_id).
     """
     sql = ("SELECT u.id AS user_id, u.email, u.first_name, u.last_name, u.username FROM users u "
            "WHERE u.structure_id = ? AND u.email IS NOT NULL AND u.email != ''")
     params: list = [structure_id]
     kind = audience.get("kind", "all")
-    if kind == "managers":
+    if kind == "group":
+        sql += (" AND u.id IN (SELECT m.user_id FROM mailing_group_members m JOIN mailing_groups g "
+                "ON g.id = m.group_id WHERE g.id = ? AND g.structure_id = ?)")
+        params += [audience.get("group_id"), structure_id]
+    elif kind == "managers":
         sql += " AND u.structure_role = 'manager'"
     elif kind == "viewers":
         sql += " AND u.structure_role = 'viewer'"
@@ -2122,3 +2144,78 @@ def record_event(recipient_id: int, event: str, at: str, url: str = "", detail: 
         if event in ("bounce", "blocked") and detail:
             conn.execute("UPDATE newsletter_recipients SET error = COALESCE(error, ?) WHERE id = ?", (detail, recipient_id))
         return True
+
+
+# ---------------------------------------------------------------------------
+# Groupes d'envoi
+# ---------------------------------------------------------------------------
+
+def list_mailing_groups(structure_id: int) -> list[sqlite3.Row]:
+    """Groupes avec le nombre de membres encore dans la structure."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT g.*, (SELECT COUNT(*) FROM mailing_group_members m JOIN users u ON u.id = m.user_id "
+            "WHERE m.group_id = g.id AND u.structure_id = g.structure_id) AS members "
+            "FROM mailing_groups g WHERE g.structure_id = ? ORDER BY g.name COLLATE NOCASE",
+            (structure_id,),
+        ).fetchall()
+
+
+def get_mailing_group(structure_id: int, group_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM mailing_groups WHERE id = ? AND structure_id = ?", (group_id, structure_id)
+        ).fetchone()
+
+
+def mailing_group_member_ids(group_id: int) -> list[int]:
+    with get_conn() as conn:
+        return [r["user_id"] for r in conn.execute(
+            "SELECT m.user_id FROM mailing_group_members m JOIN mailing_groups g ON g.id = m.group_id "
+            "JOIN users u ON u.id = m.user_id AND u.structure_id = g.structure_id WHERE m.group_id = ?",
+            (group_id,))]
+
+
+def save_mailing_group(structure_id: int, group_id: int | None, name: str, description: str | None,
+                       member_ids: list[int] | None, now: str) -> int:
+    """
+    Crée (group_id None) ou modifie un groupe ; member_ids None : membres inchangés.
+    Lève sqlite3.IntegrityError si le nom existe déjà dans la structure.
+    """
+    with get_conn() as conn:
+        if group_id is None:
+            group_id = conn.execute(
+                "INSERT INTO mailing_groups (structure_id, name, description, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)", (structure_id, name, description, now, now),
+            ).lastrowid
+        else:
+            conn.execute(
+                "UPDATE mailing_groups SET name = ?, description = ?, updated_at = ? WHERE id = ? AND structure_id = ?",
+                (name, description, now, group_id, structure_id),
+            )
+        if member_ids is not None:
+            conn.execute("DELETE FROM mailing_group_members WHERE group_id = ?", (group_id,))
+            # seuls les comptes de la structure entrent dans le groupe
+            conn.executemany(
+                "INSERT INTO mailing_group_members (group_id, user_id) "
+                "SELECT ?, id FROM users WHERE id = ? AND structure_id = ?",
+                [(group_id, uid, structure_id) for uid in set(member_ids)],
+            )
+        return group_id
+
+
+def delete_mailing_group(structure_id: int, group_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "DELETE FROM mailing_groups WHERE id = ? AND structure_id = ?", (group_id, structure_id)
+        ).rowcount > 0
+
+
+def structure_members(structure_id: int) -> list[sqlite3.Row]:
+    """Comptes de la structure, pour composer un groupe."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT id, username, first_name, last_name, email, structure_role FROM users WHERE structure_id = ? "
+            "ORDER BY COALESCE(last_name, username) COLLATE NOCASE, first_name COLLATE NOCASE",
+            (structure_id,),
+        ).fetchall()

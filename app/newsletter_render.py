@@ -12,6 +12,12 @@ Format (blocs séparés par une ligne vide) :
     ---                 séparateur
     **gras**, *italique* ou _italique_, [lien](https://exemple.fr)
     {{prenom}}, {{nom}}, {{structure}}   remplacés pour chaque destinataire
+    [[creneaux:30]]     créneaux choisis par la structure sur les 30 prochains jours
+    [[creneaux:2026-11-01:2026-11-30]]   … ou entre deux dates (incluses)
+
+Le bloc « créneaux » est calculé au moment du rendu, donc de l'envoi : une
+newsletter programmée montre les créneaux à jour. Les créneaux sont fournis
+par l'appelant (paramètre slots), ce module ne lit pas la base.
 
 Sécurité : tout le texte saisi est échappé AVANT la mise en forme ; seules les
 balises produites ici apparaissent dans le HTML. Liens et images : http(s) et
@@ -22,6 +28,8 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import date, timedelta
+from typing import Callable
 
 BRAND_DARK = "#073b4c"
 BRAND_LINK = "#0b6e8f"
@@ -36,7 +44,103 @@ _ITALIC = re.compile(r"(?<![\w*])[*_](?=\S)(.+?)(?<=\S)[*_](?![\w*])")
 _BUTTON = re.compile(r"^\[\[([^|\]\n]+)\|(" + _URL + r")\]\]$")
 _IMAGE = re.compile(r"^!\[([^\]\n]*)\]\((" + _URL + r")\)$")
 _ITEM = re.compile(r"^[-*]\s+(.*)$")
+_SLOTS = re.compile(r"^\[\[creneaux:(?:(\d{1,3})|(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2}))\]\]$")
 PLACEHOLDERS = ("prenom", "nom", "structure")
+MAX_SLOT_DAYS = 366
+
+_DAYS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+_MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+           "septembre", "octobre", "novembre", "décembre")
+
+
+def french_date(d: date, weekday: bool = True) -> str:
+    return f"{_DAYS[d.weekday()] + ' ' if weekday else ''}{d.day} {_MONTHS[d.month - 1]}"
+
+
+def slot_period(block: str, today: date) -> tuple[date, date] | None:
+    """Période d'un bloc « créneaux » (bornes incluses), ou None si ce n'en est pas un valide."""
+    m = _SLOTS.match(block)
+    if not m:
+        return None
+    if m.group(1):
+        days = int(m.group(1))
+        if not 1 <= days <= MAX_SLOT_DAYS:
+            return None
+        return today, today + timedelta(days=days - 1)
+    try:
+        start, end = date.fromisoformat(m.group(2)), date.fromisoformat(m.group(3))
+    except ValueError:
+        return None
+    if end < start or (end - start).days >= MAX_SLOT_DAYS:
+        return None
+    return start, end
+
+
+def _slot_when(s: dict) -> str:
+    d = date.fromisoformat(s["date"])
+    if s.get("end_date"):
+        e = date.fromisoformat(s["end_date"])
+        return f"du {french_date(d)} au {french_date(e)}"
+    return french_date(d)
+
+
+def _slot_detail(s: dict) -> str:
+    parts = []
+    if s.get("kind"):
+        parts.append(f"étale {'pleine' if s['kind'] == 'PM' else 'basse'} mer {s['time']}")
+        if s.get("coefficient") is not None:
+            parts.append(f"coef {round(s['coefficient'])}")
+    if s.get("type"):
+        parts.append(s["type"])
+    out = " · ".join(parts)
+    return out[:1].upper() + out[1:]
+
+
+def _slots_html(period: tuple[date, date], slots: list[dict], url: str | None) -> str:
+    start, end = period
+    span = f"du {french_date(start)} au {french_date(end)}"
+    if not slots:
+        return (f'<p style="margin:0 0 16px;font-family:{FONT};font-size:15px;font-style:italic;color:{MUTED}">'
+                f"Aucun créneau prévu {html.escape(span)}.</p>")
+    rows = []
+    for s in slots:
+        color = s.get("type_color") or BRAND_DARK
+        color = color if re.fullmatch(r"#[0-9a-fA-F]{3,8}", color) else BRAND_DARK
+        title = f"RDV {s['rdv_time']}" + (" (la veille)" if s.get("rdv_date") and s["rdv_date"] != s["date"] else "")
+        where = s.get("place") or ""
+        note = s.get("note")
+        rows.append(
+            f'<tr><td style="padding:10px 12px;border-left:4px solid {color};background:#f4f9fb;'
+            f'font-family:{FONT};font-size:15px;line-height:1.45;color:{TEXT}">'
+            f'<strong style="color:{BRAND_DARK}">{html.escape(_slot_when(s).capitalize())}</strong><br>'
+            f'{html.escape(title)}{" · " + html.escape(where) if where else ""}'
+            f'{"<br><em>" + html.escape(note) + "</em>" if note else ""}'
+            f'<br><span style="font-size:13px;color:{MUTED}">{html.escape(_slot_detail(s))}</span>'
+            f'</td></tr><tr><td style="height:8px;line-height:8px;font-size:0">&nbsp;</td></tr>')
+    out = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">'
+           f'{"".join(rows)}</table>')
+    if url:
+        out += (f'<p style="margin:0 0 20px;font-family:{FONT};font-size:15px">'
+                f'<a href="{html.escape(url, quote=True)}" style="color:{BRAND_LINK};font-weight:bold">'
+                f"Voir les créneaux et s'inscrire</a></p>")
+    return out
+
+
+def _slots_text(period: tuple[date, date], slots: list[dict], url: str | None) -> str:
+    start, end = period
+    if not slots:
+        return f"Aucun créneau prévu du {french_date(start)} au {french_date(end)}."
+    lines = []
+    for s in slots:
+        where = f", {s['place']}" if s.get("place") else ""
+        note = f" — {s['note']}" if s.get("note") else ""
+        detail = _slot_detail(s)
+        eve = " (la veille)" if s.get("rdv_date") and s["rdv_date"] != s["date"] else ""
+        lines.append(f"• {_slot_when(s).capitalize()} : RDV {s['rdv_time']}{eve}{where}{note}"
+                     f"{' (' + detail + ')' if detail else ''}")
+    if url:
+        lines.append(f"Voir les créneaux et s'inscrire : {url}")
+    return "\n".join(lines)
 
 
 def _blocks(source: str) -> list[str]:
@@ -127,13 +231,40 @@ def _fill(text: str, values: dict[str, str], escape: bool) -> str:
     return text
 
 
+SlotLister = Callable[[date, date], list[dict]]
+
+
 def render(subject: str, preheader: str | None, body: str, *, structure: str,
            first_name: str | None = None, last_name: str | None = None,
-           unsubscribe_url: str | None = None) -> tuple[str, str, str]:
-    """(sujet, html, texte) pour un destinataire ; unsubscribe_url None : aperçu."""
+           unsubscribe_url: str | None = None, slots: SlotLister | None = None,
+           today: date | None = None, slots_url: str | None = None) -> tuple[str, str, str]:
+    """
+    (sujet, html, texte) pour un destinataire ; unsubscribe_url None : aperçu.
+    slots(début, fin) : créneaux choisis de la période (dicts : date, end_date,
+    rdv_date, rdv_time, place, note, type, type_color, kind, time, coefficient) ;
+    sans lui, un bloc « créneaux » reste du texte. today : origine de « N jours ».
+    """
     values = {"prenom": first_name or "", "nom": last_name or "", "structure": structure}
     blocks = _blocks(body)
-    content = "\n".join(_block_html(b) for b in blocks) or f'<p style="color:{MUTED};font-family:{FONT}">(newsletter vide)</p>'
+    today = today or date.today()
+    cache: dict[tuple[date, date], list[dict]] = {}
+
+    def period_of(block: str) -> tuple[date, date] | None:
+        period = slot_period(block, today) if slots else None
+        if period is not None and period not in cache:
+            cache[period] = slots(*period)
+        return period
+
+    html_parts, text_parts = [], []
+    for b in blocks:
+        period = period_of(b)
+        if period is not None:
+            html_parts.append(_slots_html(period, cache[period], slots_url))
+            text_parts.append(_slots_text(period, cache[period], slots_url))
+        else:
+            html_parts.append(_block_html(b))
+            text_parts.append(_block_text(b))
+    content = "\n".join(html_parts) or f'<p style="color:{MUTED};font-family:{FONT}">(newsletter vide)</p>'
     unsub = html.escape(unsubscribe_url or "#", quote=True)
     pre = html.escape(_fill(preheader or "", values, escape=False), quote=True)
     s_structure = html.escape(structure, quote=True)
@@ -162,7 +293,7 @@ Vous recevez cet e-mail en tant que membre de {s_structure} sur Calendive.<br>
 </table>
 </body>
 </html>"""
-    text = "\n\n".join(_block_text(b) for b in blocks)
+    text = "\n\n".join(text_parts)
     text = _fill(text, values, escape=False)
     text += (f"\n\n--\nVous recevez cet e-mail en tant que membre de {structure} sur Calendive."
              f"\nSe désinscrire : {unsubscribe_url or '(lien personnel ajouté à l’envoi)'}\n")

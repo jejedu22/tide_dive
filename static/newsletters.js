@@ -99,7 +99,7 @@ function dateCell(n) {
 async function openList() {
   showView("list");
   try {
-    [newsletters] = await Promise.all([Session.api("/api/newsletters"), loadUnsubscribes()]);
+    [newsletters] = await Promise.all([Session.api("/api/newsletters"), loadUnsubscribes(), loadGroups()]);
   } catch (e) {
     flash(esc(e.message));
     return;
@@ -135,6 +135,113 @@ async function loadUnsubscribes() {
 
 $("new-newsletter").addEventListener("click", () => go("#nouvelle"));
 
+// ---- Groupes d'envoi ----
+
+let groups = [];
+let members = null;   // comptes de la structure, chargés au premier besoin
+
+async function loadGroups() {
+  groups = await Session.api("/api/newsletters/groups");
+  $("groups-body").innerHTML = groups.length ? groups.map(g => `
+    <tr data-id="${g.id}">
+      <th scope="row">${esc(g.name)}${g.description ? `<span class="user-sub">${esc(g.description)}</span>` : ""}</th>
+      <td class="num" data-label="Membres">${g.members}</td>
+      <td class="actions">
+        <button type="button" class="btn-quiet btn-small" data-act="edit">Modifier</button>
+        <button type="button" class="btn-danger btn-small" data-act="delete">Supprimer</button>
+      </td>
+    </tr>`).join("")
+    : `<tr><td colspan="3" class="empty">Aucun groupe. Créez-en un pour cibler une partie des membres.</td></tr>`;
+}
+
+const ROLE = { manager: "administration", viewer: "visualisation" };
+
+async function editGroup(group = null) {
+  members ??= await Session.api("/api/newsletters/members");
+  const chosen = new Set(group?.member_ids || []);
+  const d = document.createElement("dialog");
+  d.className = "account-dialog nl-group-dialog";
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>${group ? `Modifier « ${esc(group.name)} »` : "Nouveau groupe d'envoi"}</h2>
+      <label>Nom <input name="name" maxlength="60" required value="${esc(group?.name || "")}" placeholder="ex. Encadrants, Préparants N1"></label>
+      <label>Description <span class="field-hint">(facultatif)</span> <input name="description" maxlength="200" value="${esc(group?.description || "")}"></label>
+      <fieldset class="nl-members">
+        <legend>Membres <span class="muted" data-count></span></legend>
+        <div class="nl-members-bar">
+          <label class="visually-hidden" for="member-search">Rechercher</label>
+          <input id="member-search" type="search" placeholder="Rechercher un membre…">
+          <button type="button" class="btn-quiet btn-small" data-all="1">Tout cocher</button>
+          <button type="button" class="btn-quiet btn-small" data-all="0">Tout décocher</button>
+        </div>
+        <ul class="nl-member-list">${members.map(m => `
+          <li data-search="${esc(`${m.name} ${m.email || ""}`.toLowerCase())}">
+            <label class="check"><input type="checkbox" name="member" value="${m.id}"${chosen.has(m.id) ? " checked" : ""}>
+              <span>${esc(m.name)} <span class="muted">${m.email ? esc(m.email) : "pas d'adresse e-mail"} · ${ROLE[m.role] || ""}${m.unsubscribed ? " · désinscrit" : ""}</span></span></label>
+          </li>`).join("")}</ul>
+      </fieldset>
+      <p class="dialog-hint">Les membres sans adresse e-mail ou désinscrits restent dans le groupe mais ne reçoivent pas les newsletters.</p>
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+        <button type="submit" class="btn-primary">${group ? "Enregistrer" : "Créer le groupe"}</button>
+      </div>
+    </form>`;
+  document.body.append(d);
+  const f = d.querySelector("form");
+  const boxes = () => [...f.querySelectorAll("[name=member]")];
+  const count = () => { f.querySelector("[data-count]").textContent = `(${boxes().filter(b => b.checked).length} sur ${members.length})`; };
+  f.addEventListener("change", count);
+  count();
+  f.querySelector("#member-search").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    for (const li of f.querySelectorAll(".nl-member-list li")) li.hidden = !!q && !li.dataset.search.includes(q);
+  });
+  f.querySelectorAll("[data-all]").forEach(b => b.addEventListener("click", () => {
+    // seulement les membres affichés (après recherche)
+    for (const box of boxes()) if (!box.closest("li").hidden) box.checked = b.dataset.all === "1";
+    count();
+  }));
+  d.addEventListener("close", () => d.remove());
+  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+  f.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const body = {
+      name: f.name.value.trim(),
+      description: f.description.value.trim() || null,
+      member_ids: boxes().filter(b => b.checked).map(b => Number(b.value)),
+    };
+    try {
+      if (!body.name) throw new Error("Nom du groupe obligatoire.");
+      await Session.api(group ? `/api/newsletters/groups/${group.id}` : "/api/newsletters/groups",
+        { method: group ? "PUT" : "POST", body });
+      d.close();
+      loadGroups();
+    } catch (err) {
+      d.querySelector(".dialog-error").textContent = err.message;
+    }
+  });
+  d.showModal();
+  f.name.focus();
+}
+
+$("new-group").addEventListener("click", () => editGroup().catch(e => flash(esc(e.message))));
+$("groups-body").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const g = groups.find(x => x.id === Number(btn.closest("tr").dataset.id));
+  try {
+    if (btn.dataset.act === "edit") await editGroup(g);
+    if (btn.dataset.act === "delete") {
+      if (!confirm(`Supprimer le groupe « ${g.name} » ? Les newsletters déjà envoyées ne changent pas ; un brouillon qui le vise n'aura plus de destinataires.`)) return;
+      await Session.api(`/api/newsletters/groups/${g.id}`, { method: "DELETE" });
+      loadGroups();
+    }
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Édition
 // ---------------------------------------------------------------------------
@@ -142,7 +249,8 @@ $("new-newsletter").addEventListener("click", () => go("#nouvelle"));
 const form = $("nl-form");
 const editStatus = $("edit-status-line");
 
-const audienceKey = a => (a.kind === "selection" ? `selection:${a.selection_id}` : a.kind);
+const audienceKey = a => (a.kind === "selection" ? `selection:${a.selection_id}`
+  : a.kind === "group" ? `group:${a.group_id}` : a.kind);
 
 function renderAudiences(selected) {
   const sel = $("nl-audience");
@@ -153,16 +261,20 @@ function renderAudiences(selected) {
     options.push({ ...selected, label: current?.audience_label || "Créneau passé", recipients: null });
   }
   const opt = a => `<option value="${esc(audienceKey(a))}"${audienceKey(a) === key ? " selected" : ""}>${esc(a.label)}${a.recipients != null ? ` — ${a.recipients} destinataire${a.recipients > 1 ? "s" : ""}` : ""}</option>`;
-  const general = options.filter(a => a.kind !== "selection");
+  const general = options.filter(a => !["selection", "group"].includes(a.kind));
+  const groups = options.filter(a => a.kind === "group");
   const slots = options.filter(a => a.kind === "selection");
   sel.innerHTML = general.map(opt).join("") +
+    (groups.length ? `<optgroup label="Groupes d'envoi">${groups.map(opt).join("")}</optgroup>` : "") +
     (slots.length ? `<optgroup label="Inscrits à un créneau à venir">${slots.map(opt).join("")}</optgroup>` : "");
   audienceHint();
 }
 
 function selectedAudience() {
   const v = $("nl-audience").value;
-  return v.startsWith("selection:") ? { kind: "selection", selection_id: Number(v.split(":")[1]) } : { kind: v };
+  if (v.startsWith("selection:")) return { kind: "selection", selection_id: Number(v.split(":")[1]) };
+  if (v.startsWith("group:")) return { kind: "group", group_id: Number(v.split(":")[1]) };
+  return { kind: v };
 }
 
 function audienceHint() {
@@ -251,6 +363,7 @@ const SNIPPETS = {
   button: sel => ["[[", sel || "Texte du bouton", "|https://]]", true],
   image: sel => ["![", sel || "Description de l'image", "](https://)", true],
   rule: () => ["---", "", "", true],
+  slots: () => null,   // dialogue : période des créneaux (voir askSlots)
   firstname: () => ["{{prenom}}", "", ""],
 };
 
@@ -266,6 +379,7 @@ document.querySelector(".nl-toolbar").addEventListener("click", e => {
   if (!btn) return;
   const ta = form.body;
   const [start, end] = [ta.selectionStart, ta.selectionEnd];
+  if (btn.dataset.insert === "slots") return askSlots(start, end);
   let [before, middle, after, block] = SNIPPETS[btn.dataset.insert](ta.value.slice(start, end));
   if (block) {
     before = blockGap(ta.value.slice(0, start)) + before;
@@ -279,6 +393,67 @@ document.querySelector(".nl-toolbar").addEventListener("click", e => {
   dirty = true;
   schedulePreview();
 });
+
+// Bloc « créneaux choisis » : les N prochains jours, ou entre deux dates
+function insertBlock(start, end, text) {
+  const ta = form.body;
+  const rest = ta.value.slice(end);
+  const after = rest.trim() ? "\n".repeat(Math.max(0, 2 - rest.match(/^\n*/)[0].length)) : "\n\n";
+  ta.setRangeText(blockGap(ta.value.slice(0, start)) + text + after, start, end, "end");
+  ta.focus();
+  dirty = true;
+  schedulePreview();
+}
+
+function askSlots(start, end) {
+  const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const today = new Date();
+  const d = document.createElement("dialog");
+  d.className = "account-dialog";
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>Insérer les créneaux choisis</h2>
+      <p class="dialog-hint">La liste des créneaux de la structure sur cette période sera calculée au moment de l'envoi, avec un lien pour s'inscrire.</p>
+      <label class="check"><input type="radio" name="mode" value="days" checked> Les prochains jours, à partir du jour de l'envoi</label>
+      <label>Nombre de jours <input type="number" name="days" min="1" max="366" value="30" required></label>
+      <label class="check"><input type="radio" name="mode" value="range"> Entre deux dates</label>
+      <label>Du <input type="date" name="from" value="${iso(today)}"></label>
+      <label>Au <input type="date" name="to" value="${iso(new Date(today.getTime() + 29 * 86400e3))}"></label>
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+        <button type="submit" class="btn-primary">Insérer</button>
+      </div>
+    </form>`;
+  document.body.append(d);
+  const f = d.querySelector("form");
+  const sync = () => {
+    const byDays = f.mode.value === "days";
+    f.days.disabled = !byDays;
+    f.from.disabled = f.to.disabled = byDays;
+  };
+  f.addEventListener("change", sync);
+  sync();
+  d.addEventListener("close", () => d.remove());
+  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+  f.addEventListener("submit", ev => {
+    ev.preventDefault();
+    const err = d.querySelector(".dialog-error");
+    let block;
+    if (f.mode.value === "days") {
+      const n = Number(f.days.value);
+      if (!Number.isInteger(n) || n < 1 || n > 366) { err.textContent = "Entre 1 et 366 jours."; return; }
+      block = `[[creneaux:${n}]]`;
+    } else {
+      if (!f.from.value || !f.to.value || f.to.value < f.from.value) { err.textContent = "Choisissez deux dates, la seconde après la première."; return; }
+      if ((new Date(f.to.value) - new Date(f.from.value)) / 86400e3 >= 366) { err.textContent = "Une année au plus."; return; }
+      block = `[[creneaux:${f.from.value}:${f.to.value}]]`;
+    }
+    d.close();
+    insertBlock(start, end, block);
+  });
+  d.showModal();
+}
 
 // Aperçu (rendu par le serveur, identique à l'envoi ; iframe sans script)
 let previewTimer = null;

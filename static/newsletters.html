@@ -54,6 +54,25 @@
           </table>
         </div>
       </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Groupes d'envoi</h2>
+          <button type="button" id="new-group" class="btn-secondary">Nouveau groupe</button>
+        </div>
+        <p class="hint">Des listes de membres de la structure (encadrants, préparants N1…), à choisir comme destinataires d'une newsletter. Un membre peut faire partie de plusieurs groupes.</p>
+        <div class="table-wrap">
+          <table class="users">
+            <thead>
+              <tr>
+                <th scope="col">Groupe</th>
+                <th scope="col" class="num">Membres</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="groups-body"></tbody>
+          </table>
+        </div>
+      </div>
       <details class="panel nl-unsubs">
         <summary>Désinscriptions <span id="unsub-count" class="tag"></span></summary>
         <p class="hint">Adresses qui ne reçoivent plus les newsletters de la structure : lien de désinscription, choix dans « Mon compte », ou signalement comme indésirable. Seule la personne peut se réinscrire, depuis « Mon compte ».</p>
@@ -95,6 +114,7 @@
               <button type="button" data-insert="image">Image</button>
               <button type="button" data-insert="rule">Séparateur</button>
               <button type="button" data-insert="firstname">Prénom</button>
+              <button type="button" data-insert="slots" title="Liste des créneaux choisis sur une période, calculée à l'envoi">Créneaux…</button>
             </div>
             <textarea id="nl-body" name="body" rows="18" maxlength="50000" spellcheck="true"></textarea>
             <details class="nl-help">
@@ -107,6 +127,7 @@
                 <li>Bouton, seul sur sa ligne : <code>[[Je m'inscris|https://…]]</code>.</li>
                 <li>Image en ligne, seule sur sa ligne : <code>![Description](https://…/photo.jpg)</code>.</li>
                 <li><code>{{prenom}}</code>, <code>{{nom}}</code>, <code>{{structure}}</code> : remplacés pour chaque destinataire.</li>
+                <li>Créneaux choisis par la structure, seul sur sa ligne : <code>[[creneaux:30]]</code> pour les 30 prochains jours, ou <code>[[creneaux:2026-11-01:2026-11-30]]</code> entre deux dates. La liste est calculée au moment de l'envoi : elle est à jour même pour une newsletter programmée.</li>
               </ul>
               <p>Le lien de désinscription est ajouté automatiquement en bas de chaque e-mail.</p>
             </details>
