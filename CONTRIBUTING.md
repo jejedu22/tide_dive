@@ -19,7 +19,10 @@ Pour une faille de sécurité, suivez plutôt [SECURITY.md](SECURITY.md).
 1. Forkez le dépôt et créez une branche : `git checkout -b ma-modification`
 2. Faites des commits courts et explicites.
 3. Vérifiez que l'application démarre et que votre changement fonctionne
-   (voir le README pour l'installation).
+   (voir le README pour l'installation), puis lancez `pip install -r requirements-dev.txt`,
+   `ruff check app tests` et `python -m pytest` : la CI exécute les mêmes. Un correctif ou une
+   fonction qui touche aux marées, aux créneaux ou aux droits d'accès s'accompagne d'un test.
+   Une évolution du schéma de la base passe par `app/migrations.py` (mode d'emploi en tête de fichier).
 4. Ouvrez une Pull Request en expliquant le changement et comment il a été testé.
 
 Ne committez jamais de fichier `.env` réel, de base de données ni de secret.

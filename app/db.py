@@ -453,6 +453,7 @@ _SQL_INSERT_SUN = """
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
+        fresh = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ports'").fetchone() is None
         # WAL : l'API continue de lire pendant qu'un précalcul écrit une année entière
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
@@ -467,6 +468,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
         if "registered_by_name" not in reg_cols:
             conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by_name TEXT")
+    from . import migrations   # import tardif : migrations importe db
+    migrations.run(fresh=fresh)    # évolutions de schéma versionnées (voir migrations.py)
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
