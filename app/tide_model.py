@@ -276,6 +276,15 @@ def find_extrema(
     highs = argrelextrema(heights, np.greater_equal, order=order)[0]
     lows = argrelextrema(heights, np.less_equal, order=order)[0]
 
+    # Aux deux bouts de la série, argrelextrema (mode « clip ») compare le point
+    # à lui-même et le déclare extremum alors qu'il n'a de voisin que d'un côté :
+    # fausse PM/BM au 31/12 et au 1er janvier. On écarte donc les points situés à
+    # moins de `order` pas d'un bord ; le vrai extremum proche d'une frontière
+    # d'année est détecté dans la série de l'année voisine.
+    last = len(heights) - 1
+    highs = highs[(highs >= order) & (highs <= last - order)]
+    lows = lows[(lows >= order) & (lows <= last - order)]
+
     # argrelextrema peut renvoyer des plateaux (plusieurs indices consécutifs
     # égaux) : on ne garde que le point central de chaque plateau.
     def dedupe(indices: np.ndarray) -> list[int]:
@@ -291,8 +300,6 @@ def find_extrema(
         return result
 
     def refined(idx: int) -> tuple[datetime, float]:
-        if idx == 0 or idx == len(heights) - 1:  # bord de série : pas de voisin des deux côtés
-            return timestamps[idx], float(heights[idx])
         t, h = _refine_parabola(timestamps[idx], step, *map(float, heights[idx - 1:idx + 2]))
         return _round_minute(t), float(h)
 
