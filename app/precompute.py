@@ -52,7 +52,7 @@ import sys
 
 import pandas as pd
 
-from . import calendar_fr, calibration as calib, db, jobs, short_term, tide_model, twilight
+from . import calendar_fr, calibration as calib, checks, db, jobs, short_term, tide_model, twilight
 from .ports_catalog import PORTS
 
 BREST_NAME = "Brest"
@@ -204,6 +204,8 @@ def main() -> None:
     parser.add_argument("--year", type=int, required=True, help="Année à précalculer, ex. 2027")
     parser.add_argument("--timezone", default="Europe/Paris")
     parser.add_argument("--step-minutes", type=int, default=10)
+    parser.add_argument("--no-checks", action="store_true",
+                        help="Écrire même si les contrôles de cohérence échouent (à réserver au diagnostic)")
     parser.add_argument("--model", default=None,
                         help="Nom du modèle pyTMD (défaut : modèle choisi dans l'administration, sinon FES_MODEL, sinon FES2014)")
     args = parser.parse_args()
@@ -259,11 +261,26 @@ def main() -> None:
     sun_rows = twilight.year_sun_times(lat, lon, args.timezone, args.year)
     print(f"[{name}] {len(sun_rows)} jours calculés.")
 
-    # 3. Remplacement atomique de l'année demandée, les autres sont conservées.
+    # 3. Contrôles de cohérence AVANT d'écraser l'année précédente : un résultat faux (modèle mal
+    #    chargé, trou dans la série, erreur d'unité…) laisse la base inchangée et fait échouer la tâche.
+    report = checks.validate_year(extrema_rows, sun_rows, args.year, args.timezone)
+    for warning in report.warnings:
+        print(f"[{name}] avertissement : {warning}", file=sys.stderr)
+    if not report.ok:
+        for error in report.errors:
+            print(f"[{name}] CONTRÔLE ÉCHOUÉ : {error}", file=sys.stderr)
+        if args.no_checks:
+            print(f"[{name}] --no-checks : écriture malgré les erreurs ci-dessus.", file=sys.stderr)
+        else:
+            raise SystemExit(f"[{name}] données {args.year} incohérentes : base inchangée (voir ci-dessus).")
+    else:
+        print(f"[{name}] contrôles de cohérence {args.year} : OK.")
+
+    # 4. Remplacement atomique de l'année demandée, les autres sont conservées.
     print(f"[{name}] remplacement des données {args.year} en base…")
     db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows, model=args.model)
 
-    # 4. Le mois glissant vient d'api-maree.fr : le recalcul vient de l'écraser
+    # 5. Le mois glissant vient d'api-maree.fr : le recalcul vient de l'écraser
     #    avec FES, on le fait rafraîchir juste après.
     port_row = db.get_port(port_id)
     if port_row["api_maree_site"] and short_term.overlaps_window(args.year):
@@ -271,7 +288,7 @@ def main() -> None:
         print(f"[{name}] horaires du mois glissant à reprendre d'api-maree.fr : "
               + (f"tâche #{job_id} en file." if job_id else "tâche déjà en file."))
 
-    # 5. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
+    # 6. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
     try:
         n = calendar_fr.sync_school_holidays()
         print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {calendar_fr.SCHOOL_ACADEMY}).")

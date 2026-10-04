@@ -30,3 +30,8 @@
 # Un échec apparaît dans les logs du scheduler (code de sortie 1). Copier data/backups/
 # hors du serveur : voir « Sauvegarde et restauration » dans le README.
 30 3 * * * python -m app.backup
+
+# Tous les jours, 07:05 — contrôle de santé (données à jour et cohérentes, tâches en échec,
+# sauvegarde récente, disque). Envoie un e-mail aux administrateurs seulement quand une
+# erreur nouvelle apparaît (ALERT_EMAIL, sinon les super administrateurs).
+5 7 * * * python -m app.health --notify

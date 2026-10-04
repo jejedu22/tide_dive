@@ -19,7 +19,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db, jobs, tide_model, tide_reference
+from . import calendar_fr, db, health, jobs, tide_model, tide_reference
 from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
@@ -92,6 +92,12 @@ def admin_status(admin: CurrentAdmin):
         "school_holidays": {"academy": calendar_fr.SCHOOL_ACADEMY, "periods": n_periods, "last_end": last_end},
         "api_maree_configured": tide_reference.configured(),
     }
+
+
+@router.get("/health")
+def admin_health(admin: CurrentAdmin):
+    """Problèmes détectés (données manquantes ou incohérentes, tâches en échec, sauvegarde, disque…)."""
+    return health.summary(health.collect())
 
 
 class TideModelIn(BaseModel):

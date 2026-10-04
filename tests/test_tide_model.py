@@ -48,3 +48,11 @@ def test_ondulation_de_tenue_du_plein_n_est_pas_une_etale():
 def test_coefficient_de_reference():
     assert tide_model.estimate_coefficient(tide_model.U_BREST) == 100
     assert tide_model.estimate_coefficient(0.0) <= 20
+
+
+def test_pas_de_fausse_etale_aux_bords_de_la_serie():
+    ts, h = _series(days=5, phase_h=2.0)
+    ex = tide_model.find_extrema(ts, h)
+    assert ex[0][0] > ts[0] + timedelta(minutes=30) and ex[-1][0] < ts[-1] - timedelta(minutes=30)
+    gaps = [(b[0] - a[0]).total_seconds() / 3600 for a, b in zip(ex, ex[1:])]
+    assert all(5.5 < g < 7 for g in gaps), gaps

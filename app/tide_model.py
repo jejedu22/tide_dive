@@ -275,6 +275,12 @@ def find_extrema(
     order = max(1, round(EXTREMA_NEIGHBORHOOD / step))
     highs = argrelextrema(heights, np.greater_equal, order=order)[0]
     lows = argrelextrema(heights, np.less_equal, order=order)[0]
+    # Premier et dernier échantillons : argrelextrema (mode « clip ») les compare à eux-mêmes et en fait
+    # un extremum dès qu'ils dominent leurs voisins disponibles, soit une fausse étale à chaque bord
+    # de série (1er janvier 00:00 et 31 décembre 23:50 UTC). Faute de voisinage on ne peut pas les juger.
+    edges = {0, len(heights) - 1}
+    highs = np.array([i for i in highs if i not in edges], dtype=int)
+    lows = np.array([i for i in lows if i not in edges], dtype=int)
 
     # argrelextrema peut renvoyer des plateaux (plusieurs indices consécutifs
     # égaux) : on ne garde que le point central de chaque plateau.

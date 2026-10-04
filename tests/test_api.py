@@ -85,3 +85,16 @@ def test_membre_simple_n_est_pas_administrateur(client, make_user):
     client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
     assert client.get("/api/admin/structures").status_code == 403
     assert client.get("/api/admin/jobs").status_code == 403
+
+
+def test_creneaux_de_juin_conserves_quand_le_crepuscule_nautique_tombe_apres_minuit(client, tmp_db):
+    """Brest, 21 juin : crépuscule nautique à 00:04 (lendemain). Une PM à 21:00 doit rester proposée."""
+    port_id = db.upsert_port("Brest", 48.38, -4.49)
+    extrema = [("2026-06-21T19:00:00+00:00", "PM", 7.0, 90.0)]    # 21:00 heure locale
+    sun = [("2026-06-21", "06:16", "22:22", "04:35", "00:04")]
+    db.replace_year(port_id, 2026, [], extrema, sun, model="TEST")
+    res = client.get("/api/dive-windows", params=dict(
+        port_id=port_id, start="2026-06-21", end="2026-06-21", daylight="nautical", margin_minutes=45,
+    )).json()["results"]
+    assert [r["time"] for r in res] == ["21:00"]
+    assert res[0]["fully_in_daylight"] is True

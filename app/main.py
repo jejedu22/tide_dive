@@ -18,7 +18,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import admin, auth, calendar_fr, contact, db, mailjet_admin, newsletters, recovery, security, selections, structures, user_import
@@ -68,6 +68,17 @@ app.include_router(newsletters.router)
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    """Sonde de disponibilité (conteneur, supervision externe) : la base répond-elle ? Aucun détail public."""
+    try:
+        with db.get_conn() as conn:
+            conn.execute("SELECT 1 FROM ports LIMIT 1").fetchall()
+    except Exception:
+        return JSONResponse({"status": "down"}, status_code=503)
+    return {"status": "ok"}
 
 
 @app.get("/api/ports")
@@ -182,6 +193,10 @@ def api_dive_windows(
             if lo and hi:
                 lo_dt = datetime.combine(local_dt.date(), datetime.strptime(lo, "%H:%M").time())
                 hi_dt = datetime.combine(local_dt.date(), datetime.strptime(hi, "%H:%M").time())
+                if hi_dt <= lo_dt:
+                    # le crépuscule tombe après minuit (nautique, en juin sur les côtes bretonnes : 00:04) :
+                    # c'est celui du lendemain
+                    hi_dt += timedelta(days=1)
                 daylight_bounds = {"start": lo, "end": hi}
                 in_daylight = lo_dt <= window_start.replace(tzinfo=None) and window_end.replace(tzinfo=None) <= hi_dt
 

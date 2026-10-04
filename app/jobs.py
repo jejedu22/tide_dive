@@ -231,6 +231,16 @@ class Worker:
         self.current_job = None
         self.beat()
 
+    @staticmethod
+    def _alert_failure(job_id: int, kind: str, params_json: str) -> None:
+        """E-mail aux administrateurs (au plus un par type de tâche et par jour) ; ne lève jamais."""
+        try:
+            from . import alerts   # import tardif : alerts → health → jobs
+            names = {p["id"]: p["name"] for p in db.list_ports()}
+            alerts.job_failed(job_id, kind, job_label(kind, json.loads(params_json or "{}"), names))
+        except Exception as exc:
+            print(f"[worker] alerte non envoyée : {exc}", file=sys.stderr, flush=True)
+
     def execute(self, job) -> None:
         job_id, kind = job["id"], job["kind"]
         self.current_job = job_id
@@ -243,6 +253,7 @@ class Worker:
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             log(f"Paramètres invalides : {exc}\n")
             db.finish_job(job_id, "failed", None, now_iso())
+            self._alert_failure(job_id, kind, job["params_json"])
             self.current_job = None
             return
 
@@ -250,6 +261,7 @@ class Worker:
         if refusal:
             log(refusal + "\n")
             db.finish_job(job_id, "failed", None, now_iso())
+            self._alert_failure(job_id, kind, job["params_json"])
             self.current_job = None
             return
 
@@ -257,6 +269,8 @@ class Worker:
         status, code = self._run_process(job_id, cmd, log)
         db.finish_job(job_id, status, code, now_iso())
         print(f"[worker] tâche #{job_id} terminée : {status} (code {code}).", flush=True)
+        if status == "failed":
+            self._alert_failure(job_id, kind, job["params_json"])
         self.current_job = None
 
     def _run_process(self, job_id: int, cmd: list[str], log) -> tuple[str, int | None]:

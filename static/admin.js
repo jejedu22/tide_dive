@@ -130,6 +130,24 @@ async function loadStatus() {
   if (status.fes_model !== before) renderPorts();
 }
 
+// Santé : données manquantes ou incohérentes, tâches en échec, sauvegarde, disque (app/health.py)
+async function loadHealth() {
+  const box = $("health-banner");
+  let health;
+  try {
+    health = await Session.api("/api/admin/health");
+  } catch (e) {
+    return;
+  }
+  const items = health.problems;
+  box.hidden = !items.length;
+  if (!items.length) return;
+  const li = p => `<li class="${p.level === "error" ? "health-error" : "health-warning"}">${esc(p.message)}</li>`;
+  box.innerHTML = `<strong>${health.errors ? `${health.errors} problème(s) à traiter` : "À surveiller"}</strong>`
+    + `<ul class="plain">${items.map(li).join("")}</ul>`;
+  box.classList.toggle("banner-warning", !health.errors);
+}
+
 function renderWorkerBanner() {
   const w = status.worker;
   const banner = $("worker-banner");
@@ -1843,6 +1861,7 @@ async function onSessionChange(user) {
   if (sup) {
     loadPorts();
     loadStatus();
+    loadHealth();
     loadJobs().then(schedulePoll);
   }
   showTab(location.hash.slice(1));
