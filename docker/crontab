@@ -19,5 +19,9 @@
 # d'api-maree.fr, à la place du calcul FES, pour chaque port doté d'un site.
 10 5 * * * python -m app.jobs enqueue short-term --all
 
+# Toutes les 5 minutes — newsletters programmées dont l'heure est venue : envoi par
+# le worker (rien n'est mis en file s'il n'y en a pas).
+*/5 * * * * python -m app.jobs enqueue newsletters-due
+
 # 1er de chaque mois, 04:00 — vacances scolaires (open data Éducation nationale)
 0 4 1 * * python -m app.jobs enqueue school-holidays

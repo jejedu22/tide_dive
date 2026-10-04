@@ -266,7 +266,77 @@ CREATE TABLE IF NOT EXISTS mailjet_settings (
     check_ok INTEGER,
     check_message TEXT,
     updated_at TEXT NOT NULL,
-    updated_by TEXT
+    updated_by TEXT,
+    events_token TEXT,               -- secret de l'adresse de suivi (webhook) de la structure
+    events_registered_at TEXT        -- suivi activé chez Mailjet
+);
+
+-- Newsletters d'une structure (voir newsletters.py). audience_json : {"kind": "all" |
+-- "managers" | "viewers" | "selection", "selection_id": …}. Les destinataires sont figés
+-- au moment de l'envoi (newsletter_recipients).
+CREATE TABLE IF NOT EXISTS newsletters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    preheader TEXT,
+    body TEXT NOT NULL DEFAULT '',
+    audience_json TEXT NOT NULL DEFAULT '{"kind": "all"}',
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'scheduled', 'queued', 'sending', 'sent', 'failed')),
+    scheduled_at TEXT,               -- envoi programmé (UTC)
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TEXT NOT NULL,
+    sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_newsletters_structure ON newsletters(structure_id, created_at);
+
+-- Un destinataire d'une newsletter envoyée, et son suivi (événements Mailjet)
+CREATE TABLE IF NOT EXISTS newsletter_recipients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    newsletter_id INTEGER NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    email TEXT NOT NULL,
+    name TEXT,
+    unsubscribe_token TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'failed')),
+    message_id TEXT,
+    error TEXT,
+    sent_at TEXT,
+    delivered_at TEXT,
+    opened_at TEXT,
+    clicked_at TEXT,
+    bounced_at TEXT,
+    blocked_at TEXT,
+    spam_at TEXT,
+    unsubscribed_at TEXT,
+    open_count INTEGER NOT NULL DEFAULT 0,
+    click_count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (newsletter_id, email)
+);
+
+-- Événements reçus de Mailjet (url : '' hors clic, pour que l'unicité écarte les doublons)
+CREATE TABLE IF NOT EXISTS newsletter_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_id INTEGER NOT NULL REFERENCES newsletter_recipients(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,
+    at TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
+    detail TEXT,
+    UNIQUE (recipient_id, event, at, url)
+);
+
+-- Désinscriptions des newsletters, par structure et adresse
+CREATE TABLE IF NOT EXISTS newsletter_unsubscribes (
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    source TEXT NOT NULL,            -- lien | compte | plainte | mailjet
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (structure_id, email)
 );
 
 -- Demandes de création d'une structure (formulaire public, voir contact.py)
@@ -340,6 +410,8 @@ CREATE INDEX IF NOT EXISTS idx_slot_types_structure ON slot_types(structure_id, 
 CREATE INDEX IF NOT EXISTS idx_users_structure ON users(structure_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_user_tokens_user ON user_tokens(user_id, purpose);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mailjet_events_token ON mailjet_settings(events_token) WHERE events_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_nl ON newsletter_recipients(newsletter_id, status);
 """
 
 _SQL_INSERT_HEIGHTS = (
@@ -553,6 +625,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
     if "api_maree_site" not in cols:
         conn.execute("ALTER TABLE ports ADD COLUMN api_maree_site TEXT")
+    mailjet_cols = _columns(conn, "mailjet_settings")
+    for col in ("events_token", "events_registered_at"):
+        if col not in mailjet_cols:
+            conn.execute(f"ALTER TABLE mailjet_settings ADD COLUMN {col} TEXT")
     if "harmonics_json" not in _columns(conn, "tide_calibration"):
         conn.execute("ALTER TABLE tide_calibration ADD COLUMN harmonics_json TEXT")
 
@@ -1794,3 +1870,255 @@ def save_mailjet_check(structure_id: int, ok: bool, message: str, now: str) -> N
 def delete_mailjet(structure_id: int) -> bool:
     with get_conn() as conn:
         return conn.execute("DELETE FROM mailjet_settings WHERE structure_id = ?", (structure_id,)).rowcount > 0
+
+
+def set_mailjet_events(structure_id: int, token: str, registered_at: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE mailjet_settings SET events_token = ?, events_registered_at = ? WHERE structure_id = ?",
+            (token, registered_at, structure_id),
+        )
+
+
+def structure_by_events_token(token: str) -> int | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT structure_id FROM mailjet_settings WHERE events_token = ?", (token,)).fetchone()
+    return row["structure_id"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Newsletters
+# ---------------------------------------------------------------------------
+
+_NL_STATS = """
+    SELECT newsletter_id,
+           COUNT(*) AS total,
+           SUM(status = 'sent') AS sent,
+           SUM(status = 'failed') AS failed,
+           SUM(status = 'queued') AS queued,
+           COUNT(delivered_at) AS delivered,
+           COUNT(opened_at) AS opened,
+           COUNT(clicked_at) AS clicked,
+           COUNT(bounced_at) AS bounced,
+           COUNT(blocked_at) AS blocked,
+           COUNT(spam_at) AS spam,
+           COUNT(unsubscribed_at) AS unsubscribed
+    FROM newsletter_recipients GROUP BY newsletter_id
+"""
+
+_NL_SELECT = f"""
+    SELECT n.*,
+           COALESCE(NULLIF(TRIM(COALESCE(cu.first_name, '') || ' ' || COALESCE(cu.last_name, '')), ''), cu.username) AS created_by_name,
+           COALESCE(NULLIF(TRIM(COALESCE(uu.first_name, '') || ' ' || COALESCE(uu.last_name, '')), ''), uu.username) AS updated_by_name,
+           COALESCE(NULLIF(TRIM(COALESCE(su.first_name, '') || ' ' || COALESCE(su.last_name, '')), ''), su.username) AS sent_by_name,
+           st.total, st.sent, st.failed, st.queued, st.delivered, st.opened, st.clicked,
+           st.bounced, st.blocked, st.spam, st.unsubscribed
+    FROM newsletters n
+    LEFT JOIN users cu ON cu.id = n.created_by
+    LEFT JOIN users uu ON uu.id = n.updated_by
+    LEFT JOIN users su ON su.id = n.sent_by
+    LEFT JOIN ({_NL_STATS}) st ON st.newsletter_id = n.id
+"""
+
+_NL_FIELDS = {"subject", "preheader", "body", "audience_json", "status", "scheduled_at", "updated_by",
+              "updated_at", "sent_by", "started_at", "finished_at", "error"}
+
+
+def create_newsletter(structure_id: int, subject: str, preheader: str | None, body: str, audience_json: str,
+                      user_id: int, now: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO newsletters (structure_id, subject, preheader, body, audience_json, created_by, created_at, "
+            "updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (structure_id, subject, preheader, body, audience_json, user_id, now, user_id, now),
+        )
+        return cur.lastrowid
+
+
+def update_newsletter(newsletter_id: int, *, only_status: tuple[str, ...] | None = None, **fields) -> bool:
+    """Met à jour les champs fournis ; only_status : seulement si la newsletter est dans l'un de ces états."""
+    fields = {k: v for k, v in fields.items() if k in _NL_FIELDS}
+    if not fields:
+        return False
+    sql = f"UPDATE newsletters SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?"
+    params = [*fields.values(), newsletter_id]
+    if only_status:
+        sql += f" AND status IN ({', '.join('?' * len(only_status))})"
+        params += list(only_status)
+    with get_conn() as conn:
+        return conn.execute(sql, params).rowcount > 0
+
+
+def get_newsletter(newsletter_id: int, structure_id: int | None = None) -> sqlite3.Row | None:
+    sql, params = _NL_SELECT + " WHERE n.id = ?", [newsletter_id]
+    if structure_id is not None:
+        sql += " AND n.structure_id = ?"
+        params.append(structure_id)
+    with get_conn() as conn:
+        return conn.execute(sql, params).fetchone()
+
+
+def list_newsletters(structure_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            _NL_SELECT + " WHERE n.structure_id = ? ORDER BY COALESCE(n.finished_at, n.scheduled_at, n.updated_at) DESC, n.id DESC",
+            (structure_id,),
+        ).fetchall()
+
+
+def delete_newsletter(newsletter_id: int, structure_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "DELETE FROM newsletters WHERE id = ? AND structure_id = ? AND status NOT IN ('queued', 'sending')",
+            (newsletter_id, structure_id),
+        ).rowcount > 0
+
+
+def due_newsletters(now: str) -> list[int]:
+    with get_conn() as conn:
+        return [r["id"] for r in conn.execute(
+            "SELECT id FROM newsletters WHERE status = 'scheduled' AND scheduled_at <= ? ORDER BY scheduled_at", (now,))]
+
+
+def audience_members(structure_id: int, audience: dict) -> list[sqlite3.Row]:
+    """
+    Comptes visés (avec une adresse e-mail), avant exclusion des désinscrits :
+    kind all | managers | viewers | selection (inscrits au créneau selection_id).
+    """
+    sql = ("SELECT u.id AS user_id, u.email, u.first_name, u.last_name, u.username FROM users u "
+           "WHERE u.structure_id = ? AND u.email IS NOT NULL AND u.email != ''")
+    params: list = [structure_id]
+    kind = audience.get("kind", "all")
+    if kind == "managers":
+        sql += " AND u.structure_role = 'manager'"
+    elif kind == "viewers":
+        sql += " AND u.structure_role = 'viewer'"
+    elif kind == "selection":
+        sql += (" AND u.id IN (SELECT r.user_id FROM slot_registrations r JOIN slot_selections s "
+                "ON s.id = r.selection_id WHERE s.id = ? AND s.structure_id = ?)")
+        params += [audience.get("selection_id"), structure_id]
+    with get_conn() as conn:
+        return conn.execute(sql + " ORDER BY u.email", params).fetchall()
+
+
+def unsubscribed_emails(structure_id: int) -> set[str]:
+    with get_conn() as conn:
+        return {r["email"] for r in conn.execute(
+            "SELECT email FROM newsletter_unsubscribes WHERE structure_id = ?", (structure_id,))}
+
+
+def add_unsubscribe(structure_id: int, email: str, source: str, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO newsletter_unsubscribes (structure_id, email, source, created_at) VALUES (?, ?, ?, ?)",
+            (structure_id, email.lower(), source, now),
+        )
+
+
+def remove_unsubscribe(structure_id: int, email: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM newsletter_unsubscribes WHERE structure_id = ? AND email = ?",
+                     (structure_id, email.lower()))
+
+
+def list_unsubscribes(structure_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT email, source, created_at FROM newsletter_unsubscribes WHERE structure_id = ? ORDER BY created_at DESC",
+            (structure_id,),
+        ).fetchall()
+
+
+def insert_recipients(newsletter_id: int, rows: list[tuple]) -> None:
+    """rows : (user_id, email, nom affiché, jeton de désinscription) ; doublons d'adresse ignorés."""
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO newsletter_recipients (newsletter_id, user_id, email, name, unsubscribe_token) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(newsletter_id, *r) for r in rows],
+        )
+
+
+def queued_recipients(newsletter_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT r.*, u.first_name, u.last_name FROM newsletter_recipients r LEFT JOIN users u ON u.id = r.user_id "
+            "WHERE r.newsletter_id = ? AND r.status = 'queued' ORDER BY r.id",
+            (newsletter_id,),
+        ).fetchall()
+
+
+def mark_recipients(results: list[tuple[int, str, str | None, str | None]], now: str) -> None:
+    """results : (recipient_id, 'sent'|'failed', message_id, erreur)."""
+    with get_conn() as conn:
+        conn.executemany(
+            "UPDATE newsletter_recipients SET status = ?, message_id = ?, error = ?, sent_at = ? WHERE id = ?",
+            [(status, mid, err, now if status == "sent" else None, rid) for rid, status, mid, err in results],
+        )
+
+
+def list_recipients(newsletter_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT id, user_id, email, name, status, message_id, error, sent_at, delivered_at, opened_at, clicked_at, "
+            "bounced_at, blocked_at, spam_at, unsubscribed_at, open_count, click_count "
+            "FROM newsletter_recipients WHERE newsletter_id = ? ORDER BY email",
+            (newsletter_id,),
+        ).fetchall()
+
+
+def clicked_links(newsletter_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT e.url, COUNT(*) AS clicks, COUNT(DISTINCT e.recipient_id) AS people "
+            "FROM newsletter_events e JOIN newsletter_recipients r ON r.id = e.recipient_id "
+            "WHERE r.newsletter_id = ? AND e.event = 'click' AND e.url != '' GROUP BY e.url ORDER BY clicks DESC",
+            (newsletter_id,),
+        ).fetchall()
+
+
+def recipient_for_event(recipient_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT r.*, n.structure_id FROM newsletter_recipients r JOIN newsletters n ON n.id = r.newsletter_id "
+            "WHERE r.id = ?", (recipient_id,),
+        ).fetchone()
+
+
+def recipient_by_token(token: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT r.*, n.structure_id, s.name AS structure_name FROM newsletter_recipients r "
+            "JOIN newsletters n ON n.id = r.newsletter_id JOIN structures s ON s.id = n.structure_id "
+            "WHERE r.unsubscribe_token = ?", (token,),
+        ).fetchone()
+
+
+# Événement Mailjet → colonne horodatée (première occurrence) et compteur
+_EVENT_COLUMNS = {
+    "sent": ("delivered_at", None),
+    "open": ("opened_at", "open_count"),
+    "click": ("clicked_at", "click_count"),
+    "bounce": ("bounced_at", None),
+    "blocked": ("blocked_at", None),
+    "spam": ("spam_at", None),
+    "unsub": ("unsubscribed_at", None),
+}
+
+
+def record_event(recipient_id: int, event: str, at: str, url: str = "", detail: str | None = None) -> bool:
+    """Enregistre un événement ; False s'il était déjà connu (Mailjet peut renvoyer un lot)."""
+    column, counter = _EVENT_COLUMNS[event]
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO newsletter_events (recipient_id, event, at, url, detail) VALUES (?, ?, ?, ?, ?)",
+            (recipient_id, event, at, url or "", detail),
+        )
+        if cur.rowcount == 0:
+            return False
+        conn.execute(f"UPDATE newsletter_recipients SET {column} = COALESCE({column}, ?) WHERE id = ?", (at, recipient_id))
+        if counter:
+            conn.execute(f"UPDATE newsletter_recipients SET {counter} = {counter} + 1 WHERE id = ?", (recipient_id,))
+        if event in ("bounce", "blocked") and detail:
+            conn.execute("UPDATE newsletter_recipients SET error = COALESCE(error, ?) WHERE id = ?", (detail, recipient_id))
+        return True

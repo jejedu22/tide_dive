@@ -148,3 +148,27 @@ def message_error(result: dict) -> str | None:
     if str(result.get("Status", "")).lower() == "success":
         return None
     return _error_message({"Messages": [result]}) or "envoi refusé par Mailjet"
+
+
+# Événements suivis : « sent » = remis au serveur du destinataire (délivré)
+TRACKED_EVENTS = ("sent", "open", "click", "bounce", "spam", "blocked", "unsub")
+
+
+def register_event_callbacks(api_key: str, api_secret: str, url: str) -> None:
+    """
+    Fait envoyer par Mailjet les événements TRACKED_EVENTS à url (format groupé,
+    Version 2). Un événement déjà dirigé ailleurs est redirigé vers url : un
+    compte Mailjet n'a qu'une adresse de suivi par type d'événement.
+    """
+    payload = _request(api_key, api_secret, "GET", "/v3/REST/eventcallbackurl", query={"Limit": 1000})
+    existing = {}
+    for cb in (payload.get("Data") or []) if isinstance(payload, dict) else []:
+        if isinstance(cb, dict) and not cb.get("IsBackup"):
+            existing[str(cb.get("EventType", "")).lower()] = cb
+    for event in TRACKED_EVENTS:
+        body = {"EventType": event, "Url": url, "Status": "alive", "Version": 2, "IsBackup": False}
+        cb = existing.get(event)
+        if cb is None:
+            _request(api_key, api_secret, "POST", "/v3/REST/eventcallbackurl", body=body)
+        elif cb.get("Url") != url or str(cb.get("Status", "")).lower() != "alive" or cb.get("Version") != 2:
+            _request(api_key, api_secret, "PUT", f"/v3/REST/eventcallbackurl/{cb.get('ID')}", body=body)

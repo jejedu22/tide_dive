@@ -23,6 +23,7 @@ Ligne de commande
     python -m app.jobs enqueue precompute --auto [--year 2027]   # ports « précalcul annuel »
     python -m app.jobs enqueue calibrate --port-id 3 | --all     # recalage api-maree.fr
     python -m app.jobs enqueue short-term --port-id 3 | --all    # mois glissant api-maree.fr
+    python -m app.jobs enqueue newsletters-due                    # newsletters programmées échues
     python -m app.jobs enqueue school-holidays
 
 Sans --year, le précalcul vise l'année suivante (usage du cron de décembre).
@@ -99,6 +100,8 @@ def normalize_params(kind: str, params: dict) -> dict:
         return {"port_id": int(params["port_id"]), "model": model}
     if kind == "short_term":
         return {"port_id": int(params["port_id"])}
+    if kind == "newsletter_send":
+        return {"newsletter_id": int(params["newsletter_id"])}
     if kind == "school_holidays":
         return {}
     raise ValueError(f"type de tâche inconnu : {kind}")
@@ -116,6 +119,8 @@ def build_command(kind: str, params: dict) -> list[str]:
                 "--port-id", str(params["port_id"]), "--model", params["model"], "--recompute"]
     if kind == "short_term":
         return [sys.executable, "-m", "app.short_term", "--port-id", str(params["port_id"])]
+    if kind == "newsletter_send":
+        return [sys.executable, "-m", "app.newsletter_send", "--id", str(params["newsletter_id"])]
     if kind == "fetch_models":
         exe = shutil.which("fetch_aviso_fes.py") or "fetch_aviso_fes.py"
         return [exe, "--directory", MODEL_DIR, "--tide", params["model"]]
@@ -143,6 +148,8 @@ def job_label(kind: str, params: dict, port_names: dict[int, str]) -> str:
         pid = params.get("port_id")
         model = f" ({params['model']})" if params.get("model") else ""
         return f"Recalage {port_names.get(pid, f'port #{pid}')} sur api-maree.fr{model}"
+    if kind == "newsletter_send":
+        return f"Envoi de la newsletter #{params.get('newsletter_id')}"
     if kind == "short_term":
         pid = params.get("port_id")
         return f"Mois glissant {port_names.get(pid, f'port #{pid}')} depuis api-maree.fr"
@@ -355,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     short_target.add_argument("--port-id", type=int)
     short_target.add_argument("--all", action="store_true", help="Tous les ports dotés d'un identifiant api-maree.fr")
     enq.add_parser("school-holidays", help="Synchroniser les vacances scolaires")
+    enq.add_parser("newsletters-due", help="Mettre en file les newsletters programmées dont l'heure est venue")
 
     args = parser.parse_args(argv)
 
@@ -377,6 +385,10 @@ def main(argv: list[str] | None = None) -> int:
         ids = enqueue_calibrations(who, "short_term") if args.all else [
             i for i in [enqueue("short_term", {"port_id": args.port_id}, who)] if i
         ]
+    elif args.kind == "newsletters-due":
+        from . import newsletter_send   # import tardif : seule cette commande en a besoin
+        ids = [i for i in (enqueue("newsletter_send", {"newsletter_id": n}, "programmation")
+                           for n in newsletter_send.queue_due()) if i]
     elif args.kind == "fetch-models":
         ids = [i for i in [enqueue("fetch_models", {"model": args.model}, who)] if i]
     else:

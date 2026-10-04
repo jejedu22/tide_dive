@@ -1709,7 +1709,34 @@ function renderMailjet() {
   $("mailjet-test").disabled = !c.configured;
   $("mailjet-test-email").disabled = !c.configured;
   $("mailjet-delete").disabled = !c.configured;
+
+  // suivi des envois (ouvertures, clics, rebonds…) : adresse de suivi déclarée chez Mailjet
+  $("mailjet-events").hidden = !c.configured;
+  if (c.configured) {
+    $("mailjet-events-text").textContent = c.events_enabled
+      ? `Activé le ${stamp(c.events_registered_at)} : Mailjet transmet au site les remises, ouvertures, clics, rebonds, signalements comme indésirable et désinscriptions de chaque newsletter.`
+      : "Non activé : les rapports des newsletters ne montreront que les envois et les refus. L'activation déclare chez Mailjet l'adresse du site où envoyer ces événements.";
+    $("mailjet-events-enable").textContent = c.events_enabled ? "Réactiver le suivi" : "Activer le suivi";
+    $("mailjet-events-url").hidden = !c.events_url;
+    $("mailjet-events-url").innerHTML = c.events_url
+      ? `En cas de besoin, l'adresse à déclarer à la main chez Mailjet (Paramètres du compte → Notifications d'événements) : <code>${esc(c.events_url)}</code>`
+      : "";
+  }
 }
+
+$("mailjet-events-enable").addEventListener("click", async e => {
+  e.target.disabled = true;
+  mjStatus.textContent = "Activation du suivi…";
+  try {
+    mailjetConf = await Session.api(`/api/admin/mailjet/events${mjQS()}`, { method: "POST" });
+    renderMailjet();
+    mjStatus.textContent = "Suivi activé.";
+  } catch (err) {
+    mjStatus.textContent = err.message;
+  } finally {
+    e.target.disabled = false;
+  }
+});
 
 async function mailjetTest() {
   mailjetConf = await Session.api(`/api/admin/mailjet/test${mjQS()}`, { method: "POST" });
@@ -1821,6 +1848,6 @@ async function onSessionChange(user) {
   showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.picks]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters]);
 Session.onChange(onSessionChange);
 Session.init();

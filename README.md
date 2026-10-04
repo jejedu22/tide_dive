@@ -88,6 +88,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 
 - **1er décembre, 02:00** : mise à jour du modèle FES (seuls les fichiers plus récents sont retéléchargés) ;
 - **15 décembre, 03:00** : précalcul de l'année suivante pour chaque port coché « Recalculer automatiquement chaque année » et doté d'un niveau moyen ;
+- **toutes les 5 minutes** : envoi des newsletters programmées dont l'heure est venue (rien n'est mis en file s'il n'y en a pas) ;
 - **2 de chaque mois, 04:30** : recalage sur api-maree.fr de chaque port doté d'un site api-maree.fr (voir [Recalage](#recalage-sur-api-mareefr)) ;
 - **tous les jours, 05:10** : horaires du mois glissant (J−1 à J+29) repris d'api-maree.fr pour ces mêmes ports ;
 - **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires.
@@ -290,7 +291,7 @@ En plus de son rôle (visualisation ou administration), un compte peut recevoir 
 
 | Profil | Ouvre |
 |---|---|
-| **Gestionnaire** | les newsletters de la structure : rédaction, envoi et suivi des envois (à venir). Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
+| **Gestionnaire** | les [newsletters](#newsletters) de la structure : rédaction, envoi et suivi des envois. Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
 
 Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles`.
 
@@ -310,6 +311,19 @@ docker compose run --rm --entrypoint python api -m app.secrets_store generate
 ```
 
 Perdre ou changer `SECRETS_KEY` rend les clés enregistrées illisibles : le test de connexion le signale, et il suffit de les ressaisir. Les e-mails de service (invitations, mot de passe oublié) restent envoyés par le SMTP de l'application (`MAIL_BACKEND`).
+
+**Suivi des envois** : **Activer le suivi** (même onglet) donne à la structure une adresse de suivi secrète (`/api/mailjet/events/<jeton>`) et la déclare chez Mailjet pour les événements remis, ouvert, cliqué, rebond, bloqué, indésirable et désinscription. Sans suivi, les rapports ne montrent que les envois et les refus. Changer de clés désactive le suivi (autre compte Mailjet possible) : il suffit de le réactiver. En cas d'échec de l'activation automatique, l'adresse à déclarer à la main est affichée.
+
+### Newsletters
+
+Page **`/newsletters.html`** (lien « Newsletters » de l'en-tête), réservée au profil **Gestionnaire** de la structure.
+
+- **Rédaction** : objet, pré-en-tête facultatif, destinataires, contenu dans un format simple (titres `##`, `**gras**`, `*italique*`, liens `[texte](https://…)`, listes `- `, bouton `[[Texte|https://…]]`, image `![description](https://…)`, séparateur `---`, et `{{prenom}}`, `{{nom}}`, `{{structure}}` remplacés pour chaque destinataire). Barre de mise en forme et **aperçu en direct**, en HTML et en texte, rendu par le serveur exactement comme à l'envoi (`app/newsletter_render.py` ; tout le texte saisi est échappé, liens et images limités à `http(s)` et `mailto:`).
+- **Destinataires** : tous les membres, les administrateurs, les membres en visualisation, ou les inscrits à un créneau à venir ; comptes ayant une adresse e-mail, moins les désinscrits. Le nombre est affiché ; la liste est **figée au moment de l'envoi**.
+- **M'envoyer un test** (objet préfixé « [TEST] »), **Envoyer…** (confirmation avec le nombre de destinataires), **Programmer…** (à 5 minutes près, annulable tant que l'heure n'est pas venue), **Dupliquer**, **Supprimer**. Seul un brouillon se modifie.
+- **Envoi** par le worker (`app/newsletter_send.py`, tâche « Envoi de la newsletter #N »), par lots de 50 (Send API v3.1). Chaque e-mail porte le suivi des ouvertures et des clics, un lien de désinscription personnel et l'en-tête `List-Unsubscribe` (désinscription en un clic des messageries). Une panne de Mailjet arrête l'envoi en « Échec » : **Reprendre l'envoi** vise seulement les destinataires restants. Une même newsletter ne peut pas partir deux fois.
+- **Rapport** : destinataires, envoyés, délivrés, ouverts, cliqués (avec les taux), rebonds, bloqués, indésirables, désinscrits, refusés ; liens cliqués ; détail par destinataire avec filtres et recherche ; export Excel. Suivi de l'envoi en cours. Les ouvertures sont sous-estimées (images bloquées par certaines messageries).
+- **Désinscription** : le lien mène à `/desinscription.html`, qui demande confirmation (les messageries ouvrent les liens toutes seules). Elle vaut pour toutes les newsletters de la structure. Un signalement comme indésirable désinscrit aussi. La personne peut se réinscrire dans **Mon compte** (« Recevoir les newsletters de ma structure »), où elle peut aussi se désinscrire. La liste des désinscrits est visible des gestionnaires.
 
 ### Demande de création de structure
 
@@ -492,6 +506,16 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET` / `PUT` / `DELETE /api/admin/mailjet` | admin. structure / super admin (`?structure_id=`) | état de la connexion (jamais les clés) / `{api_key?, api_secret?, sender_email, sender_name}` (clés : les deux, ou aucune pour les garder) / déconnexion |
 | `POST /api/admin/mailjet/test` | idem | vérifie les clés et la validation de l'adresse d'expédition ; résultat enregistré |
 | `POST /api/admin/mailjet/test-email` | idem | e-mail de test à l'adresse du compte connecté |
+| `POST /api/admin/mailjet/events` | idem | active le suivi : adresse de suivi déclarée chez Mailjet |
+| `GET` / `POST /api/newsletters` | gestionnaire | liste (avec statistiques) / création d'un brouillon `{subject, preheader?, body, audience: {kind: all \| managers \| viewers \| selection, selection_id?}}` |
+| `GET` / `PATCH` / `DELETE /api/newsletters/{id}` | gestionnaire | détail / modification d'un brouillon / suppression (409 pendant l'envoi) |
+| `GET /api/newsletters/settings`, `/audiences`, `/unsubscribes` | gestionnaire | état de Mailjet et du suivi / audiences avec leurs effectifs / désinscrits |
+| `POST /api/newsletters/preview` | gestionnaire | rendu `{subject, html, text}` personnalisé avec le compte connecté |
+| `POST /api/newsletters/{id}/test`, `/send`, `/schedule`, `/unschedule`, `/resume`, `/duplicate` | gestionnaire | test à soi / envoi / programmation `{at}` (ISO avec fuseau, ou heure de Paris) / annulation / reprise après échec / copie |
+| `GET /api/newsletters/{id}/report` | gestionnaire | statistiques, destinataires, liens cliqués |
+| `GET` / `POST /api/newsletters/unsubscribe/{jeton}` | public | désinscription par lien personnel (POST : aussi « en un clic », RFC 8058) |
+| `GET` / `PUT /api/me/newsletters` | connecté | abonnement aux newsletters de sa structure `{subscribed}` |
+| `POST /api/mailjet/events/{jeton}` | Mailjet | événements de suivi (lot ou événement seul) ; 200 même pour un événement ignoré, 404 si le jeton est inconnu |
 
 Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes les routes connectées répondent 403 (en-tête `X-Password-Change-Required: 1`) sauf `/api/auth/me`, `/api/auth/config`, `/api/auth/logout` et `/api/me/password`.
 
@@ -566,7 +590,10 @@ app/
   structures.py     API des structures (super administrateur)
   contact.py        demandes de création de structure : formulaire public, notification, administration
   mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
-  mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test
+  mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test, activation du suivi
+  newsletters.py    newsletters : brouillons, audiences, test, envoi, programmation, rapport, désinscription, événements Mailjet
+  newsletter_render.py  format de rédaction → e-mail HTML et texte
+  newsletter_send.py    envoi par le worker (lots de 50, reprise) (+ CLI)
   secrets_store.py  chiffrement des secrets en base (SECRETS_KEY) (+ CLI generate)
   admin.py          API d'administration : ports, tâches, état des données
   selections.py     types de créneaux et créneaux choisis, par structure
@@ -580,6 +607,8 @@ static/             frontend (index.html, app.js, style.css)
   session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
   demande-structure.*  formulaire public de demande de création de structure
+  newsletters.*     newsletters (profil Gestionnaire) : liste, édition avec aperçu, rapport d'envoi
+  desinscription.*  désinscription des newsletters par lien personnel
   modele-import-utilisateurs.csv  modèle d'import CSV
   logo.svg, logo-sombre.svg  logo Calendive (page d'agenda dont le bas est la mer ; point sable : l'étale)
   favicon.svg, favicon-32.png, apple-touch-icon.png  icônes (onglet, écran d'accueil)

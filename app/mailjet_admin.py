@@ -10,11 +10,16 @@ test de connexion et e-mail de test. Réservé aux administrateurs de la structu
   est validée chez Mailjet (adresse, ou domaine entier) : sans cela, Mailjet
   refuse ou bloque les envois.
 - credentials() fournit les clés déchiffrées aux envois (newsletters).
+- Suivi des envois : « Activer le suivi » donne à la structure une adresse de
+  suivi secrète (/api/mailjet/events/<jeton>) et la déclare chez Mailjet pour
+  les événements délivré, ouvert, cliqué, rebond, bloqué, spam, désinscription
+  (reçus par newsletters.py).
 """
 
 from __future__ import annotations
 
 import re
+import secrets
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,7 +27,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import accounts, db, mailjet, secrets_store
+from . import accounts, db, mailer, mailjet, secrets_store
 from .auth import CurrentManager, scope_structure
 
 router = APIRouter(prefix="/api/admin/mailjet")
@@ -79,8 +84,16 @@ def _out(structure_id: int) -> dict:
             "check_message": row["check_message"],
             "updated_at": row["updated_at"],
             "updated_by": row["updated_by"],
+            "events_enabled": bool(row["events_registered_at"]),
+            "events_registered_at": row["events_registered_at"],
+            # adresse à déclarer à la main chez Mailjet si l'activation automatique échoue
+            "events_url": events_url(row["events_token"]) if row["events_token"] else None,
         })
     return out
+
+
+def events_url(token: str) -> str | None:
+    return mailer.link(f"api/mailjet/events/{token}") if mailer.BASE_URL else None
 
 
 def _scope(actor, structure_id: int | None) -> int:
@@ -154,6 +167,9 @@ def save_settings(body: SettingsIn, actor: CurrentManager, structure_id: int | N
         hint = body.api_key[-4:]
     db.save_mailjet(sid, key_enc, secret_enc, hint, body.sender_email, body.sender_name,
                     _now_iso(), actor["username"])
+    if body.api_key is not None and row is not None and row["events_token"]:
+        # nouvelles clés, peut-être un autre compte Mailjet : le suivi est à réactiver
+        db.set_mailjet_events(sid, row["events_token"], None)
     return _out(sid)
 
 
@@ -214,6 +230,30 @@ def send_test_email(actor: CurrentManager, structure_id: int | None = None):
     if error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Envoi refusé par Mailjet : {error}")
     return {"sent": True, "to": actor["email"]}
+
+
+@router.post("/events")
+def enable_events(actor: CurrentManager, structure_id: int | None = None):
+    """Déclare chez Mailjet l'adresse de suivi de la structure (ouvertures, clics, rebonds…)."""
+    sid = _scope(actor, structure_id)
+    if not mailer.BASE_URL:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "APP_BASE_URL n'est pas renseignée : Mailjet ne saurait pas où envoyer le suivi.",
+        )
+    try:
+        cred = credentials(sid)
+    except MailjetNotReady as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    row = db.get_mailjet(sid)
+    token = row["events_token"] or secrets.token_urlsafe(32)
+    db.set_mailjet_events(sid, token, row["events_registered_at"])  # jeton gardé même si Mailjet refuse
+    try:
+        mailjet.register_event_callbacks(cred.api_key, cred.api_secret, events_url(token))
+    except mailjet.MailjetError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Suivi non activé : {exc}")
+    db.set_mailjet_events(sid, token, _now_iso())
+    return _out(sid)
 
 
 @router.delete("", status_code=204)

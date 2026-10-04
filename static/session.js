@@ -343,13 +343,27 @@ const Session = (() => {
         { name: "current_password", label: "Mot de passe actuel (pour changer d'adresse e-mail)", type: "password",
           autocomplete: "current-password", required: false },
       ],
-      extra: `<p class="dialog-links"><button type="button" class="link-btn" data-change-password>Changer de mot de passe</button></p>`,
-      onSubmit: async v => {
+      extra: `<label class="check" data-newsletters hidden><input type="checkbox" name="newsletters">
+                 Recevoir les newsletters de ma structure</label>
+               <p class="dialog-links"><button type="button" class="link-btn" data-change-password>Changer de mot de passe</button></p>`,
+      onSubmit: async (v, f) => {
         const body = { first_name: v.first_name, last_name: v.last_name, email: v.email, phone: v.phone };
         if (v.current_password) body.current_password = v.current_password;
-        setUser((await api("/api/me/profile", { method: "PATCH", body })).user);
+        const saved = (await api("/api/me/profile", { method: "PATCH", body })).user;
+        const box = f.newsletters;
+        if (!box.closest("label").hidden && box.checked !== (box.dataset.initial === "1")) {
+          await api("/api/me/newsletters", { method: "PUT", body: { subscribed: box.checked } });
+        }
+        setUser(saved);
       },
       setup: f => {
+        // abonnement aux newsletters : proposé à un compte rattaché à une structure, avec une adresse
+        api("/api/me/newsletters").then(s => {
+          if (!s.available || !f.isConnected) return;
+          f.newsletters.checked = s.subscribed;
+          f.newsletters.dataset.initial = s.subscribed ? "1" : "0";
+          f.newsletters.closest("label").hidden = false;
+        }).catch(() => {});
         const pwLabel = f.current_password.closest("label");
         const sync = () => { pwLabel.hidden = f.email.value.trim().toLowerCase() === (u.email || ""); };
         f.email.addEventListener("input", sync);
@@ -445,6 +459,7 @@ const Session = (() => {
     const parts = [];
     if (u.is_admin) parts.push("Super administrateur");
     if (u.role) parts.push(`${ROLE_LABELS[u.role]} de la structure`);
+    if (u.profiles?.includes("gestionnaire")) parts.push("Gestionnaire");
     return parts.join(" · ");
   }
 
@@ -453,6 +468,7 @@ const Session = (() => {
     search: { href: "index.html", label: "Recherche" },  // "./" renvoie les membres vers leurs créneaux
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", show: u => u.can.admin_area },
+    newsletters: { href: "newsletters.html", label: "Newsletters", show: u => u.can.newsletters },
   };
 
   return {

@@ -1495,3 +1495,56 @@ main.narrow-main { max-width: 32rem; }
 .mailjet-help summary { cursor: pointer; font-weight: 600; color: var(--blue-deep); }
 .mailjet-help ol { padding-left: 1.2rem; line-height: 1.5; }
 @media (max-width: 700px) { .mailjet-form { grid-template-columns: 1fr; } }
+.mailjet-events { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #d5e3e8; }
+.mailjet-events h3 { margin: 0 0 0.4rem; font-size: 1rem; color: var(--blue-deep); }
+.mailjet-events .form-actions { margin: 0.6rem 0; }
+.mailjet-events code { word-break: break-all; }
+
+/* Newsletters (profil Gestionnaire) */
+main.nl-main { max-width: 1200px; }
+.nl-view { display: grid; gap: 1.25rem; }
+.nl-view[hidden] { display: none; }
+.nl-back { margin: 0; }
+.nl-warning { margin: 0.75rem 0 0; padding: 0.6rem 0.8rem; border-radius: 8px; background: #fff4d6; color: #6b4e00; font-size: 0.9rem; }
+.nl-table th a { color: var(--blue-deep); font-weight: 700; }
+.nl-unsubs summary { cursor: pointer; font-weight: 700; color: var(--blue-deep); }
+.nl-unsub-list { margin: 0.5rem 0 0; padding-left: 1.2rem; font-size: 0.9rem; line-height: 1.6; }
+
+.nl-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.nl-form { display: grid; gap: 0.9rem; }
+.nl-form input, .nl-form select, .nl-form textarea {
+  font: inherit; padding: 0.5rem 0.6rem; border: 1px solid #b0c4cc; border-radius: 8px; background: #fff; width: 100%; box-sizing: border-box;
+}
+.nl-form textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; line-height: 1.5; resize: vertical; min-height: 18rem; }
+.nl-toolbar { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.35rem; }
+.nl-toolbar button { font: inherit; font-size: 0.82rem; padding: 0.3rem 0.6rem; min-height: 2rem; border: 1px solid #b0c4cc; border-radius: 6px; background: #f4f9fb; color: var(--blue-deep); cursor: pointer; }
+.nl-toolbar button:hover:not(:disabled) { background: #e6f0f4; }
+.nl-help { font-size: 0.85rem; color: #37515c; }
+.nl-help summary { cursor: pointer; color: var(--blue-deep); font-weight: 600; margin-top: 0.4rem; }
+.nl-help ul { padding-left: 1.2rem; line-height: 1.6; margin: 0.4rem 0; }
+.nl-actions { margin-top: 0.25rem; }
+.nl-preview { position: sticky; top: 1rem; display: grid; gap: 0.6rem; }
+.nl-preview .hint { margin: 0; }
+.nl-frame { width: 100%; height: 70vh; min-height: 420px; border: 1px solid #d5e3e8; border-radius: 8px; background: #f4f9fb; }
+.nl-text { margin: 0; max-height: 70vh; overflow: auto; padding: 0.9rem; border: 1px solid #d5e3e8; border-radius: 8px; background: #fff; white-space: pre-wrap; font-size: 0.85rem; }
+.nl-content-dialog { width: min(760px, 94vw); }
+.nl-content-dialog .nl-frame { height: 65vh; }
+
+.nl-tiles { list-style: none; padding: 0; margin: 1rem 0 0.5rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.6rem; }
+.nl-tile { display: grid; gap: 0.15rem; padding: 0.7rem 0.9rem; border-radius: 10px; background: #f4f9fb; border: 1px solid #d5e3e8; }
+.nl-tile.bad { background: #fdf1f4; border-color: #f2c2cf; }
+.nl-tile-value { font-family: "Sora", -apple-system, "Segoe UI", sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--blue-deep); line-height: 1.1; }
+.nl-tile.bad .nl-tile-value { color: #a3213f; }
+.nl-tile-label { font-size: 0.82rem; color: #37515c; }
+.nl-progress { height: 8px; border-radius: 4px; background: #e6f0f4; overflow: hidden; margin-top: 0.75rem; }
+.nl-progress span { display: block; height: 100%; background: var(--blue); transition: width 0.4s; }
+.nl-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.nl-filters select, .nl-filters input { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid #b0c4cc; border-radius: 8px; }
+
+main.unsub-main { max-width: 40rem; }
+
+@media (max-width: 900px) {
+  .nl-edit { grid-template-columns: 1fr; }
+  .nl-preview { position: static; }
+  .nl-frame { height: 60vh; }
+}
