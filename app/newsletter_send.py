@@ -23,7 +23,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import db, mailer, mailjet, mailjet_admin, newsletter_render, newsletters
+from . import db, mailer, mailjet, mailjet_admin, newsletters
 
 BATCH = mailjet.MAX_MESSAGES_PER_CALL
 
@@ -38,12 +38,12 @@ def _fail(newsletter_id: int, message: str) -> int:
     return 1
 
 
-def _message(nl, structure: str, cred, r) -> dict:
+def _message(nl, slots, cred, r) -> dict:
     token = r["unsubscribe_token"]
-    subject, page, text = newsletter_render.render(
-        nl["subject"], nl["preheader"], nl["body"], structure=structure,
+    subject, page, text = newsletters.render_for(
+        nl["structure_id"], nl["subject"], nl["preheader"], nl["body"],
         first_name=r["first_name"], last_name=r["last_name"],
-        unsubscribe_url=mailer.link(f"desinscription.html?t={token}"),
+        unsubscribe_url=mailer.link(f"desinscription.html?t={token}"), slots=slots,
     )
     one_click = mailer.link(f"api/newsletters/unsubscribe/{token}")
     to = {"Email": r["email"]}
@@ -89,7 +89,8 @@ def run(newsletter_id: int) -> int:
         cred = mailjet_admin.credentials(nl["structure_id"])
     except mailjet_admin.MailjetNotReady as exc:
         return _fail(newsletter_id, str(exc))
-    structure = db.get_structure(nl["structure_id"])["name"]
+    # créneaux choisis lus une fois pour tout l'envoi, à son début
+    slots = newsletters.slot_lister(nl["structure_id"])
 
     if not nl["total"]:
         prepare_recipients(nl)
@@ -97,7 +98,7 @@ def run(newsletter_id: int) -> int:
     sent = failed = 0
     for i in range(0, len(pending), BATCH):
         batch = pending[i:i + BATCH]
-        messages = [_message(nl, structure, cred, r) for r in batch]
+        messages = [_message(nl, slots, cred, r) for r in batch]
         try:
             results = mailjet.send(cred.api_key, cred.api_secret, messages)
         except mailjet.MailjetError as exc:

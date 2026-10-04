@@ -50,6 +50,7 @@ AUDIENCE_LABELS = {
     "managers": "Administrateurs de la structure",
     "viewers": "Membres en visualisation",
     "selection": "Inscrits à un créneau",
+    "group": "Groupe d'envoi",
 }
 
 
@@ -75,15 +76,20 @@ NewsletterUser = Annotated[sqlite3.Row, Depends(current_newsletter_user)]
 # ---------------------------------------------------------------------------
 
 class Audience(BaseModel):
-    kind: Literal["all", "managers", "viewers", "selection"] = "all"
+    kind: Literal["all", "managers", "viewers", "selection", "group"] = "all"
     selection_id: int | None = None
+    group_id: int | None = None
 
     @model_validator(mode="after")
-    def _selection(self):
+    def _target(self):
         if self.kind == "selection" and self.selection_id is None:
             raise ValueError("Choisissez le créneau dont les inscrits recevront la newsletter")
+        if self.kind == "group" and self.group_id is None:
+            raise ValueError("Choisissez le groupe d'envoi")
         if self.kind != "selection":
             self.selection_id = None
+        if self.kind != "group":
+            self.group_id = None
         return self
 
 
@@ -153,6 +159,9 @@ _STATS = ("total", "sent", "failed", "queued", "delivered", "opened", "clicked",
 
 
 def _audience_label(structure_id: int, audience: dict) -> str:
+    if audience.get("kind") == "group":
+        group = db.get_mailing_group(structure_id, audience.get("group_id") or 0)
+        return f"Groupe « {group['name']} »" if group else "Groupe supprimé"
     if audience.get("kind") != "selection":
         return AUDIENCE_LABELS.get(audience.get("kind", "all"), "Tous les membres")
     sel = db.get_selection(structure_id, audience.get("selection_id") or 0)
@@ -198,6 +207,36 @@ def _get_or_404(user: sqlite3.Row, newsletter_id: int) -> sqlite3.Row:
 def _check_audience(structure_id: int, audience: Audience) -> None:
     if audience.kind == "selection" and db.get_selection(structure_id, audience.selection_id) is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Créneau inconnu dans votre structure")
+    if audience.kind == "group" and db.get_mailing_group(structure_id, audience.group_id) is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Groupe d'envoi inconnu dans votre structure")
+
+
+def slot_lister(structure_id: int) -> newsletter_render.SlotLister:
+    """Créneaux choisis par la structure sur une période, mis en cache le temps d'un envoi."""
+    cache: dict = {}
+
+    def list_slots(start, end) -> list[dict]:
+        if (start, end) not in cache:
+            cache[(start, end)] = [{
+                "date": s["local_date"], "end_date": s["end_date"], "rdv_date": s["rdv_date"],
+                "rdv_time": s["rdv_time"], "place": s["port_name"], "note": s["note"],
+                "type": s["type_label"], "type_color": s["type_color"], "kind": s["kind"],
+                "time": s["local_time"], "coefficient": s["coefficient"],
+            } for s in db.list_selections(structure_id, start.isoformat()) if s["local_date"] <= end.isoformat()]
+        return cache[(start, end)]
+    return list_slots
+
+
+def render_for(structure_id: int, subject: str, preheader: str | None, body: str, *,
+               first_name: str | None, last_name: str | None, unsubscribe_url: str | None = None,
+               slots: newsletter_render.SlotLister | None = None) -> tuple[str, str, str]:
+    """Rendu d'une newsletter de la structure : nom, créneaux choisis (calculés maintenant), lien d'inscription."""
+    return newsletter_render.render(
+        subject, preheader, body, structure=db.get_structure(structure_id)["name"],
+        first_name=first_name, last_name=last_name, unsubscribe_url=unsubscribe_url,
+        slots=slots or slot_lister(structure_id), today=datetime.now(PARIS).date(),
+        slots_url=mailer.link("mes-creneaux.html") if mailer.BASE_URL else None,
+    )
 
 
 def recipients_for(structure_id: int, audience: dict) -> tuple[list[sqlite3.Row], int]:
@@ -266,6 +305,10 @@ def audiences(user: NewsletterUser):
     for kind in ("all", "managers", "viewers"):
         members, skipped = recipients_for(sid, {"kind": kind})
         out.append({"kind": kind, "label": AUDIENCE_LABELS[kind], "recipients": len(members), "unsubscribed": skipped})
+    for group in db.list_mailing_groups(sid):
+        audience = {"kind": "group", "group_id": group["id"]}
+        members, skipped = recipients_for(sid, audience)
+        out.append({**audience, "label": f"Groupe « {group['name']} »", "recipients": len(members), "unsubscribed": skipped})
     today = datetime.now(PARIS).date().isoformat()
     for sel in db.list_selections(sid, today)[:60]:
         audience = {"kind": "selection", "selection_id": sel["id"]}
@@ -277,9 +320,8 @@ def audiences(user: NewsletterUser):
 @router.post("/newsletters/preview")
 def preview(body: PreviewIn, user: NewsletterUser):
     """Rendu de l'e-mail, personnalisé avec le nom du compte connecté."""
-    structure = db.get_structure(user["structure_id"])
-    subject, page, text = newsletter_render.render(
-        body.subject or "(sans objet)", body.preheader, body.body, structure=structure["name"],
+    subject, page, text = render_for(
+        user["structure_id"], body.subject or "(sans objet)", body.preheader, body.body,
         first_name=user["first_name"], last_name=user["last_name"],
     )
     return {"subject": subject, "html": page, "text": text}
@@ -288,6 +330,90 @@ def preview(body: PreviewIn, user: NewsletterUser):
 @router.get("/newsletters/unsubscribes")
 def unsubscribes(user: NewsletterUser):
     return [dict(r) for r in db.list_unsubscribes(user["structure_id"])]
+
+
+# ---------------------------------------------------------------------------
+# Groupes d'envoi
+# ---------------------------------------------------------------------------
+
+class GroupIn(BaseModel):
+    name: str = Field(max_length=60)
+    description: str | None = Field(None, max_length=200)
+    member_ids: list[int] | None = Field(None, max_length=5000)   # None : membres inchangés (modification)
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = _one_line(v)
+        if not v:
+            raise ValueError("Nom du groupe obligatoire")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _description(cls, v: str | None) -> str | None:
+        return _one_line(v)
+
+
+def _group_out(row: sqlite3.Row, with_members: bool = True) -> dict:
+    out = {"id": row["id"], "name": row["name"], "description": row["description"],
+           "created_at": row["created_at"], "updated_at": row["updated_at"]}
+    if with_members:
+        out["member_ids"] = db.mailing_group_member_ids(row["id"])
+        out["members"] = len(out["member_ids"])
+    return out
+
+
+def _group_or_404(user: sqlite3.Row, group_id: int) -> sqlite3.Row:
+    row = db.get_mailing_group(user["structure_id"], group_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Groupe introuvable")
+    return row
+
+
+def _save_group(user: sqlite3.Row, group_id: int | None, body: GroupIn) -> dict:
+    try:
+        gid = db.save_mailing_group(user["structure_id"], group_id, body.name, body.description,
+                                    body.member_ids, _iso(_now()))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Un groupe « {body.name} » existe déjà")
+    return _group_out(db.get_mailing_group(user["structure_id"], gid))
+
+
+@router.get("/newsletters/groups")
+def list_groups(user: NewsletterUser):
+    return [_group_out(g) for g in db.list_mailing_groups(user["structure_id"])]
+
+
+@router.post("/newsletters/groups", status_code=201)
+def create_group(body: GroupIn, user: NewsletterUser):
+    return _save_group(user, None, body)
+
+
+@router.put("/newsletters/groups/{group_id}")
+def update_group(group_id: int, body: GroupIn, user: NewsletterUser):
+    _group_or_404(user, group_id)
+    return _save_group(user, group_id, body)
+
+
+@router.delete("/newsletters/groups/{group_id}", status_code=204)
+def delete_group(group_id: int, user: NewsletterUser):
+    """Les newsletters déjà envoyées gardent leurs destinataires ; un brouillon visant ce groupe n'en aura plus."""
+    _group_or_404(user, group_id)
+    db.delete_mailing_group(user["structure_id"], group_id)
+
+
+@router.get("/newsletters/members")
+def members(user: NewsletterUser):
+    """Comptes de la structure, pour composer les groupes."""
+    unsub = db.unsubscribed_emails(user["structure_id"])
+    return [{
+        "id": m["id"],
+        "name": " ".join(p for p in (m["first_name"], m["last_name"]) if p) or m["username"],
+        "email": m["email"],
+        "role": m["structure_role"],
+        "unsubscribed": bool(m["email"]) and m["email"].lower() in unsub,
+    } for m in db.structure_members(user["structure_id"])]
 
 
 @router.get("/newsletters/{newsletter_id}")
@@ -350,9 +476,8 @@ def send_test(newsletter_id: int, user: NewsletterUser):
     if not user["email"]:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Votre compte n'a pas d'adresse e-mail (Mon compte).")
     cred = _require_ready(user)
-    structure = db.get_structure(user["structure_id"])
-    subject, page, text = newsletter_render.render(
-        row["subject"], row["preheader"], row["body"], structure=structure["name"],
+    subject, page, text = render_for(
+        user["structure_id"], row["subject"], row["preheader"], row["body"],
         first_name=user["first_name"], last_name=user["last_name"],
         unsubscribe_url=mailer.link("desinscription.html") if mailer.BASE_URL else None,
     )
