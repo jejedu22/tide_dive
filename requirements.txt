@@ -8,3 +8,4 @@ python-dateutil>=2.8
 pytz>=2024.1
 h5py>=3.10
 dask[array]>=2024.1
+cryptography>=42

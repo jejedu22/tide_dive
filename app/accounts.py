@@ -125,6 +125,22 @@ def display_name(row: sqlite3.Row) -> str:
 # Représentation publique et droits
 # ---------------------------------------------------------------------------
 
+# Profils : s'ajoutent au rôle de structure (visualisation / administration) et se cumulent.
+# Un administrateur de structure (ou un super administrateur) les attribue aux comptes de la structure.
+PROFILES = {
+    "gestionnaire": {
+        "label": "Gestionnaire",
+        "description": "Newsletters : rédaction, envoi et suivi des envois",
+    },
+}
+
+
+def profiles_of(row: sqlite3.Row) -> list[str]:
+    """Profils du compte, triés ; ignore ceux qui ne sont plus au catalogue."""
+    raw = row["profiles"] if "profiles" in row.keys() else None
+    return sorted(p for p in (raw or "").split(",") if p in PROFILES)
+
+
 def permissions(row: sqlite3.Row) -> dict:
     """Droits dérivés du compte ; le front s'en sert pour l'affichage, l'API les revérifie."""
     is_super = bool(row["is_admin"])
@@ -136,6 +152,10 @@ def permissions(row: sqlite3.Row) -> dict:
         "manage_structure": manager,           # membres et types de SA structure
         "pick": manager,                       # choisir / retirer des créneaux
         "view_selections": in_structure,       # voir les créneaux de sa structure
+        "manage_mailjet": manager,             # connexion Mailjet de sa structure
+        # newsletters : profil « gestionnaire » exigé, y compris pour un administrateur
+        # (il se l'attribue lui-même s'il en a besoin)
+        "newsletters": in_structure and "gestionnaire" in profiles_of(row),
     }
 
 
@@ -157,6 +177,7 @@ def public_user(row: sqlite3.Row) -> dict:
             if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],
+        "profiles": profiles_of(row),
         "can": permissions(row),
         "must_change_password": bool(row["must_change_password"]),
         "pending_invite": bool(row["pending_invite"]),
