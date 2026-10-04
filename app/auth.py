@@ -184,11 +184,20 @@ def current_picker(user: Annotated[sqlite3.Row, Depends(current_member)]) -> sql
     return user
 
 
+def current_registrar(user: Annotated[sqlite3.Row, Depends(current_member)]) -> sqlite3.Row:
+    if not permissions(user)["manage_registrations"]:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs de la structure et au profil « Inscriptions »",
+        )
+    return user
+
+
 CurrentUser = Annotated[sqlite3.Row, Depends(current_user)]
 CurrentSuperAdmin = Annotated[sqlite3.Row, Depends(current_super_admin)]
 CurrentManager = Annotated[sqlite3.Row, Depends(current_manager)]
 CurrentMember = Annotated[sqlite3.Row, Depends(current_member)]
 CurrentPicker = Annotated[sqlite3.Row, Depends(current_picker)]
+CurrentRegistrar = Annotated[sqlite3.Row, Depends(current_registrar)]
 
 
 def can_manage_structure(actor: sqlite3.Row, structure_id: int | None) -> bool:

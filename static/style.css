@@ -822,7 +822,7 @@ body.read-only table.picks .c-actions { display: none; }
 
 /* Inscriptions sur les créneaux choisis */
 table.picks .c-regs { white-space: nowrap; }
-.regs { display: flex; align-items: center; gap: 0.4rem; }
+.regs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .reg-count {
   display: inline-grid; place-items: center; min-width: 1.7rem; height: 1.7rem; padding: 0 0.4rem;
   border: 1px solid #cfe3ea; border-radius: 999px; background: #e3eef3; color: #264653;
@@ -841,6 +841,7 @@ table.picks .c-regs { white-space: nowrap; }
 .regs-pop ul { list-style: none; margin: 0; padding: 0; }
 .regs-pop li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
 .regs-pop li.me { font-weight: 600; color: #1b4332; }
+.regs-pop .reg-by { display: block; font-size: 0.75rem; font-weight: 400; color: #607d8b; }
 .chip-remove {
   border: 0; background: none; color: inherit; cursor: pointer; padding: 0 0.2rem;
   font-size: 1rem; line-height: 1; opacity: 0.55;

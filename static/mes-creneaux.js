@@ -2,9 +2,10 @@
 // Tout membre : s'inscrire / se désinscrire sur un créneau à venir, dans les
 // délais fixés par la structure (le serveur fait foi).
 // Administration de la structure : en plus, changer le type, retirer un
-// créneau (qui redevient disponible dans la recherche), retirer l'inscription
-// d'un membre, ajouter et modifier des créneaux personnalisés (port, jour,
+// créneau (qui redevient disponible dans la recherche), ajouter et modifier des créneaux personnalisés (port, jour,
 // heure de RDV et intitulé saisis, en dehors des étales de la recherche).
+// Administration ou profil « Inscriptions » : inscrire d'autres membres et
+// retirer leur inscription, délais non compris.
 //
 // Deux affichages, mémorisés dans le navigateur :
 //  - Calendrier : grille du mois + fiches des créneaux du jour sélectionné ;
@@ -42,8 +43,10 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let types = [];       // types actifs, ordre de l'administration
 let picks = [];       // triés par date puis heure de RDV
 let ports = null;     // ports proposés dans le formulaire des créneaux personnalisés (chargés à la demande)
+let members = null;   // membres de la structure, pour inscrire quelqu'un (chargés à la demande)
 
 const canPick = () => !!Session.user?.can.pick;
+const canRegisterOthers = () => !!Session.user?.can.manage_registrations;
 
 // ---- Dates (chaînes ISO AAAA-MM-JJ, midi local pour éviter les pièges de l'heure d'été) ----
 
@@ -109,7 +112,10 @@ function registrationsCell(p) {
         ? `<button type="button" class="btn-quiet btn-small" data-act="unregister"
              title="Possible jusqu'au ${formatDay(p.unregister_until)} inclus">Se désinscrire</button>`
         : `<span class="reg-locked" title="Désinscription close depuis le ${formatDay(nextDay(p.unregister_until))} : contactez un administrateur de la structure">🔒 Désinscription close</span>`;
-  return `<div class="regs">${count}${button}</div>`;
+  const others = !p.past && canRegisterOthers()
+    ? `<button type="button" class="btn-quiet btn-small" data-act="register-others" title="Inscrire d'autres membres de la structure">+ Inscrire…</button>`
+    : "";
+  return `<div class="regs">${count}${button}${others}</div>`;
 }
 
 // Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
@@ -203,11 +209,12 @@ function renderPop() {
   const me = Session.user.id;
   const items = p.registrations.map(r => {
     const mine = r.user_id === me;
-    const remove = canPick() && !mine
+    const remove = canRegisterOthers() && !mine
       ? `<button type="button" class="chip-remove" data-act="unregister-other" data-user="${r.user_id}"
            title="Retirer l'inscription" aria-label="Retirer l'inscription de ${esc(r.display_name)}">×</button>`
       : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}">${esc(r.display_name)}${mine ? " (vous)" : ""}${remove}</li>`;
+    const by = r.registered_by ? `<span class="reg-by">inscrit par ${esc(r.registered_by)}</span>` : "";
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${esc(r.display_name)}${mine ? " (vous)" : ""}${by}</span>${remove}</li>`;
   }).join("");
   pop.innerHTML = `<p class="regs-pop-title">${p.registrations.length} inscrit(s)</p>` +
     (items ? `<ul>${items}</ul>` : `<p class="muted">Personne pour l'instant.</p>`);
@@ -555,6 +562,78 @@ picksEl.addEventListener("click", async e => {
   render();
 });
 
+// ---- Inscrire d'autres membres (administration ou profil « Inscriptions ») ----
+
+const ROLE = { viewer: "visualisation", manager: "administration" };
+
+async function openRegisterOthers(p) {
+  try {
+    members ??= await Session.api("/api/selections/members");
+  } catch (err) {
+    statusEl.textContent = `Membres non chargés : ${err.message}`;
+    return;
+  }
+  const already = new Set(p.registrations.map(r => r.user_id));
+  const candidates = members.filter(m => !already.has(m.id));
+  const when = p.end_date ? `du ${formatLong(p.date)} au ${formatLong(p.end_date)}` : `du ${formatLong(p.date)}`;
+  const form = openDialog({
+    title: "Inscrire des membres",
+    submitLabel: "Inscrire",
+    body: `
+      <p class="dialog-hint">Créneau ${esc(when)}, ${esc(p.note || p.port)}. Les délais d'inscription ne s'appliquent pas ; chaque membre inscrit est prévenu par e-mail et peut se désinscrire dans les délais habituels.</p>
+      ${candidates.length ? `
+      <fieldset class="nl-members">
+        <legend>Membres <span class="muted" data-count></span></legend>
+        <div class="nl-members-bar">
+          <label class="visually-hidden" for="reg-search">Rechercher</label>
+          <input id="reg-search" type="search" placeholder="Rechercher un membre…">
+        </div>
+        <ul class="nl-member-list">${candidates.map(m => `
+          <li data-search="${esc(`${m.display_name} ${m.username}`.toLowerCase())}">
+            <label class="check"><input type="checkbox" name="member" value="${m.id}">
+              <span>${esc(m.display_name)}${m.id === Session.user.id ? " (vous)" : ""} <span class="muted">${esc(m.username)} · ${ROLE[m.role] || ""}</span></span></label>
+          </li>`).join("")}</ul>
+      </fieldset>` : `<p class="muted">Tous les membres de la structure sont déjà inscrits.</p>`}`,
+    onSubmit: async form => {
+      const ids = [...form.querySelectorAll("[name=member]:checked")].map(b => Number(b.value));
+      if (!ids.length) throw new Error("Cochez au moins un membre.");
+      let updated;
+      try {
+        updated = await Session.api(`/api/selections/${p.id}/registrations`, { method: "POST", body: { user_ids: ids } });
+      } catch (err) {
+        if (err.status === 404 || err.status === 409) load();
+        throw err;
+      }
+      picks = picks.map(x => (x.id === p.id ? updated : x));
+      render();
+      if (popFor === p.id) renderPop();
+      statusEl.textContent = `${plural(updated.added, "membre inscrit", "membres inscrits")}.`;
+    },
+  });
+  form.classList.add("reg-others");
+  form.closest("dialog").classList.add("nl-group-dialog");
+  const boxes = () => [...form.querySelectorAll("[name=member]")];
+  const count = () => {
+    const el = form.querySelector("[data-count]");
+    if (el) el.textContent = `(${boxes().filter(b => b.checked).length} coché(s) sur ${candidates.length})`;
+  };
+  form.addEventListener("change", count);
+  count();
+  const search = form.querySelector("#reg-search");
+  search?.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    for (const li of form.querySelectorAll(".nl-member-list li")) li.hidden = !!q && !li.dataset.search.includes(q);
+  });
+  search?.focus();
+}
+
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=register-others]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openRegisterOthers(p);
+});
+
 // ---- Créneaux personnalisés (administration) : ajout et modification ----
 
 function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
@@ -692,7 +771,8 @@ const EXPORT_COLUMNS = [
   { header: "Type", width: 16, value: p => p.type.label },
   { header: "Intitulé", width: 24, value: p => p.note || "" },
   { header: "Nb inscrits", type: "int", width: 11, value: p => p.registrations.length },
-  { header: "Inscrits", width: 40, value: p => p.registrations.map(r => r.display_name).join(", ") },
+  { header: "Inscrits", width: 40, value: p => p.registrations.map(r =>
+    r.display_name + (r.registered_by ? ` (inscrit par ${r.registered_by})` : "")).join(", ") },
   { header: "Inscrit (moi)", width: 12, value: p => (p.registered ? "oui" : "") },
   { header: "Choisi / ajouté par", width: 18, value: p => p.picked_by || "compte supprimé" },
 ];
@@ -763,6 +843,7 @@ Session.onChange(user => {
   $("structure-name").textContent = member ? `· ${user.structure.name}` : "";
   document.body.classList.toggle("read-only", member && !user.can.pick);
   picks = [];
+  members = null;
   month = selectedDay = null;
   if (!user) {
     gateEl.innerHTML = `Connectez-vous pour voir les créneaux choisis par votre structure. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
@@ -775,7 +856,8 @@ Session.onChange(user => {
   }
   $("picks-hint").textContent = user.can.pick
     ? "Liste commune à la structure. Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche. « + Créneau personnalisé » ajoute un créneau à l'heure de votre choix, en dehors des étales proposées."
-    : "Liste commune à la structure : inscrivez-vous sur les créneaux qui vous intéressent. Seuls ses administrateurs choisissent les créneaux. Les heures sont celles calculées au moment du choix.";
+    : "Liste commune à la structure : inscrivez-vous sur les créneaux qui vous intéressent. Seuls ses administrateurs choisissent les créneaux. Les heures sont celles calculées au moment du choix." +
+      (user.can.manage_registrations ? " « + Inscrire… » inscrit d'autres membres de la structure." : "");
   load();
 });
 Session.init();
