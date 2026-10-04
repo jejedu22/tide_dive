@@ -98,6 +98,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 |---|---|---|
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
 | `API_MAREE_KEY` | — | Clé [api-maree.fr](https://api-maree.fr) pour le recalage du modèle (facultative : sans clé, hauteurs FES brutes) |
+| `SECRETS_KEY` | — | Clé de chiffrement des clés Mailjet des structures (voir [Connexion Mailjet](#connexion-mailjet)) ; sans elle, Mailjet ne peut pas être connecté |
 | `FES_MODEL` | `FES2014` | Modèle par défaut (`FES2014` ou `FES2022`), pour le téléchargement et les calculs, tant qu'aucun n'est choisi dans l'administration |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
 | `MAREE_HOST` | — | Domaine public routé par Traefik (obligatoire) |
@@ -283,6 +284,33 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 
 Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
+### Profils
+
+En plus de son rôle (visualisation ou administration), un compte peut recevoir un ou plusieurs **profils**, cumulables, qui ouvrent des fonctions particulières. Un administrateur de structure les attribue aux comptes de sa structure (y compris le sien), un super administrateur à ceux de toutes les structures, dans **Utilisateurs** (création ou **Modifier**). Un profil exige une structure.
+
+| Profil | Ouvre |
+|---|---|
+| **Gestionnaire** | les newsletters de la structure : rédaction, envoi et suivi des envois (à venir). Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
+
+Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles`.
+
+### Connexion Mailjet
+
+Les newsletters partent par [Mailjet](https://www.mailjet.com), avec le compte Mailjet **de chaque structure**. Un administrateur de la structure (ou un super administrateur) le connecte dans **`/admin.html` → Mailjet** :
+
+1. clé API et clé secrète (compte Mailjet → Paramètres du compte → Gestion des clés API) ;
+2. adresse et nom d'expéditeur : l'adresse doit être **validée chez Mailjet** (Adresses et domaines d'expéditeur), seule ou par son domaine ;
+3. **Enregistrer et tester** vérifie que les clés sont acceptées et que l'adresse est validée ; **M'envoyer un e-mail de test** écrit à l'adresse du compte connecté.
+
+Les clés sont **chiffrées** en base (Fernet, bibliothèque `cryptography`) avec `SECRETS_KEY`, et ne sont plus jamais renvoyées par l'API : l'interface n'en montre que les 4 derniers caractères. Pour en changer, on saisit les deux de nouveau.
+
+```bash
+# Générer SECRETS_KEY (une fois), puis la mettre dans .env et la sauvegarder à part
+docker compose run --rm --entrypoint python api -m app.secrets_store generate
+```
+
+Perdre ou changer `SECRETS_KEY` rend les clés enregistrées illisibles : le test de connexion le signale, et il suffit de les ressaisir. Les e-mails de service (invitations, mot de passe oublié) restent envoyés par le SMTP de l'application (`MAIL_BACKEND`).
+
 ### Demande de création de structure
 
 Un club qui n'a pas encore de structure peut la demander depuis la page publique **`/demande-structure.html`** (lien en bas de la page de recherche et dans la fenêtre de connexion) : nom de la structure, ville ou port d'attache, nom, e-mail, téléphone et message facultatifs, et accord sur le traitement des données.
@@ -460,6 +488,10 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET /api/admin/structure-requests` | super admin | demandes, en attente d'abord |
 | `POST /api/admin/structure-requests/{id}/create-structure` | super admin | `{name?}` : crée la structure et classe la demande (409 si le nom existe) |
 | `PATCH` / `DELETE /api/admin/structure-requests/{id}` | super admin | `{status: new \| done \| rejected}` / suppression |
+| `GET /api/admin/profiles` | admin. structure / super admin | catalogue des profils `[{id, label, description}]` ; `profiles: [...]` dans la création et la modification de compte |
+| `GET` / `PUT` / `DELETE /api/admin/mailjet` | admin. structure / super admin (`?structure_id=`) | état de la connexion (jamais les clés) / `{api_key?, api_secret?, sender_email, sender_name}` (clés : les deux, ou aucune pour les garder) / déconnexion |
+| `POST /api/admin/mailjet/test` | idem | vérifie les clés et la validation de l'adresse d'expédition ; résultat enregistré |
+| `POST /api/admin/mailjet/test-email` | idem | e-mail de test à l'adresse du compte connecté |
 
 Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes les routes connectées répondent 403 (en-tête `X-Password-Change-Required: 1`) sauf `/api/auth/me`, `/api/auth/config`, `/api/auth/logout` et `/api/me/password`.
 
@@ -533,6 +565,9 @@ app/
   mailer.py         envoi d'e-mails (SMTP ou console)
   structures.py     API des structures (super administrateur)
   contact.py        demandes de création de structure : formulaire public, notification, administration
+  mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
+  mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test
+  secrets_store.py  chiffrement des secrets en base (SECRETS_KEY) (+ CLI generate)
   admin.py          API d'administration : ports, tâches, état des données
   selections.py     types de créneaux et créneaux choisis, par structure
   slots.py          description d'une étale (coefficient, RDV), partagée

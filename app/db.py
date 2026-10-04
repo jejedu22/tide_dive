@@ -244,6 +244,31 @@ CREATE TABLE IF NOT EXISTS computed_years (
     PRIMARY KEY (port_id, year)
 );
 
+-- Profils d'un compte, en plus de son rôle de structure (visualisation / administration) :
+-- un compte en a autant qu'il faut. Catalogue : accounts.PROFILES (sans CHECK ici, pour
+-- en ajouter sans migration). « gestionnaire » : newsletters.
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile TEXT NOT NULL,
+    PRIMARY KEY (user_id, profile)
+);
+
+-- Connexion Mailjet d'une structure (voir mailjet_admin.py). Clé API et clé secrète sont
+-- chiffrées (secrets_store.py) et ne ressortent jamais ; api_key_hint = 4 derniers caractères.
+CREATE TABLE IF NOT EXISTS mailjet_settings (
+    structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+    api_key_enc TEXT NOT NULL,
+    api_secret_enc TEXT NOT NULL,
+    api_key_hint TEXT NOT NULL,
+    sender_email TEXT NOT NULL,
+    sender_name TEXT NOT NULL,
+    checked_at TEXT,                 -- dernier test de connexion
+    check_ok INTEGER,
+    check_message TEXT,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+);
+
 -- Demandes de création d'une structure (formulaire public, voir contact.py)
 CREATE TABLE IF NOT EXISTS structure_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1044,7 +1069,8 @@ _USER_SELECT = """
            u.must_change_password, u.password_changed_at,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
            (SELECT MAX(t.expires_at) FROM user_tokens t
-             WHERE t.user_id = u.id AND t.purpose = 'invite') AS invite_expires_at
+             WHERE t.user_id = u.id AND t.purpose = 'invite') AS invite_expires_at,
+           (SELECT GROUP_CONCAT(up.profile) FROM user_profiles up WHERE up.user_id = u.id) AS profiles
     FROM users u LEFT JOIN structures st ON st.id = u.structure_id
 """
 
@@ -1180,6 +1206,15 @@ def update_user(user_id: int, *, password_hash: str | None = None, is_admin: boo
             )
         if structure_role is not _UNSET:
             conn.execute("UPDATE users SET structure_role = ? WHERE id = ?", (structure_role, user_id))
+
+
+def set_user_profiles(user_id: int, profiles: list[str]) -> None:
+    """Remplace les profils du compte (liste vide : aucun)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+        conn.executemany(
+            "INSERT INTO user_profiles (user_id, profile) VALUES (?, ?)", [(user_id, p) for p in profiles]
+        )
 
 
 def delete_user(user_id: int) -> None:
@@ -1721,3 +1756,41 @@ def super_admin_emails() -> list[str]:
     with get_conn() as conn:
         return [r["email"] for r in conn.execute(
             "SELECT email FROM users WHERE is_admin = 1 AND email IS NOT NULL AND email != ''")]
+
+
+# ---------------------------------------------------------------------------
+# Connexion Mailjet d'une structure
+# ---------------------------------------------------------------------------
+
+def get_mailjet(structure_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM mailjet_settings WHERE structure_id = ?", (structure_id,)).fetchone()
+
+
+def save_mailjet(structure_id: int, api_key_enc: str, api_secret_enc: str, api_key_hint: str,
+                 sender_email: str, sender_name: str, now: str, by: str | None) -> None:
+    """Enregistre la connexion ; le résultat du dernier test est effacé (les réglages ont changé)."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO mailjet_settings (structure_id, api_key_enc, api_secret_enc, api_key_hint, "
+            "sender_email, sender_name, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(structure_id) DO UPDATE SET api_key_enc = excluded.api_key_enc, "
+            "api_secret_enc = excluded.api_secret_enc, api_key_hint = excluded.api_key_hint, "
+            "sender_email = excluded.sender_email, sender_name = excluded.sender_name, "
+            "updated_at = excluded.updated_at, updated_by = excluded.updated_by, "
+            "checked_at = NULL, check_ok = NULL, check_message = NULL",
+            (structure_id, api_key_enc, api_secret_enc, api_key_hint, sender_email, sender_name, now, by),
+        )
+
+
+def save_mailjet_check(structure_id: int, ok: bool, message: str, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE mailjet_settings SET checked_at = ?, check_ok = ?, check_message = ? WHERE structure_id = ?",
+            (now, int(ok), message, structure_id),
+        )
+
+
+def delete_mailjet(structure_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM mailjet_settings WHERE structure_id = ?", (structure_id,)).rowcount > 0

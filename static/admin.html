@@ -38,6 +38,7 @@
         <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
         <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
+        <button type="button" role="tab" data-tab="mailjet" aria-selected="false">Mailjet</button>
       </div>
       <p id="flash" class="flash" role="status"></p>
 
@@ -284,6 +285,58 @@
       </section>
 
       <!-- ============ Utilisateurs ============ -->
+      <!-- ============ Connexion Mailjet ============ -->
+      <section id="tab-mailjet" class="tab-panel" role="tabpanel" hidden>
+        <p class="scope-bar">
+          <label for="mailjet-structure">Structure</label>
+          <select id="mailjet-structure"></select>
+          <strong id="mailjet-structure-name"></strong>
+        </p>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Connexion Mailjet</h2>
+            <span id="mailjet-state" class="tag"></span>
+          </div>
+          <p id="mailjet-encryption" class="mailjet-alert" role="alert" hidden></p>
+          <p id="mailjet-check" class="mailjet-check" hidden></p>
+          <form id="mailjet-form" class="mailjet-form" autocomplete="off" novalidate>
+            <div class="field">
+              <label for="mailjet-key">Clé API</label>
+              <input id="mailjet-key" name="api_key" maxlength="128" spellcheck="false" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="mailjet-secret">Clé secrète</label>
+              <input id="mailjet-secret" name="api_secret" type="password" maxlength="128" spellcheck="false" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label for="mailjet-sender-email">Adresse d'expédition</label>
+              <input id="mailjet-sender-email" name="sender_email" type="email" maxlength="254" required placeholder="ex. contact@monclub.fr">
+            </div>
+            <div class="field">
+              <label for="mailjet-sender-name">Nom de l'expéditeur</label>
+              <input id="mailjet-sender-name" name="sender_name" maxlength="80" required placeholder="ex. Club de plongée de Binic">
+            </div>
+            <p id="mailjet-keys-hint" class="hint span-all"></p>
+            <div class="form-actions span-all">
+              <button type="submit" class="btn-primary">Enregistrer et tester</button>
+              <button type="button" id="mailjet-test" class="btn-secondary">Tester la connexion</button>
+              <button type="button" id="mailjet-test-email" class="btn-secondary">M'envoyer un e-mail de test</button>
+              <button type="button" id="mailjet-delete" class="btn-danger">Déconnecter</button>
+            </div>
+            <p id="mailjet-status" class="form-status span-all" role="status"></p>
+          </form>
+          <details class="mailjet-help">
+            <summary>Où trouver ces informations ?</summary>
+            <ol>
+              <li>Créez un compte sur <a href="https://www.mailjet.com" rel="noopener">mailjet.com</a> (une offre gratuite existe), puis ouvrez <strong>Paramètres du compte → Gestion des clés API</strong> : copiez la <strong>clé API</strong> et la <strong>clé secrète</strong>.</li>
+              <li>Dans <strong>Paramètres du compte → Adresses et domaines d'expéditeur</strong>, ajoutez l'adresse d'expédition et cliquez sur le lien de confirmation que Mailjet y envoie ; ou validez tout votre domaine.</li>
+              <li>Enregistrez ici, puis envoyez-vous un e-mail de test.</li>
+            </ol>
+            <p>Les clés sont chiffrées sur le serveur et ne sont plus jamais affichées : seuls leurs 4 derniers caractères permettent de les reconnaître. Pour en changer, saisissez les deux de nouveau.</p>
+          </details>
+        </div>
+      </section>
+
       <section id="tab-utilisateurs" class="tab-panel" role="tabpanel" hidden>
         <form id="create-user" class="panel create-user" autocomplete="off" novalidate>
           <h2>Ajouter un utilisateur</h2>
@@ -322,6 +375,9 @@
           <label class="check" data-super>
             <input type="checkbox" name="is_admin"> Super administrateur
           </label>
+          <fieldset class="profiles-field" id="new-profiles" hidden>
+            <legend>Profils <span class="optional">en plus du rôle, cumulables</span></legend>
+          </fieldset>
 
           <fieldset class="password-mode">
             <legend>Mot de passe</legend>
@@ -437,7 +493,7 @@
             </table>
           </div>
           <p id="users-status" class="form-status" role="status"></p>
-          <p class="hint"><strong>Administration</strong> : choisit les créneaux de la structure, gère ses membres et ses types. <strong>Visualisation</strong> : voit la liste des créneaux choisis. On se connecte avec son identifiant ou son adresse e-mail.</p>
+          <p class="hint"><strong>Administration</strong> : choisit les créneaux de la structure, gère ses membres et ses types. <strong>Visualisation</strong> : voit la liste des créneaux choisis. Les <strong>profils</strong>, cumulables, s'ajoutent au rôle : <strong>Gestionnaire</strong> ouvre les newsletters de la structure. On se connecte avec son identifiant ou son adresse e-mail.</p>
         </div>
       </section>
     </div>

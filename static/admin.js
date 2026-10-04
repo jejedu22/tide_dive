@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["structures", "ports", "donnees", "types", "utilisateurs"];
+const ALL_TABS = ["structures", "ports", "donnees", "types", "utilisateurs", "mailjet"];
 const SUPER_TABS = ["structures", "ports", "donnees"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -96,6 +96,7 @@ function showTab(name) {
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "types") loadTypes();
   if (name === "utilisateurs") loadUsers();
+  if (name === "mailjet") loadMailjet();
 }
 
 document.querySelector(".tabs").addEventListener("click", e => {
@@ -524,6 +525,10 @@ function renderStructureSelects() {
   const keepTypes = typesScope ?? Session.user?.structure?.id ?? structures[0]?.id ?? null;
   typesSel.innerHTML = opts(keepTypes);
   typesScope = typesSel.value ? Number(typesSel.value) : null;
+
+  const mjSel = $("mailjet-structure");
+  mjSel.innerHTML = opts(mailjetScope ?? keepTypes);
+  mailjetScope = mjSel.value ? Number(mjSel.value) : null;
 
   // création de compte : garde le choix en cours (y compris « Aucune »), sinon la structure du super admin
   const newSel = $("new-structure");
@@ -1181,6 +1186,10 @@ function roleCell(u) {
   const tags = [];
   if (u.is_admin) tags.push(`<span class="tag tag-admin">Super admin</span>`);
   if (u.role) tags.push(`<span class="tag role-${u.role}">${ROLE_LABELS[u.role]}</span>`);
+  for (const id of u.profiles || []) {
+    const p = profileCatalog.find(x => x.id === id);
+    tags.push(`<span class="tag tag-profile" title="${esc(p?.description || "")}">${esc(p?.label || id)}</span>`);
+  }
   return tags.join(" ");
 }
 
@@ -1244,6 +1253,30 @@ async function loadUsers() {
 
 $("users-filter").addEventListener("change", loadUsers);
 $("users-search").addEventListener("input", renderUsers);
+
+// ---- Profils (en plus du rôle, cumulables) ----
+
+let profileCatalog = [];   // [{id, label, description}], chargé au démarrage
+
+function profileChoices(selected = []) {
+  return profileCatalog.map(p => `
+    <label class="check"><input type="checkbox" name="profile" value="${esc(p.id)}"${selected.includes(p.id) ? " checked" : ""}>
+      ${esc(p.label)} <span class="muted">— ${esc(p.description)}</span></label>`).join("");
+}
+
+const checkedProfiles = form => [...form.querySelectorAll("[name=profile]:checked")].map(b => b.value);
+
+async function loadProfileCatalog() {
+  try {
+    profileCatalog = await Session.api("/api/admin/profiles");
+  } catch {
+    profileCatalog = [];
+  }
+  const box = $("new-profiles");
+  box.querySelectorAll("label").forEach(l => l.remove());
+  box.insertAdjacentHTML("beforeend", profileChoices());
+  box.hidden = !profileCatalog.length;
+}
 
 // ---- Création ----
 
@@ -1318,6 +1351,7 @@ createForm.addEventListener("submit", async e => {
     username: createForm.username.value.trim() || null,
     role: createForm.role.value,
     send_invite: invite,
+    profiles: checkedProfiles(createForm),
   };
   if (!invite) {
     body.password = createForm.password.value;
@@ -1342,6 +1376,7 @@ createForm.addEventListener("submit", async e => {
     }
     createStatus.innerHTML = msg;
     for (const name of ["first_name", "last_name", "email", "phone", "username", "password"]) createForm[name].value = "";
+    for (const box of createForm.querySelectorAll("[name=profile]")) box.checked = false;
     suggestUsername();
     pwChecklist.el?.refresh();
     await Promise.all([loadUsers(), isSuper() ? loadStructures() : null]);
@@ -1372,6 +1407,7 @@ function editUser(user) {
       ${sup ? `<label>Structure <select name="structure_id">${structOpts}</select></label>` : ""}
       <label>Rôle dans la structure <select name="role"${self && !sup ? " disabled" : ""}>${roleOpts}</select></label>
       ${sup ? `<label class="check"><input type="checkbox" name="is_admin"${user.is_admin ? " checked" : ""}${self ? " disabled" : ""}> Super administrateur</label>` : ""}
+      ${profileCatalog.length ? `<fieldset class="profiles-field"><legend>Profils</legend>${profileChoices(user.profiles)}</fieldset>` : ""}
       <p class="dialog-hint">${sup ? "Un compte sans structure doit être super administrateur. Ses créneaux déjà choisis restent à son ancienne structure." : "Administration : choisit les créneaux et gère la structure. Visualisation : voit les créneaux choisis."}</p>`,
     onSubmit: async f => {
       const body = {
@@ -1383,6 +1419,7 @@ function editUser(user) {
       // champs vides d'un ancien compte : laissés tels quels plutôt que refusés
       for (const k of ["first_name", "last_name", "email"]) if (!body[k]) delete body[k];
       if (!(self && !sup)) body.role = f.role.value;
+      if (profileCatalog.length) body.profiles = checkedProfiles(f);
       if (sup) {
         body.structure_id = f.structure_id.value ? Number(f.structure_id.value) : null;
         if (!self) body.is_admin = f.is_admin.checked;
@@ -1604,6 +1641,144 @@ $("import-confirm").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Connexion Mailjet de la structure (administrateurs)
+// ---------------------------------------------------------------------------
+
+let mailjetScope = null;   // structure choisie (super administrateur)
+let mailjetConf = null;
+const mjForm = $("mailjet-form");
+const mjStatus = $("mailjet-status");
+const mjQS = () => (isSuper() && mailjetScope ? `?structure_id=${mailjetScope}` : "");
+
+$("mailjet-structure").addEventListener("change", e => {
+  mailjetScope = Number(e.target.value) || null;
+  mjStatus.textContent = "";
+  loadMailjet();
+});
+
+async function loadMailjet() {
+  if (isSuper() && !mailjetScope) {
+    mailjetConf = null;
+    $("mailjet-state").textContent = "";
+    mjForm.hidden = true;
+    $("mailjet-check").hidden = false;
+    $("mailjet-check").textContent = "Créez d'abord une structure (onglet « Structures »).";
+    return;
+  }
+  mjForm.hidden = false;
+  try {
+    mailjetConf = await Session.api(`/api/admin/mailjet${mjQS()}`);
+  } catch (e) {
+    flash(esc(e.message));
+    return;
+  }
+  renderMailjet();
+}
+
+function renderMailjet() {
+  const c = mailjetConf;
+  const state = $("mailjet-state");
+  const [label, cls] = !c.configured ? ["non connecté", "tag-warn"]
+    : c.check_ok === true ? ["connecté", "job-succeeded"]
+    : c.check_ok === false ? ["à corriger", "tag-warn"]
+    : ["non testé", "tag-pending"];
+  state.textContent = label;
+  state.className = `tag ${cls}`;
+
+  const enc = $("mailjet-encryption");
+  enc.hidden = c.encryption_ok;
+  enc.textContent = c.encryption_ok ? "" : `Enregistrement impossible : ${c.encryption_error}`;
+
+  const check = $("mailjet-check");
+  check.hidden = !c.checked_at;
+  if (c.checked_at) {
+    check.className = `mailjet-check ${c.check_ok ? "ok" : "ko"}`;
+    check.textContent = `${c.check_message} (testé le ${stamp(c.checked_at)})`;
+  }
+
+  mjForm.sender_email.value = c.sender_email || "";
+  mjForm.sender_name.value = c.sender_name || Session.user?.structure?.name || "";
+  mjForm.api_key.value = "";
+  mjForm.api_secret.value = "";
+  mjForm.api_key.placeholder = c.configured ? `•••• ${c.api_key_hint} — vide : inchangée` : "";
+  mjForm.api_secret.placeholder = c.configured ? "•••••••• — vide : inchangée" : "";
+  $("mailjet-keys-hint").textContent = c.configured
+    ? `Clés enregistrées par ${c.updated_by || "?"} le ${stamp(c.updated_at)}. Pour en changer, saisissez la clé API et la clé secrète.`
+    : "Les deux clés se trouvent dans votre compte Mailjet (voir l'aide ci-dessous).";
+  for (const el of mjForm.elements) el.disabled = !c.encryption_ok && el.type !== "button";
+  $("mailjet-test").disabled = !c.configured;
+  $("mailjet-test-email").disabled = !c.configured;
+  $("mailjet-delete").disabled = !c.configured;
+}
+
+async function mailjetTest() {
+  mailjetConf = await Session.api(`/api/admin/mailjet/test${mjQS()}`, { method: "POST" });
+  renderMailjet();
+  return mailjetConf.check_ok;
+}
+
+mjForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  mjStatus.textContent = "";
+  const body = {
+    sender_email: mjForm.sender_email.value.trim(),
+    sender_name: mjForm.sender_name.value.trim(),
+  };
+  const key = mjForm.api_key.value.trim(), secret = mjForm.api_secret.value.trim();
+  if (key || secret) Object.assign(body, { api_key: key, api_secret: secret });
+  const btn = mjForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  try {
+    mailjetConf = await Session.api(`/api/admin/mailjet${mjQS()}`, { method: "PUT", body });
+    renderMailjet();
+    mjStatus.textContent = "Enregistré. Test en cours…";
+    const ok = await mailjetTest();
+    mjStatus.textContent = ok ? "Enregistré : connexion réussie." : "Enregistré, mais la connexion est à corriger (voir ci-dessus).";
+  } catch (err) {
+    mjStatus.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("mailjet-test").addEventListener("click", async e => {
+  e.target.disabled = true;
+  mjStatus.textContent = "Test en cours…";
+  try {
+    const ok = await mailjetTest();
+    mjStatus.textContent = ok ? "Connexion réussie." : "Connexion à corriger (voir ci-dessus).";
+  } catch (err) {
+    mjStatus.textContent = err.message;
+  } finally {
+    e.target.disabled = !mailjetConf?.configured;
+  }
+});
+
+$("mailjet-test-email").addEventListener("click", async e => {
+  e.target.disabled = true;
+  mjStatus.textContent = "Envoi en cours…";
+  try {
+    const r = await Session.api(`/api/admin/mailjet/test-email${mjQS()}`, { method: "POST" });
+    mjStatus.textContent = `E-mail de test envoyé à ${r.to} : vérifiez votre boîte de réception (et les indésirables).`;
+  } catch (err) {
+    mjStatus.textContent = err.message;
+  } finally {
+    e.target.disabled = !mailjetConf?.configured;
+  }
+});
+
+$("mailjet-delete").addEventListener("click", async () => {
+  if (!confirm("Déconnecter Mailjet ? Les clés enregistrées seront effacées et les newsletters ne pourront plus partir.")) return;
+  try {
+    await Session.api(`/api/admin/mailjet${mjQS()}`, { method: "DELETE" });
+    mjStatus.textContent = "Mailjet déconnecté.";
+    loadMailjet();
+  } catch (err) {
+    mjStatus.textContent = err.message;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Démarrage
 // ---------------------------------------------------------------------------
 
@@ -1631,8 +1806,13 @@ async function onSessionChange(user) {
   $("types-structure").previousElementSibling.hidden = !sup;
   $("types-structure-name").hidden = sup;
 
+  $("mailjet-structure").hidden = !sup;
+  $("mailjet-structure").previousElementSibling.hidden = !sup;
+  $("mailjet-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("mailjet-structure-name").hidden = sup;
+
   setupCreateForm();
-  await loadStructures();
+  await Promise.all([loadStructures(), loadProfileCatalog()]);
   if (sup) {
     loadPorts();
     loadStatus();

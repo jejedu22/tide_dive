@@ -122,6 +122,14 @@ def _integrity_conflict(e: sqlite3.IntegrityError, username: str | None = None) 
 Role = Literal["viewer", "manager"]
 
 
+def _clean_profiles(values: list[str]) -> list[str]:
+    """Profils connus, sans doublon, dans l'ordre du catalogue ; ValueError sinon."""
+    unknown = sorted({v for v in values if v not in accounts.PROFILES})
+    if unknown:
+        raise ValueError(f"Profil inconnu : {', '.join(unknown)}")
+    return [p for p in accounts.PROFILES if p in values]
+
+
 # ---------------------------------------------------------------------------
 # Dépendances FastAPI
 # ---------------------------------------------------------------------------
@@ -298,6 +306,12 @@ class UserCreate(_ProfileValidators):
     is_admin: bool = False
     structure_id: int | None = None   # ignoré pour un administrateur de structure (la sienne)
     role: Role | None = None          # défaut : visualisation
+    profiles: list[str] = []          # profils en plus du rôle (accounts.PROFILES)
+
+    @field_validator("profiles")
+    @classmethod
+    def _profiles(cls, v):
+        return _clean_profiles(v)
 
     @field_validator("username")
     @classmethod
@@ -321,6 +335,12 @@ class UserUpdate(_ProfileValidators):
     is_admin: bool | None = None
     structure_id: int | None = None
     role: Role | None = None
+    profiles: list[str] | None = None  # remplace les profils ; absent : inchangés
+
+    @field_validator("profiles")
+    @classmethod
+    def _profiles(cls, v):
+        return _clean_profiles(v) if v is not None else None
 
 
 class ProfileUpdate(_ProfileValidators):
@@ -547,6 +567,8 @@ def admin_create_user(body: UserCreate, actor: CurrentManager):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Seul un super administrateur peut en créer un autre")
         structure_id = actor["structure_id"]
     role = (body.role or "viewer") if structure_id is not None else None
+    if body.profiles and structure_id is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Un profil exige une structure")
     username = body.username or accounts.suggest_username(body.first_name, body.last_name, body.email)
 
     if body.send_invite:
@@ -566,6 +588,8 @@ def admin_create_user(body: UserCreate, actor: CurrentManager):
         )
     except sqlite3.IntegrityError as e:
         raise _integrity_conflict(e, username)
+    if body.profiles:
+        db.set_user_profiles(user_id, body.profiles)
 
     if not body.send_invite:
         return _public_user(db.get_user(user_id))
@@ -608,6 +632,12 @@ def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Il doit rester au moins un super administrateur")
     if is_self and not actor["is_admin"] and new_role != target["structure_role"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas changer votre propre rôle")
+    # profils : remplacés si fournis ; un compte sans structure n'en a pas
+    new_profiles = body.profiles if "profiles" in sent and body.profiles is not None else None
+    if new_structure is None:
+        if new_profiles:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Un profil exige une structure")
+        new_profiles = []
 
     # profil : prénom, nom et e-mail ne peuvent pas être vidés ; téléphone oui
     profile = {k: getattr(body, k) for k in ("first_name", "last_name", "email") if k in sent and getattr(body, k) is not None}
@@ -636,7 +666,15 @@ def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
         )
     except sqlite3.IntegrityError as e:
         raise _integrity_conflict(e)
+    if new_profiles is not None:
+        db.set_user_profiles(user_id, new_profiles)
     return _public_user(db.get_user(user_id))
+
+
+@router.get("/admin/profiles")
+def admin_list_profiles(actor: CurrentManager):
+    """Catalogue des profils attribuables."""
+    return [{"id": k, **v} for k, v in accounts.PROFILES.items()]
 
 
 @router.delete("/admin/users/{user_id}", status_code=204)
