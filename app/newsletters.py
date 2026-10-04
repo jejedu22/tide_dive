@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import accounts, db, jobs, mailer, mailjet, mailjet_admin, newsletter_render
+from . import accounts, db, jobs, mailer, mailjet, mailjet_admin, newsletter_render, security
 from .auth import CurrentMember, CurrentUser
 
 router = APIRouter(prefix="/api")
@@ -589,7 +589,8 @@ def _mask(email: str) -> str:
 
 
 @router.get("/newsletters/unsubscribe/{token}")
-def unsubscribe_info(token: str):
+def unsubscribe_info(token: str, request: Request):
+    security.limiter.hit(f"unsub:ip:{security.client_ip(request)}", 60, 600)
     r = db.recipient_by_token(token)
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien de désinscription inconnu ou expiré")
@@ -600,6 +601,7 @@ def unsubscribe_info(token: str):
 @router.post("/newsletters/unsubscribe/{token}")
 async def unsubscribe(token: str, request: Request):
     """Désinscription depuis la page, ou « en un clic » par la messagerie (RFC 8058, corps ignoré)."""
+    security.limiter.hit(f"unsub:ip:{security.client_ip(request)}", 60, 600)
     r = db.recipient_by_token(token)
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien de désinscription inconnu ou expiré")

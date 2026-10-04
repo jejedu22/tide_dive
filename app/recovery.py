@@ -36,10 +36,10 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from . import accounts, db, mailer
+from . import accounts, db, mailer, security
 from .accounts import display_name, iso, now, public_user, token_hash
 from .auth import CurrentManager, check_new_password, hash_password, open_session, require_mail, target_or_404
 
@@ -75,12 +75,19 @@ def _send_reset_if_possible(login: str) -> None:
 
 
 @router.post("/auth/forgot-password", status_code=202)
-def forgot_password(body: ForgotIn, background: BackgroundTasks):
+def forgot_password(body: ForgotIn, background: BackgroundTasks, request: Request):
     if not mailer.enabled():
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "Réinitialisation par e-mail indisponible : contactez un administrateur.",
         )
-    background.add_task(_send_reset_if_possible, body.login)
+    # Limites contre l'envoi massif d'e-mails : par IP (erreur 429) et par compte visé (silencieux,
+    # même réponse qu'un compte inconnu : on ne révèle rien sur l'existence du compte)
+    security.limiter.hit(f"forgot:ip:{security.client_ip(request)}", 10, 3600,
+                         "Trop de demandes : réessayez dans une heure.")
+    login_key = f"forgot:login:{body.login.strip().lower()[:100]}"
+    if not security.limiter.retry_after(login_key, 3, 3600):
+        security.limiter.add(login_key, 3600)
+        background.add_task(_send_reset_if_possible, body.login)
     return {"detail": "Si un compte correspond, un e-mail contenant un mot de passe provisoire vient de lui être envoyé."}
 
 
@@ -96,7 +103,8 @@ def _valid_token(token: str):
 
 
 @router.post("/auth/token-info")
-def token_info(body: TokenIn):
+def token_info(body: TokenIn, request: Request):
+    security.limiter.hit(f"token:ip:{security.client_ip(request)}", 30, 600)
     tok, user = _valid_token(body.token)
     return {
         "purpose": tok["purpose"],
@@ -108,7 +116,8 @@ def token_info(body: TokenIn):
 
 
 @router.post("/auth/reset-password")
-def reset_password(body: ResetIn, response: Response):
+def reset_password(body: ResetIn, response: Response, request: Request):
+    security.limiter.hit(f"token:ip:{security.client_ip(request)}", 30, 600)
     tok, user = _valid_token(body.token)
     check_new_password(body.new_password, user["username"], user["first_name"], user["last_name"], user["email"])
     # supprime aussi tous les jetons et toutes les sessions du compte (db.update_user)

@@ -1,0 +1,7 @@
+target-version = "py312"
+line-length = 140
+
+[lint]
+# erreurs de syntaxe, noms indéfinis, imports et variables inutilisés, comparaisons douteuses
+select = ["E9", "F", "B006", "B008", "B018", "B904"]
+ignore = ["B008", "B904"]   # Depends() et raise dans except : idiomes FastAPI du dépôt

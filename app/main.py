@@ -21,12 +21,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, contact, db, mailjet_admin, newsletters, recovery, selections, structures, user_import
+from . import admin, auth, calendar_fr, contact, db, mailjet_admin, newsletters, recovery, security, selections, structures, user_import
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
 app = FastAPI(title="Calendive")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Le frontend est servi par cette même application : pas de CORS par défaut. CORS_ORIGINS
+# (liste séparée par des virgules) ouvre l'API à d'autres origines, avec cookies, au cas par cas.
+if security.ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware, allow_origins=security.ALLOWED_ORIGINS, allow_credentials=True,
+        allow_methods=["*"], allow_headers=["*"],
+    )
+security.install(app)   # en-têtes de sécurité (CSP…) et contrôle de l'origine des requêtes qui modifient des données
 
 
 @app.middleware("http")
@@ -94,6 +101,9 @@ def _sun_info(sun) -> dict:
     }
 
 
+MAX_SEARCH_DAYS = 400   # un précalcul couvre une année ; au-delà, la requête ne renverrait presque rien et coûterait cher
+
+
 @app.get("/api/dive-windows")
 def api_dive_windows(
     port_id: int,
@@ -108,6 +118,10 @@ def api_dive_windows(
     port = db.get_port(port_id)
     if port is None:
         raise HTTPException(404, "Port inconnu")
+    if end < start:
+        raise HTTPException(422, "La date de fin précède la date de début")
+    if (end - start).days > MAX_SEARCH_DAYS:
+        raise HTTPException(422, f"Période trop longue : {MAX_SEARCH_DAYS} jours au plus")
     tz = ZoneInfo(port["timezone"])
     # Heure de RDV réservée aux comptes connectés, selon le délai de leur
     # structure (2 h sans structure) ; None : visiteur anonyme, pas de RDV.
