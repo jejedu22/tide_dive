@@ -25,3 +25,8 @@
 
 # 1er de chaque mois, 04:00 — vacances scolaires (open data Éducation nationale)
 0 4 1 * * python -m app.jobs enqueue school-holidays
+
+# Tous les jours, 03:30 — sauvegarde cohérente de la base (data/backups/, 14 exemplaires).
+# Un échec apparaît dans les logs du scheduler (code de sortie 1). Copier data/backups/
+# hors du serveur : voir « Sauvegarde et restauration » dans le README.
+30 3 * * * python -m app.backup
