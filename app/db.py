@@ -416,10 +416,14 @@ INDEXES_AFTER_MIGRATION = """
 -- Inscriptions des membres d'une structure sur ses créneaux choisis.
 -- Un membre (visualisation ou administration) s'inscrit une fois par créneau.
 -- Retirer le créneau ou supprimer le compte retire l'inscription (CASCADE).
+-- registered_by : qui a inscrit le membre, quand ce n'est pas lui-même
+-- (administration ou profil « inscriptions ») ; NULL s'il s'est inscrit seul.
 CREATE TABLE IF NOT EXISTS slot_registrations (
     selection_id INTEGER NOT NULL REFERENCES slot_selections(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
+    registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    registered_by_name TEXT,
     PRIMARY KEY (selection_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);
@@ -458,6 +462,11 @@ def init_db() -> None:
     _migrate_custom_selections()
     with get_conn() as conn:
         conn.executescript(INDEXES_AFTER_MIGRATION)
+        reg_cols = _columns(conn, "slot_registrations")
+        if "registered_by" not in reg_cols:
+            conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
+        if "registered_by_name" not in reg_cols:
+            conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by_name TEXT")
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -1751,7 +1760,7 @@ def delete_selection(structure_id: int, selection_id: int) -> bool:
 def list_registrations(structure_id: int, selection_id: int | None = None) -> list[sqlite3.Row]:
     """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription."""
     sql = """
-        SELECT r.selection_id, r.user_id, r.created_at, u.username,
+        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, u.username,
                COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                    AS display_name
         FROM slot_registrations r
@@ -1767,12 +1776,15 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
         return conn.execute(sql + " ORDER BY r.created_at, display_name", params).fetchall()
 
 
-def add_registration(selection_id: int, user_id: int, now: str) -> None:
-    """Lève sqlite3.IntegrityError si le compte est déjà inscrit."""
+def add_registration(selection_id: int, user_id: int, now: str,
+                     by_id: int | None = None, by_name: str | None = None) -> None:
+    """Lève sqlite3.IntegrityError si le compte est déjà inscrit.
+    by_id / by_name : qui inscrit le membre, quand ce n'est pas lui-même."""
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO slot_registrations (selection_id, user_id, created_at) VALUES (?, ?, ?)",
-            (selection_id, user_id, now),
+            "INSERT INTO slot_registrations (selection_id, user_id, created_at, registered_by, registered_by_name) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (selection_id, user_id, now, by_id, by_name),
         )
 
 

@@ -32,14 +32,17 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+import sys
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import db
-from .auth import CurrentManager, CurrentMember, CurrentPicker, CurrentUser, can_manage_structure, scope_structure
+from . import accounts, db, mailer
+from .auth import (
+    CurrentManager, CurrentMember, CurrentPicker, CurrentRegistrar, CurrentUser, can_manage_structure, scope_structure,
+)
 from .slots import describe_extremum
 
 router = APIRouter(prefix="/api")
@@ -205,7 +208,8 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
     for r in db.list_registrations(structure_id, selection_id):
         out.setdefault(r["selection_id"], []).append(
             {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
-             "created_at": r["created_at"]}
+             "created_at": r["created_at"],
+             "registered_by": r["registered_by_name"]}   # inscrit par un tiers, sinon None
         )
     return out
 
@@ -431,10 +435,108 @@ def unregister(selection_id: int, user: CurrentMember):
     return _one_out(sid, selection_id, user["id"])
 
 
+# ---------------------------------------------------------------------------
+# Inscription d'autres membres : administration de la structure, ou profil
+# « inscriptions » (un encadrant qui inscrit ses élèves, par exemple). Les délais
+# d'inscription et de désinscription ne s'appliquent pas ; on garde la trace de
+# qui a inscrit qui, et le membre inscrit est prévenu par e-mail.
+# ---------------------------------------------------------------------------
+
+class RegistrationsIn(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+@router.get("/selections/members")
+def registration_members(actor: CurrentRegistrar):
+    """Membres de la structure, pour choisir qui inscrire."""
+    return [
+        {"id": m["id"], "username": m["username"], "display_name": accounts.display_name(m),
+         "role": m["structure_role"]}
+        for m in db.structure_members(actor["structure_id"])
+    ]
+
+
+def _place(row: sqlite3.Row) -> str:
+    return row["note"] + f" ({row['port_name']})" if row["note"] else row["port_name"]
+
+
+def _when(row: sqlite3.Row) -> str:
+    start = date.fromisoformat(row["local_date"])
+    when = f"du {_fr_date(start)} {start.year}"
+    if row["end_date"]:
+        end = date.fromisoformat(row["end_date"])
+        when = f"du {_fr_date(start)} au {_fr_date(end)} {end.year}"
+    h, m = row["rdv_time"].split(":")
+    rdv = f"rendez-vous à {int(h)} h {m}"
+    if row["rdv_date"] and row["rdv_date"] != row["local_date"]:
+        rdv += " la veille"
+    return f"{when}, {rdv}"
+
+
+def registered_message(member: sqlite3.Row, row: sqlite3.Row, by: str) -> tuple[str, str, str]:
+    app = mailer.APP_NAME
+    body = f"""{accounts.greeting(member)}
+
+{by} vous a inscrit au créneau {_when(row)} : {_place(row)}.
+
+Vos créneaux, et la désinscription dans les délais fixés par votre structure :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+    return member["email"], f"{app} : inscription au créneau du {_fr_date(date.fromisoformat(row['local_date']))}", body
+
+
+def _notify(messages: list[tuple[str, str, str]]) -> None:
+    try:
+        errors = mailer.send_many(messages)
+    except mailer.MailError as e:
+        errors = [str(e)] * len(messages)
+    for (to, _, _), err in zip(messages, errors):
+        if err:
+            print(f"[inscription] e-mail non envoyé à {to} : {err}", file=sys.stderr, flush=True)
+
+
+@router.post("/selections/{selection_id}/registrations")
+def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegistrar, background: BackgroundTasks):
+    """Inscrire des membres de la structure sur un créneau à venir, délais non compris.
+    Les membres déjà inscrits sont ignorés ; un compte hors de la structure : 422."""
+    sid = actor["structure_id"]
+    row = _upcoming_selection_or_error(sid, selection_id)
+    members = {m["id"]: m for m in db.structure_members(sid)}
+    unknown = [u for u in body.user_ids if u not in members]
+    if unknown:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Membre inconnu dans votre structure")
+    by = accounts.display_name(actor)
+    now = _now_iso()
+    added = []
+    for uid in dict.fromkeys(body.user_ids):
+        try:
+            db.add_registration(selection_id, uid, now, actor["id"] if uid != actor["id"] else None,
+                                by if uid != actor["id"] else None)
+            added.append(uid)
+        except sqlite3.IntegrityError:
+            pass  # déjà inscrit
+    if mailer.enabled():
+        messages = []
+        for uid in added:
+            if uid == actor["id"]:
+                continue
+            member = db.get_user(uid)
+            if member is not None and member["email"]:
+                messages.append(registered_message(member, row, by))
+        if messages:
+            background.add_task(_notify, messages)
+    out = _one_out(sid, selection_id, actor["id"])
+    out["added"] = len(added)
+    return out
+
+
 @router.delete("/selections/{selection_id}/registrations/{user_id}")
-def remove_registration(selection_id: int, user_id: int, actor: CurrentPicker):
-    """Administration de la structure : retirer l'inscription d'un membre (même sur un
-    créneau passé ou après le délai de désinscription)."""
+def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar):
+    """Administration de la structure ou profil « inscriptions » : retirer l'inscription
+    d'un membre (même sur un créneau passé ou après le délai de désinscription)."""
     sid = actor["structure_id"]
     if db.get_selection(sid, selection_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")

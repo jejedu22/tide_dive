@@ -460,6 +460,7 @@ const Session = (() => {
     if (u.is_admin) parts.push("Super administrateur");
     if (u.role) parts.push(`${ROLE_LABELS[u.role]} de la structure`);
     if (u.profiles?.includes("gestionnaire")) parts.push("Gestionnaire");
+    if (u.profiles?.includes("inscriptions")) parts.push("Inscriptions");
     return parts.join(" · ");
   }
 

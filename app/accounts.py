@@ -132,6 +132,10 @@ PROFILES = {
         "label": "Gestionnaire",
         "description": "Newsletters : rédaction, envoi et suivi des envois",
     },
+    "inscriptions": {
+        "label": "Inscriptions",
+        "description": "Inscrire d'autres membres sur les créneaux, ou retirer leur inscription",
+    },
 }
 
 
@@ -153,6 +157,9 @@ def permissions(row: sqlite3.Row) -> dict:
         "pick": manager,                       # choisir / retirer des créneaux
         "view_selections": in_structure,       # voir les créneaux de sa structure
         "manage_mailjet": manager,             # connexion Mailjet de sa structure
+        # inscrire d'autres membres / retirer leur inscription, délais compris :
+        # administration, ou profil « inscriptions » (un encadrant, par exemple)
+        "manage_registrations": manager or (in_structure and "inscriptions" in profiles_of(row)),
         # newsletters : profil « gestionnaire » exigé, y compris pour un administrateur
         # (il se l'attribue lui-même s'il en a besoin)
         "newsletters": in_structure and "gestionnaire" in profiles_of(row),
@@ -212,7 +219,7 @@ def _duration(td: timedelta) -> str:
     return f"{minutes} minutes"
 
 
-def _greeting(row: sqlite3.Row) -> str:
+def greeting(row: sqlite3.Row) -> str:
     return f"Bonjour {row['first_name']}," if row["first_name"] else "Bonjour,"
 
 
@@ -221,7 +228,7 @@ def invite_message(row: sqlite3.Row, token: str, inviter: str | None = None) -> 
     where = f" pour la structure « {row['structure_name']} »" if row["structure_name"] else ""
     intro = (f"{inviter} vous a créé un compte sur {app}{where}." if inviter
              else f"Un compte vous a été créé sur {app}{where}.")
-    body = f"""{_greeting(row)}
+    body = f"""{greeting(row)}
 
 {intro}
 
@@ -241,7 +248,7 @@ Si vous ne vous attendiez pas à ce message, vous pouvez l'ignorer.
 
 def temp_password_message(row: sqlite3.Row, temp_password: str) -> tuple[str, str, str]:
     app = mailer.APP_NAME
-    body = f"""{_greeting(row)}
+    body = f"""{greeting(row)}
 
 Une réinitialisation du mot de passe de votre compte {app} a été demandée.
 

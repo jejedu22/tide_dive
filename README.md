@@ -292,6 +292,7 @@ En plus de son rôle (visualisation ou administration), un compte peut recevoir 
 | Profil | Ouvre |
 |---|---|
 | **Gestionnaire** | les [newsletters](#newsletters) de la structure : rédaction, envoi et suivi des envois. Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
+| **Inscriptions** | [inscrire d'autres membres](#inscrire-dautres-membres) de la structure sur les créneaux, et retirer leur inscription (un encadrant qui inscrit ses élèves, par exemple). Un administrateur de structure a ce droit d'office |
 
 Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles`.
 
@@ -434,6 +435,14 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+### Inscrire d'autres membres
+
+Les membres s'inscrivent eux-mêmes sur les créneaux à venir, dans les délais fixés par la structure. Un administrateur de la structure, ou un compte ayant le profil **Inscriptions**, peut aussi **inscrire d'autres membres** : bouton **« + Inscrire… »** de chaque créneau à venir, qui ouvre la liste des membres pas encore inscrits (recherche, plusieurs à la fois). Il peut aussi retirer une inscription (croix dans la liste des inscrits, au clic sur leur nombre).
+
+- Les délais d'inscription et de désinscription ne s'appliquent pas à ces opérations.
+- La liste des inscrits et l'export Excel indiquent **« inscrit par … »** quand ce n'est pas le membre lui-même (le nom est conservé même si ce compte est supprimé ensuite).
+- Le membre inscrit reçoit un **e-mail** (créneau, RDV, lien vers ses créneaux), s'il a une adresse et si l'envoi d'e-mails est configuré. Il peut ensuite se désinscrire dans les délais habituels.
+
 ### Créneaux personnalisés
 
 Un administrateur de structure peut aussi ajouter un créneau **en dehors des étales proposées** par la recherche (plongée de l'après-midi, sortie de nuit, épave à heure fixe…) : bouton **« + Créneau personnalisé »** de la page des créneaux choisis. Il saisit le lieu, le jour, l'**heure de rendez-vous**, le type et un **intitulé** facultatif (80 caractères, ex. « Épave du Pélican »). Le lieu est un port de la liste, ou **« Autre lieu… »** pour une sortie ailleurs (carrière, fosse, ville à l'étranger…) : un champ libre de 80 caractères apparaît alors, et ce lieu s'affiche partout à la place du port.
@@ -533,6 +542,10 @@ Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes 
 | `POST /api/selections` | admin. structure | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi par la structure |
 | `POST /api/selections/custom` | admin. structure | créneau personnalisé `{port_id \| location, date, end_date?, time, type_id, note?}` : un port **ou** un lieu libre (`location`, 80 caractères), jamais les deux ; `end_date` : dernier jour d'un séjour (après `date`, 60 jours au plus) ; `time` : heure de RDV `HH:MM` du premier jour |
 | `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id?, port_id?, location?, date?, end_date?, time?, note?}` (`end_date: null` : un seul jour) (lieu, jour, heure et intitulé : créneau personnalisé uniquement, 422 sinon ; un `port_id` remplace le lieu libre et inversement) / retrait |
+| `POST` / `DELETE /api/selections/{id}/registration` | membre d'une structure | s'inscrire / se désinscrire, dans les délais de la structure (409 sinon) |
+| `GET /api/selections/members` | admin. structure ou profil Inscriptions | membres de la structure `{id, username, display_name, role}` |
+| `POST /api/selections/{id}/registrations` | admin. structure ou profil Inscriptions | inscrire des membres `{user_ids}` sur un créneau à venir, délais non compris (déjà inscrits ignorés ; 422 hors structure) ; réponse : le créneau, plus `added` |
+| `DELETE /api/selections/{id}/registrations/{user_id}` | admin. structure ou profil Inscriptions | retirer l'inscription d'un membre, même sur un créneau passé |
 | `GET` / `POST /api/admin/slot-types` | admin. structure / super admin | liste (avec nombre d'usages) / création `{label, color, active}` |
 | `PATCH` / `DELETE /api/admin/slot-types/{id}` | admin. structure / super admin | modification / suppression (409 si utilisé) |
 | `PUT /api/admin/slot-types/order` | admin. structure / super admin | `{ids}` : nouvel ordre complet |
