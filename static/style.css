@@ -529,6 +529,9 @@ main.admin-main { max-width: 1100px; }
   font-size: 0.9rem;
 }
 .banner[hidden] { display: none; }
+.banner ul { margin: 0.4rem 0 0; }
+.banner .health-warning { color: #6b4a00; }
+.banner.banner-warning { border-left-color: #d9a21b; background: #fff6dc; }
 
 code {
   font-size: 0.85em;

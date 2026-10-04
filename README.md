@@ -20,6 +20,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Comptes, structures et préférences](#comptes-structures-et-préférences)
 - [Créneaux choisis](#créneaux-choisis)
 - [API](#api)
+- [Exploitation : sauvegarde, surveillance, sécurité](#exploitation--sauvegarde-surveillance-sécurité)
 - [Précision et limites](#précision-et-limites)
 - [Structure du projet](#structure-du-projet)
 - [Pistes](#pistes)
@@ -91,7 +92,8 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 - **toutes les 5 minutes** : envoi des newsletters programmées dont l'heure est venue (rien n'est mis en file s'il n'y en a pas) ;
 - **2 de chaque mois, 04:30** : recalage sur api-maree.fr de chaque port doté d'un site api-maree.fr (voir [Recalage](#recalage-sur-api-mareefr)) ;
 - **tous les jours, 05:10** : horaires du mois glissant (J−1 à J+29) repris d'api-maree.fr pour ces mêmes ports ;
-- **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires.
+- **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires ;
+- **tous les jours, 03:30** : sauvegarde de la base ; **07:05** : contrôle de santé et alertes (voir [Exploitation](#exploitation--sauvegarde-surveillance-sécurité)).
 
 ### Variables d'environnement (`.env`)
 
@@ -100,6 +102,11 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
 | `API_MAREE_KEY` | — | Clé [api-maree.fr](https://api-maree.fr) pour le recalage du modèle (facultative : sans clé, hauteurs FES brutes) |
 | `SECRETS_KEY` | — | Clé de chiffrement des clés Mailjet des structures (voir [Connexion Mailjet](#connexion-mailjet)) ; sans elle, Mailjet ne peut pas être connecté |
+| `BACKUP_KEEP` | `14` | Sauvegardes quotidiennes conservées dans `data/backups/` |
+| `ALERT_EMAIL` | — | Destinataires des alertes (séparés par des virgules) ; vide : les super administrateurs ayant une adresse e-mail |
+| `TRUSTED_PROXY_HOPS` | `1` | Proxys de confiance devant l'API (Traefik : 1 ; 0 si exposée directement) : adresse IP réelle pour la limitation des tentatives |
+| `CORS_ORIGINS` | — | Origines autorisées à appeler l'API depuis un navigateur ; vide : aucune |
+| `RATE_LIMIT` | `1` | `0` désactive la limitation des tentatives (tests) |
 | `FES_MODEL` | `FES2014` | Modèle par défaut (`FES2014` ou `FES2022`), pour le téléchargement et les calculs, tant qu'aucun n'est choisi dans l'administration |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
 | `MAREE_HOST` | — | Domaine public routé par Traefik (obligatoire) |
@@ -179,8 +186,11 @@ python -m app.precompute --name "Caffa (Erquy)" --lat 48.646 --lon -2.478 --offs
 | `--model` | Modèle pyTMD (défaut : modèle choisi dans l'administration, sinon `FES_MODEL`, sinon `FES2014`) |
 | `--timezone` | Défaut `Europe/Paris` |
 | `--step-minutes` | Pas de calcul, défaut 10 |
+| `--no-checks` | Écrire même si les contrôles de cohérence échouent (diagnostic uniquement) |
 
 Compter plusieurs minutes par port. Relancer une année déjà présente la remplace proprement.
+
+**Contrôles de cohérence.** Avant d'écraser l'année précédente, le précalcul vérifie ses résultats (`app/checks.py`) : alternance PM/BM, 1 300 à 1 600 étales par an, 3 h 30 à 9 h entre deux étales, amplitude plausible, aucun trou aux bords de l'année ni de jour sans étale, coefficients présents et entre 20 et 120, horaires solaires complets et ordonnés. Au moindre doute la tâche échoue (code 1) et **la base reste inchangée** ; le journal de la tâche dit pourquoi.
 
 Le script avertit si la basse mer la plus basse passe à plus de 0,30 m sous le zéro des cartes, signe d'un `offset_zh_m` probablement trop faible.
 
@@ -570,6 +580,56 @@ Réservée au super administrateur.
 | `GET /api/admin/jobs/{id}` | détail avec journal |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
 
+## Exploitation : sauvegarde, surveillance, sécurité
+
+### Sauvegarde et restauration
+
+Le planificateur sauvegarde la base **chaque jour à 03:30** (`python -m app.backup`) dans `data/backups/`, avec l'API de sauvegarde de SQLite : la copie est cohérente même pendant une écriture (une copie brute du fichier en mode WAL ne l'est pas). Chaque sauvegarde est vérifiée (`integrity_check`, clés étrangères) avant d'être compressée ; une sauvegarde invalide n'est jamais conservée. `BACKUP_KEEP` (défaut 14) règle le nombre d'exemplaires.
+
+```bash
+docker compose exec scheduler python -m app.backup                  # sauvegarde immédiate
+docker compose exec scheduler python -m app.backup verify           # tester la dernière sauvegarde
+# Restauration : arrêter ce qui écrit, restaurer, relancer (l'ancienne base est gardée à côté)
+docker compose stop api worker scheduler
+docker compose run --rm --no-deps --entrypoint python api -m app.backup restore data/backups/plongee-AAAAMMJJ-HHMMSS.db.gz
+docker compose up -d
+```
+
+> **`data/backups/` est sur le même disque que la base** : il protège d'une fausse manipulation ou d'une corruption, pas de la perte du serveur. À copier **hors du serveur** (cron `rsync`/`rclone` sur l'hôte, snapshot du VPS…). Sauvegarder aussi **`SECRETS_KEY` à part** : sans elle, les clés Mailjet stockées en base sont illisibles. **Testez une restauration** sur une copie de temps en temps.
+
+### Surveillance et alertes
+
+`python -m app.health` (lancé chaque jour à 07:05 avec `--notify`) contrôle :
+
+- l'année en cours et, à partir du 20 décembre, l'année suivante pour chaque port à précalcul automatique ; dès le 1er octobre, les **prérequis** du précalcul du 15 décembre (modèle FES complet, niveau moyen des ports) pour apprendre tôt qu'il échouera ;
+- la cohérence des données stockées (mêmes contrôles que le précalcul) ;
+- les tâches en échec des 3 derniers jours, la fraîcheur du mois glissant api-maree.fr et du recalage, la couverture des vacances scolaires ;
+- le worker, la dernière sauvegarde (moins de 36 h) et l'espace disque.
+
+Le résultat s'affiche en haut de l'administration (`GET /api/admin/health`). Un **e-mail** part aux administrateurs (`ALERT_EMAIL`, sinon les super administrateurs ; nécessite `MAIL_BACKEND=smtp`) quand une erreur **nouvelle** apparaît, avec un rappel hebdomadaire tant qu'elle dure et un message quand tout est rentré dans l'ordre. Une tâche en échec déclenche aussi un e-mail immédiat (au plus un par type de tâche et par jour). Sans e-mail configuré, tout est écrit dans les logs. `python -m app.health` seul sort avec le code 1 s'il y a une erreur, utilisable par une supervision externe ; `GET /healthz` répond 200 si la base est lisible (sonde du conteneur).
+
+### Sécurité
+
+- **Tentatives de connexion limitées** : 8 échecs par identifiant et 30 par adresse IP sur 15 minutes, puis erreur 429 avec `Retry-After` (même avec le bon mot de passe, pendant le blocage). Mot de passe oublié, liens de réinitialisation, demande de structure et désinscription ont aussi leurs limites. Compteurs en mémoire (remis à zéro au redémarrage) ; `RATE_LIMIT=0` les désactive. L'adresse IP vient de `X-Forwarded-For` côté Traefik : `TRUSTED_PROXY_HOPS` (1 par défaut, 0 sans proxy).
+- **CORS fermé** : le site est servi par l'API elle-même. `CORS_ORIGINS` ouvre l'API à d'autres origines au cas par cas.
+- **Origine contrôlée** : une requête `POST/PUT/PATCH/DELETE` d'un navigateur venant d'une autre origine est refusée (403), en plus du cookie `SameSite=Lax`.
+- **En-têtes** : `Content-Security-Policy` stricte (aucun script en ligne n'est autorisé), `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`. Pas de HSTS côté application : à poser sur Traefik.
+- **Chaîne d'approvisionnement** : supercronic est vérifié par empreinte dans le `Dockerfile` ; Dependabot et `pip-audit` (CI) surveillent les dépendances.
+
+### Migrations de schéma
+
+La base est versionnée (`PRAGMA user_version`, `python -m app.migrations status`). Les anciens `ALTER TABLE` conditionnels de `db.py` amènent toute base à la version 1 ; **toute nouvelle évolution** s'ajoute à `app/migrations.py` (une transaction par migration, sauvegarde automatique dans `data/backups/avant-migration/` avant la première en attente). Mode d'emploi en tête de ce fichier.
+
+### Tests et intégration continue
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest        # marées, créneaux, soleil, calendrier, sauvegarde, sécurité, santé, migrations, API
+ruff check app tests
+```
+
+La CI (`.github/workflows/ci.yml`) lance lint, tests, `pip-audit` (informatif) et le build Docker à chaque pull request. Les tests n'ont besoin d'aucun fichier FES : les marées sont synthétiques (`tests/synthetic.py`).
+
 ## Précision et limites
 
 FES est un modèle **océanique global** : il est moins précis dans les ports, baies et zones à géométrie complexe qu'un atlas régional (Ifremer/PREVIMER) ou que les constantes harmoniques du SHOM.
@@ -594,6 +654,12 @@ app/
   calibration.py    recalage de FES sur api-maree.fr, onde par onde (+ CLI)
   short_term.py     mois glissant repris chaque jour d'api-maree.fr (+ CLI)
   tide_reference.py client api-maree.fr
+  checks.py         contrôles de cohérence des données d'une année (avant écriture et en surveillance)
+  health.py         surveillance : données, tâches, sauvegarde, disque (+ CLI)
+  alerts.py         alertes e-mail aux administrateurs
+  backup.py         sauvegarde / vérification / restauration de la base (+ CLI)
+  migrations.py     migrations de schéma versionnées (+ CLI)
+  security.py       limitation des tentatives, en-têtes de sécurité, contrôle d'origine
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m
   db.py             schéma et accès SQLite
@@ -630,6 +696,8 @@ static/             frontend (index.html, app.js, style.css)
   favicon.svg, favicon-32.png, apple-touch-icon.png  icônes (onglet, écran d'accueil)
   fonts/            police Sora (logo et titres), SIL OFL, hébergée localement
 docker/crontab      tâches périodiques mises en file par le scheduler
+tests/              suite pytest (voir « Tests et intégration continue »)
+.github/workflows/  CI
 Dockerfile
 docker-compose.yml
 .env.example

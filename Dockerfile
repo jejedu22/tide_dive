@@ -8,9 +8,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=Europe/Paris
 
 # supercronic : cron adapté aux conteneurs (logs sur stdout, pas de root requis)
+# Empreinte vérifiée : un binaire modifié en amont ferait échouer le build. À mettre à jour avec la version
+# (sha1sum du fichier supercronic-linux-amd64 de la release, indiqué sur la page GitHub de la release).
 ARG SUPERCRONIC_VERSION=v0.2.29
+ARG SUPERCRONIC_SHA1SUM=cd48d45c4b10f3f0bfdd3a57d054cd05ac96812b
 ADD https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64 /usr/local/bin/supercronic
-RUN chmod +x /usr/local/bin/supercronic
+RUN echo "${SUPERCRONIC_SHA1SUM}  /usr/local/bin/supercronic" | sha1sum -c - \
+ && chmod +x /usr/local/bin/supercronic
 
 WORKDIR /srv/maree
 

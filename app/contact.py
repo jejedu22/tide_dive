@@ -25,10 +25,10 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import accounts, db, mailer
+from . import accounts, db, mailer, security
 from .auth import CurrentSuperAdmin
 
 router = APIRouter(prefix="/api")
@@ -147,10 +147,12 @@ def _notify(req_id: int, body: StructureRequestIn) -> None:
 
 
 @router.post("/structure-requests", status_code=201)
-def create_structure_request(body: StructureRequestIn):
+def create_structure_request(body: StructureRequestIn, request: Request):
     """Formulaire public de demande de création de structure."""
     if body.website:          # robot : on fait comme si de rien n'était
         return {"ok": True}
+    security.limiter.hit(f"contact:ip:{security.client_ip(request)}", 5, 3600,
+                         "Trop de demandes depuis votre connexion : réessayez plus tard.")
     now = _now()
     since = _iso(now - timedelta(days=1))
     if db.count_structure_requests_since(since, body.email) >= PER_EMAIL_PER_DAY:

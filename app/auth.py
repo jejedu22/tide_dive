@@ -54,13 +54,18 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import accounts, db, mailer, passwords
+from . import accounts, db, mailer, passwords, security
 from .accounts import (
     ROLE_LABELS, USERNAME_PATTERN, clean_email, clean_name, clean_phone, display_name, iso as _iso,
     now as _now, permissions, public_user as _public_user, token_hash as _token_hash,
 )
 
 COOKIE_NAME = "maree_session"
+# Connexion : au plus N échecs par fenêtre, par identifiant puis par adresse IP (plusieurs comptes
+# peuvent partager une IP, par exemple un club : la limite par IP est plus large)
+LOGIN_WINDOW = 15 * 60
+LOGIN_MAX_FAILS_PER_USER = 8
+LOGIN_MAX_FAILS_PER_IP = 30
 SESSION_TTL = timedelta(days=int(os.environ.get("SESSION_DAYS", "30")))
 # À mettre à 1 derrière HTTPS (Traefik) : le cookie n'est alors jamais envoyé en clair
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").lower() in ("1", "true", "yes")
@@ -393,7 +398,17 @@ def _valid_temp_hash(row: sqlite3.Row) -> str | None:
 
 
 @router.post("/auth/login")
-def login(creds: Credentials, response: Response):
+def login(creds: Credentials, response: Response, request: Request):
+    # Anti brute-force : échecs comptés par adresse IP et par identifiant, avant le calcul
+    # (coûteux) du hachage. Un succès remet à zéro le compteur de l'identifiant.
+    ip_key = f"login:ip:{security.client_ip(request)}"
+    user_key = f"login:user:{creds.username.strip().lower()[:100]}"
+    wait = max(
+        security.limiter.retry_after(ip_key, LOGIN_MAX_FAILS_PER_IP, LOGIN_WINDOW),
+        security.limiter.retry_after(user_key, LOGIN_MAX_FAILS_PER_USER, LOGIN_WINDOW),
+    )
+    if wait:
+        raise security.too_many(wait, "Trop de tentatives de connexion : réessayez dans quelques minutes.")
     row = db.get_user_credentials(creds.username.strip())
     ok = verify_password(creds.password, row["password_hash"] if row else _DUMMY_HASH)
     if row is not None and ok:
@@ -402,11 +417,14 @@ def login(creds: Credentials, response: Response):
     else:
         temp_hash = _valid_temp_hash(row) if row is not None else None
         if temp_hash is None or not verify_password(creds.password, temp_hash):
+            security.limiter.add(ip_key, LOGIN_WINDOW)
+            security.limiter.add(user_key, LOGIN_WINDOW)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Identifiant ou mot de passe incorrect")
         # Première utilisation du mot de passe provisoire : il devient celui du
         # compte, à changer avant tout (must_change_password). update_user ferme
         # les autres sessions et efface liens et mot de passe provisoire.
         db.update_user(row["id"], password_hash=temp_hash, must_change_password=True, now=_iso(_now()))
+    security.limiter.clear(user_key)
     open_session(response, row["id"])
     return {"user": _public_user(db.get_user(row["id"]))}
 

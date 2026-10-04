@@ -30,6 +30,11 @@ x-app: &app
     SECRETS_KEY: ${SECRETS_KEY:-}               # chiffrement des clés Mailjet en base (voir .env.example)
     COOKIE_SECURE: ${COOKIE_SECURE:-1}          # HTTPS via Traefik ; 0 en local (http)
     SESSION_DAYS: ${SESSION_DAYS:-30}           # durée d'une session de connexion
+    TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}  # proxys de confiance devant l'API (Traefik = 1) : adresse IP réelle des clients
+    CORS_ORIGINS: ${CORS_ORIGINS:-}             # origines autorisées à appeler l'API depuis un navigateur (défaut : aucune)
+    RATE_LIMIT: ${RATE_LIMIT:-1}                # 0 désactive la limitation des tentatives (tests)
+    ALERT_EMAIL: ${ALERT_EMAIL:-}               # destinataires des alertes (défaut : super administrateurs)
+    BACKUP_KEEP: ${BACKUP_KEEP:-14}             # sauvegardes quotidiennes conservées (data/backups/)
     PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
     # E-mails : invitations et mot de passe oublié (voir .env.example)
     MAIL_BACKEND: ${MAIL_BACKEND:-none}
@@ -61,7 +66,7 @@ services:
     cpus: 0.5
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ports', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -125,6 +130,7 @@ services:
     <<: *app
     volumes:
       - ./data:/srv/maree/data
+      - ${FES_DIR:-./models}:/models:ro        # contrôle de santé : modèle FES présent avant le précalcul de décembre
     # Vacances scolaires demandées dès le démarrage (sinon seulement le 1er du mois)
     command:
       - sh
