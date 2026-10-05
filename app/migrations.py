@@ -51,8 +51,46 @@ class Migration:
     apply: Callable[[sqlite3.Connection], None]
 
 
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _m002_multi_structures(conn: sqlite3.Connection) -> None:
+    """Un compte peut appartenir à plusieurs structures : rôle, profils et structure active par session.
+
+    - memberships : une ligne par (compte, structure) reprise de users.structure_id / structure_role ;
+    - user_profiles : un profil devient propre à une structure (clé user_id, structure_id, profile) ;
+    - sessions.structure_id : structure active de chaque session.
+    memberships et structure_invitations existent déjà (db.SCHEMA les crée sur toute base)."""
+    if "structure_id" not in _columns(conn, "sessions"):
+        conn.execute("ALTER TABLE sessions ADD COLUMN structure_id INTEGER REFERENCES structures(id) ON DELETE SET NULL")
+    conn.execute(
+        "INSERT OR IGNORE INTO memberships (user_id, structure_id, role, created_at) "
+        "SELECT id, structure_id, COALESCE(structure_role, 'viewer'), created_at FROM users WHERE structure_id IS NOT NULL"
+    )
+    if "structure_id" not in _columns(conn, "user_profiles"):
+        conn.execute(
+            """CREATE TABLE user_profiles_new (
+                   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                   structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+                   profile TEXT NOT NULL,
+                   PRIMARY KEY (user_id, structure_id, profile)
+               )"""
+        )
+        # les profils existants valaient pour l'unique structure du compte
+        conn.execute(
+            "INSERT INTO user_profiles_new (user_id, structure_id, profile) "
+            "SELECT up.user_id, u.structure_id, up.profile FROM user_profiles up "
+            "JOIN users u ON u.id = up.user_id WHERE u.structure_id IS NOT NULL"
+        )
+        conn.execute("DROP TABLE user_profiles")
+        conn.execute("ALTER TABLE user_profiles_new RENAME TO user_profiles")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
-MIGRATIONS: list[Migration] = []
+MIGRATIONS: list[Migration] = [
+    Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
+]
 
 
 def latest_version(migrations: list[Migration] | None = None) -> int:

@@ -120,7 +120,11 @@ def _personal(row: sqlite3.Row, **override) -> list[str | None]:
 
 def _integrity_conflict(e: sqlite3.IntegrityError, username: str | None = None) -> HTTPException:
     if "email" in str(e):
-        return HTTPException(status.HTTP_409_CONFLICT, "Cette adresse e-mail est déjà utilisée par un autre compte")
+        return HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Cette adresse e-mail est déjà utilisée par un autre compte. Pour l'ajouter à une structure, "
+            "invitez-le (Utilisateurs → Inviter un compte existant).",
+        )
     return HTTPException(status.HTTP_409_CONFLICT, f"L'identifiant « {username} » est déjà pris")
 
 
@@ -426,7 +430,7 @@ def login(creds: Credentials, response: Response, request: Request):
         db.update_user(row["id"], password_hash=temp_hash, must_change_password=True, now=_iso(_now()))
     security.limiter.clear(user_key)
     open_session(response, row["id"])
-    return {"user": _public_user(db.get_user(row["id"]))}
+    return {"user": _public_user(db.get_user(row["id"]), with_structures=True)}
 
 
 @router.post("/auth/logout", status_code=204)
@@ -439,7 +443,7 @@ def logout(response: Response, session: SessionCookie = None):
 @router.get("/auth/me")
 def me(user: Annotated[sqlite3.Row | None, Depends(optional_user)]):
     # 200 dans tous les cas : un visiteur anonyme n'est pas une erreur
-    return {"user": _public_user(user) if user else None}
+    return {"user": _public_user(user, with_structures=True) if user else None}
 
 
 @router.get("/auth/config")
@@ -485,7 +489,12 @@ def update_own_profile(body: ProfileUpdate, user: CurrentUser):
         db.update_user(user["id"], **changes)
     except sqlite3.IntegrityError as e:
         raise _integrity_conflict(e)
-    return {"user": _public_user(db.get_user(user["id"]))}
+    return {"user": _own_view(user)}
+
+
+def _own_view(user: sqlite3.Row) -> dict:
+    """Le compte tel que son titulaire le voit : dans la structure active de sa session."""
+    return _public_user(db.get_user(user["id"], user["structure_id"]), with_structures=True)
 
 
 class StructureSwitch(BaseModel):
@@ -493,17 +502,13 @@ class StructureSwitch(BaseModel):
 
 
 @router.put("/me/structure")
-def switch_own_structure(body: StructureSwitch, admin: Annotated[sqlite3.Row, Depends(current_super_admin)]):
-    """Super administrateur : changer sa propre structure (sélecteur de l'en-tête).
-    Il y est en administration ; ses inscriptions dans les autres structures sont conservées."""
-    if body.structure_id is not None:
-        _check_structure_exists(body.structure_id)
-    db.update_user(
-        admin["id"],
-        structure_id=body.structure_id,
-        structure_role="manager" if body.structure_id is not None else None,
-    )
-    return {"user": _public_user(db.get_user(admin["id"]))}
+def switch_own_structure(body: StructureSwitch, user: CurrentUser, session: SessionCookie = None):
+    """Change la structure active de CETTE session (chaque navigateur a la sienne) : un compte choisit
+    parmi ses structures, un super administrateur parmi toutes (ou aucune). Il y garde son rôle ; un
+    super administrateur y est en administration. Ses inscriptions dans les autres structures sont conservées."""
+    if not session or not db.set_active_structure(_token_hash(session), user["id"], body.structure_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Vous n'avez pas accès à cette structure")
+    return {"user": _public_user(db.get_user(user["id"], body.structure_id), with_structures=True)}
 
 
 # ---------------------------------------------------------------------------
@@ -545,16 +550,19 @@ def delete_preferences(user: CurrentUser):
 # administrateurs ; il choisit le rôle (visualisation / administration).
 # ---------------------------------------------------------------------------
 
-def _get_or_404(user_id: int) -> sqlite3.Row:
-    row = db.get_user(user_id)
+def _get_or_404(user_id: int, structure_id: int | None = None) -> sqlite3.Row:
+    row = db.get_user(user_id, structure_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Utilisateur inconnu")
     return row
 
 
-def target_or_404(actor: sqlite3.Row, user_id: int) -> sqlite3.Row:
-    """Compte que l'acteur a le droit de gérer (404 sinon : on ne révèle rien)."""
-    target = _get_or_404(user_id)
+def target_or_404(actor: sqlite3.Row, user_id: int, structure_id: int | None = None) -> sqlite3.Row:
+    """Compte que l'acteur a le droit de gérer (404 sinon : on ne révèle rien), vu dans `structure_id`
+    (à défaut, la structure active de l'acteur) : rôle et profils sont ceux de cette structure.
+    Un administrateur de structure ne gère que les MEMBRES de la sienne, hors super administrateurs."""
+    sid = structure_id if structure_id is not None else actor["structure_id"]
+    target = _get_or_404(user_id, sid)
     if actor["is_admin"]:
         return target
     if target["is_admin"] or target["structure_id"] != actor["structure_id"]:
@@ -616,60 +624,67 @@ def admin_create_user(body: UserCreate, actor: CurrentManager):
     except sqlite3.IntegrityError as e:
         raise _integrity_conflict(e, username)
     if body.profiles:
-        db.set_user_profiles(user_id, body.profiles)
+        db.set_user_profiles(user_id, structure_id, body.profiles)
 
     if not body.send_invite:
-        return _public_user(db.get_user(user_id))
+        return _public_user(db.get_user(user_id, structure_id))
     try:
         accounts.send_invitation(user_id, inviter=display_name(actor))
         invitation = {"sent": True, "error": None}
     except mailer.MailError as e:
         # le compte existe : l'invitation pourra être renvoyée depuis la liste
         invitation = {"sent": False, "error": str(e)}
-    return _public_user(db.get_user(user_id)) | {"invitation": invitation}
+    return _public_user(db.get_user(user_id, structure_id)) | {"invitation": invitation}
 
 
 @router.patch("/admin/users/{user_id}")
 def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
-    target = target_or_404(actor, user_id)
+    """Modifie un compte. Le rôle et les profils sont ceux du compte DANS UNE structure : celle de
+    l'administrateur, ou (super administrateur) celle que désigne `structure_id`, où le compte est alors
+    rattaché s'il n'en était pas membre. Pour retirer un compte d'une structure : DELETE."""
     sent = body.model_fields_set
-    is_self = target["id"] == actor["id"]
-
     if not actor["is_admin"] and ({"is_admin", "structure_id"} & sent):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Seul un super administrateur peut changer la structure ou le rôle de super administrateur")
+    if "structure_id" in sent and body.structure_id is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pour retirer un compte d'une structure, utilisez la suppression (DELETE avec structure_id)")
+    if "structure_id" in sent:
+        _check_structure_exists(body.structure_id)
 
-    # état visé, pour vérifier la cohérence d'ensemble
+    target = target_or_404(actor, user_id, body.structure_id if "structure_id" in sent else None)
+    is_self = target["id"] == actor["id"]
+    sid = body.structure_id if "structure_id" in sent else (actor["structure_id"] or target["structure_id"])
+
     new_admin = body.is_admin if "is_admin" in sent and body.is_admin is not None else bool(target["is_admin"])
-    new_structure = body.structure_id if "structure_id" in sent else target["structure_id"]
-    new_role = body.role if "role" in sent and body.role is not None else target["structure_role"]
-
-    if new_structure is None:
-        if not new_admin:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Un compte doit appartenir à une structure")
-        new_role = None
-    else:
-        if "structure_id" in sent:
-            _check_structure_exists(new_structure)
-        new_role = new_role or "viewer"
-
     if target["is_admin"] and not new_admin:
         if is_self:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas retirer vos propres droits de super administrateur")
         if db.count_admins() <= 1:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Il doit rester au moins un super administrateur")
-    if is_self and not actor["is_admin"] and new_role != target["structure_role"]:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas changer votre propre rôle")
-    # profils : remplacés si fournis ; un compte sans structure n'en a pas
+        if not db.count_memberships(user_id):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Un compte doit appartenir à une structure : rattachez-le d'abord à l'une d'elles")
+
+    # rôle et profils : dans la structure `sid`
+    membership = db.get_membership(user_id, sid) if sid is not None else None
+    new_role = body.role if "role" in sent and body.role is not None else (membership["role"] if membership else "viewer")
     new_profiles = body.profiles if "profiles" in sent and body.profiles is not None else None
-    if new_structure is None:
-        if new_profiles:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Un profil exige une structure")
-        new_profiles = []
+    touches_structure = "role" in sent or new_profiles is not None or "structure_id" in sent
+    if touches_structure and sid is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Précisez la structure (structure_id)")
+    if is_self and not actor["is_admin"] and membership and new_role != membership["role"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas changer votre propre rôle")
 
     # profil : prénom, nom et e-mail ne peuvent pas être vidés ; téléphone oui
     profile = {k: getattr(body, k) for k in ("first_name", "last_name", "email") if k in sent and getattr(body, k) is not None}
     if "phone" in sent:
         profile["phone"] = body.phone
+    # Un compte membre de plusieurs structures n'appartient à aucune : sinon l'administrateur de l'une pourrait
+    # changer le mot de passe ou l'e-mail d'un compte qui administre l'autre, et le prendre.
+    if (not actor["is_admin"] and not is_self and db.count_memberships(user_id) > 1
+            and (profile or body.password or "must_change_password" in sent)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Ce compte appartient à plusieurs structures : seul son titulaire ou un super administrateur peut modifier son profil ou son mot de passe",
+        )
     if "email" in profile and profile["email"] != target["email"]:
         db.delete_user_tokens(user_id)   # liens déjà envoyés à l'ancienne adresse
 
@@ -687,15 +702,18 @@ def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
             now=_iso(_now()),
             must_change_password=must_change,
             is_admin=new_admin if new_admin != bool(target["is_admin"]) else None,
-            structure_id=new_structure,
-            structure_role=new_role,
             **profile,
         )
     except sqlite3.IntegrityError as e:
         raise _integrity_conflict(e)
-    if new_profiles is not None:
-        db.set_user_profiles(user_id, new_profiles)
-    return _public_user(db.get_user(user_id))
+    if touches_structure:
+        if membership is None:
+            db.add_membership(user_id, sid, new_role, _iso(_now()))     # super administrateur : rattachement direct
+        elif new_role != membership["role"]:
+            db.set_membership_role(user_id, sid, new_role)
+        if new_profiles is not None:
+            db.set_user_profiles(user_id, sid, new_profiles)
+    return _public_user(db.get_user(user_id, sid))
 
 
 @router.get("/admin/profiles")
@@ -705,10 +723,23 @@ def admin_list_profiles(actor: CurrentManager):
 
 
 @router.delete("/admin/users/{user_id}", status_code=204)
-def admin_delete_user(user_id: int, actor: CurrentManager):
-    target = target_or_404(actor, user_id)
+def admin_delete_user(user_id: int, actor: CurrentManager, structure_id: int | None = None):
+    """Administrateur de structure : retire le compte de SA structure (le compte est supprimé s'il n'en a
+    pas d'autre). Super administrateur : supprime le compte, ou seulement son appartenance à la structure
+    donnée par `structure_id`."""
+    target = target_or_404(actor, user_id, structure_id)
+    if actor["is_admin"] and structure_id is not None:
+        if db.get_membership(user_id, structure_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Ce compte n'est pas membre de cette structure")
+        if not target["is_admin"] and db.count_memberships(user_id) <= 1:
+            raise HTTPException(status.HTTP_409_CONFLICT, "C'est la dernière structure de ce compte : supprimez le compte")
+        db.remove_membership(user_id, structure_id)
+        return
     if target["id"] == actor["id"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas supprimer votre propre compte")
+    if not actor["is_admin"] and db.count_memberships(user_id) > 1:
+        db.remove_membership(user_id, actor["structure_id"])   # il reste membre d'autres structures
+        return
     if target["is_admin"] and db.count_admins() <= 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Il doit rester au moins un super administrateur")
     # sessions, jetons et préférences suivent (CASCADE) ; ses créneaux choisis restent à la structure

@@ -414,6 +414,43 @@
           <p id="create-status" class="form-status" role="status"></p>
         </form>
 
+        <section id="invite-panel" class="panel invite-panel">
+          <h2>Inviter un compte existant</h2>
+          <p class="hint">Pour ajouter à votre structure une personne qui a déjà un compte, dans une autre structure.
+            Elle reçoit une invitation et ne rejoint la structure que si elle l'accepte. Vous ne saurez pas si un compte existe à cette adresse.</p>
+          <form id="invite-form" class="create-user invite-form" autocomplete="off" novalidate>
+            <div class="field" data-super>
+              <label for="invite-structure">Structure</label>
+              <select id="invite-structure" name="structure_id"></select>
+            </div>
+            <div class="field">
+              <label for="invite-email">Adresse e-mail du compte</label>
+              <input id="invite-email" name="email" type="email" required maxlength="254">
+            </div>
+            <div class="field">
+              <label for="invite-role">Rôle dans la structure</label>
+              <select id="invite-role" name="role">
+                <option value="viewer">Visualisation</option>
+                <option value="manager">Administration</option>
+              </select>
+            </div>
+            <fieldset class="profiles-field" id="invite-profiles" hidden>
+              <legend>Profils <span class="optional">en plus du rôle, cumulables</span></legend>
+            </fieldset>
+            <div class="form-actions">
+              <button type="submit" class="btn-primary">Envoyer l'invitation</button>
+            </div>
+            <p id="invite-status" class="form-status" role="status"></p>
+          </form>
+          <div id="invitations-pending" hidden>
+            <h3>Invitations en attente</h3>
+            <table class="users invitations-list">
+              <thead><tr><th scope="col">Adresse e-mail</th><th scope="col">Rôle</th><th scope="col">Expire le</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+              <tbody id="invitations-body"></tbody>
+            </table>
+          </div>
+        </section>
+
         <form id="import-form" class="panel import-panel" autocomplete="off">
           <div class="panel-head">
             <h2>Importer des utilisateurs depuis un fichier CSV</h2>

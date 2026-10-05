@@ -561,6 +561,10 @@ function renderStructureSelects() {
   importSel.innerHTML = `<option value="">Aucune (colonne « structure » obligatoire)</option>` + opts(null);
   importSel.value = structures.some(st => String(st.id) === keepImport) ? keepImport : (structures[0] ? String(structures[0].id) : "");
 
+  const inviteSel = $("invite-structure");
+  const keepInvite = inviteSel.value ? Number(inviteSel.value) : (Session.user?.structure?.id ?? structures[0]?.id ?? null);
+  inviteSel.innerHTML = opts(keepInvite);
+
   const filter = $("users-filter");
   const keepFilter = filter.value;
   filter.innerHTML = `<option value="">Toutes les structures</option>` + opts(null);
@@ -1225,6 +1229,20 @@ function statusTags(u) {
   return tags.join(" ");
 }
 
+// Administrateur de structure : « Retirer » un compte partagé de SA structure (le compte reste), « Supprimer » sinon.
+// Super administrateur : « Retirer de la structure » quand la liste est filtrée sur une structure dont le compte
+// est membre et qui n'est pas la seule, et toujours « Supprimer le compte ».
+function deleteButtons(u) {
+  if (!isSuper()) {
+    return u.structures_count > 1
+      ? `<button type="button" class="btn-danger" data-act="remove" title="Le compte reste membre de ses autres structures">Retirer</button>`
+      : `<button type="button" class="btn-danger" data-act="delete">Supprimer</button>`;
+  }
+  const scoped = $("users-filter").value && u.structures_count > 1;
+  return (scoped ? `<button type="button" class="btn-quiet" data-act="remove">Retirer de la structure</button>` : "")
+    + `<button type="button" class="btn-danger" data-act="delete">Supprimer${scoped ? " le compte" : ""}</button>`;
+}
+
 function renderUsers() {
   const me = Session.user;
   const q = $("users-search").value.trim().toLowerCase();
@@ -1250,8 +1268,8 @@ function renderUsers() {
         <td data-label="Dernière connexion" title="Compte créé le ${stamp(u.created_at)}">${u.last_login_at ? stamp(u.last_login_at) : `<span class="muted">jamais</span>`}</td>
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
-          ${self ? "" : `<button type="button" class="btn-quiet" data-act="password">Mot de passe…</button>`}
-          ${self ? "" : `<button type="button" class="btn-danger" data-act="delete">Supprimer</button>`}
+          ${self || isShared(u) ? "" : `<button type="button" class="btn-quiet" data-act="password">Mot de passe…</button>`}
+          ${self ? "" : deleteButtons(u)}
         </td>
       </tr>`;
   }).join("")
@@ -1264,6 +1282,7 @@ async function loadUsers() {
   try {
     users = await Session.api(`/api/admin/users${filter ? `?structure_id=${filter}` : ""}`);
     renderUsers();
+    loadInvitations();
   } catch (e) {
     usersStatus.textContent = e.message;
   }
@@ -1294,6 +1313,7 @@ async function loadProfileCatalog() {
   box.querySelectorAll("label").forEach(l => l.remove());
   box.insertAdjacentHTML("beforeend", profileChoices());
   box.hidden = !profileCatalog.length;
+  renderInviteProfiles();
 }
 
 // ---- Création ----
@@ -1407,10 +1427,17 @@ createForm.addEventListener("submit", async e => {
 
 // ---- Modification ----
 
+// Compte membre de plusieurs structures : son profil et son mot de passe n'appartiennent à aucune d'elles,
+// seuls son titulaire et un super administrateur les modifient (l'API le refuse aux autres)
+const isShared = user => !isSuper() && user.id !== Session.user.id && user.structures_count > 1;
+
 function editUser(user) {
   const self = user.id === Session.user.id;
   const sup = isSuper();
-  const structOpts = `<option value="">Aucune</option>` + structures.map(st =>
+  const shared = isShared(user);
+  // super administrateur : la structure dont on modifie le rôle et les profils (le compte y est rattaché s'il n'en
+  // était pas membre) ; sans structure, ni rôle ni profils
+  const structOpts = (user.structure ? "" : `<option value="">Aucune</option>`) + structures.map(st =>
     `<option value="${st.id}"${st.id === user.structure?.id ? " selected" : ""}>${esc(st.name)}</option>`).join("");
   const roleOpts = Object.entries(ROLE_LABELS).map(([v, l]) =>
     `<option value="${v}"${v === (user.role || "viewer") ? " selected" : ""}>${l}</option>`).join("");
@@ -1418,28 +1445,30 @@ function editUser(user) {
     title: `Modifier ${user.display_name}`,
     body: `
       <p class="dialog-hint">Identifiant : <strong>${esc(user.username)}</strong></p>
-      <label>Prénom <input name="first_name" maxlength="60" required value="${esc(user.first_name ?? "")}"></label>
-      <label>Nom <input name="last_name" maxlength="60" required value="${esc(user.last_name ?? "")}"></label>
-      <label>Adresse e-mail <input name="email" type="email" maxlength="254" required value="${esc(user.email ?? "")}"></label>
-      <label>Téléphone <input name="phone" type="tel" maxlength="30" value="${esc(user.phone ?? "")}"></label>
-      ${sup ? `<label>Structure <select name="structure_id">${structOpts}</select></label>` : ""}
+      ${shared ? `<p class="dialog-notice">Ce compte appartient à plusieurs structures : son profil n'est modifiable que par lui-même ou par un super administrateur. Vous pouvez changer son rôle et ses profils dans votre structure.</p>` : ""}
+      <label>Prénom <input name="first_name" maxlength="60" required value="${esc(user.first_name ?? "")}"${shared ? " disabled" : ""}></label>
+      <label>Nom <input name="last_name" maxlength="60" required value="${esc(user.last_name ?? "")}"${shared ? " disabled" : ""}></label>
+      <label>Adresse e-mail <input name="email" type="email" maxlength="254" required value="${esc(user.email ?? "")}"${shared ? " disabled" : ""}></label>
+      <label>Téléphone <input name="phone" type="tel" maxlength="30" value="${esc(user.phone ?? "")}"${shared ? " disabled" : ""}></label>
+      ${sup ? `<label>Structure (rôle et profils) <select name="structure_id">${structOpts}</select></label>` : ""}
       <label>Rôle dans la structure <select name="role"${self && !sup ? " disabled" : ""}>${roleOpts}</select></label>
       ${sup ? `<label class="check"><input type="checkbox" name="is_admin"${user.is_admin ? " checked" : ""}${self ? " disabled" : ""}> Super administrateur</label>` : ""}
       ${profileCatalog.length ? `<fieldset class="profiles-field"><legend>Profils</legend>${profileChoices(user.profiles)}</fieldset>` : ""}
-      <p class="dialog-hint">${sup ? "Un compte sans structure doit être super administrateur. Ses créneaux déjà choisis restent à son ancienne structure." : "Administration : choisit les créneaux et gère la structure. Visualisation : voit les créneaux choisis."}</p>`,
+      <p class="dialog-hint">${sup ? "Le rôle et les profils valent pour la structure choisie ; un compte peut appartenir à plusieurs structures, avec un rôle différent dans chacune. Pour en retirer un, utilisez « Retirer de la structure » dans la liste." : "Administration : choisit les créneaux et gère la structure. Visualisation : voit les créneaux choisis."}</p>`,
     onSubmit: async f => {
-      const body = {
+      const body = shared ? {} : {
         first_name: f.first_name.value.trim(),
         last_name: f.last_name.value.trim(),
         email: f.email.value.trim(),
         phone: f.phone.value.trim() || null,
       };
       // champs vides d'un ancien compte : laissés tels quels plutôt que refusés
-      for (const k of ["first_name", "last_name", "email"]) if (!body[k]) delete body[k];
-      if (!(self && !sup)) body.role = f.role.value;
-      if (profileCatalog.length) body.profiles = checkedProfiles(f);
+      for (const k of ["first_name", "last_name", "email"]) if (!body[k] && k in body) delete body[k];
+      const noStructure = sup && f.structure_id.value === "";    // rien à dire du rôle ni des profils
+      if (!(self && !sup) && !noStructure) body.role = f.role.value;
+      if (profileCatalog.length && !noStructure) body.profiles = checkedProfiles(f);
       if (sup) {
-        body.structure_id = f.structure_id.value ? Number(f.structure_id.value) : null;
+        if (!noStructure) body.structure_id = Number(f.structure_id.value);
         if (!self) body.is_admin = f.is_admin.checked;
       }
       await Session.api(`/api/admin/users/${user.id}`, { method: "PATCH", body });
@@ -1454,6 +1483,75 @@ function editUser(user) {
     sync();
   }
 }
+
+// ---- Invitation d'un compte existant ----
+
+const inviteForm = $("invite-form");
+
+const inviteScope = () => (isSuper() && inviteForm.structure_id.value ? `?structure_id=${inviteForm.structure_id.value}` : "");
+
+async function loadInvitations() {
+  const box = $("invitations-pending");
+  try {
+    const list = await Session.api(`/api/admin/structure-invitations${inviteScope()}`);
+    box.hidden = !list.length;
+    $("invitations-body").innerHTML = list.map(i => `
+      <tr data-id="${i.id}">
+        <th scope="row">${esc(i.email)}</th>
+        <td data-label="Rôle">${esc(i.role_label)}${i.profiles.length ? ` <span class="muted">· ${esc(i.profiles.join(", "))}</span>` : ""}</td>
+        <td data-label="Expire le">${stamp(i.expires_at)}</td>
+        <td class="actions"><button type="button" class="btn-quiet" data-act="cancel-invitation">Annuler</button></td>
+      </tr>`).join("");
+  } catch {
+    box.hidden = true;
+  }
+}
+
+function renderInviteProfiles() {
+  const box = $("invite-profiles");
+  box.querySelectorAll("label").forEach(l => l.remove());
+  box.insertAdjacentHTML("beforeend", profileChoices());
+  box.hidden = !profileCatalog.length;
+}
+
+inviteForm.structure_id.addEventListener("change", loadInvitations);
+
+inviteForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const status = $("invite-status");
+  status.textContent = "";
+  if (!inviteForm.email.value.trim()) {
+    status.textContent = "Saisissez l'adresse e-mail du compte à inviter.";
+    return;
+  }
+  const body = { email: inviteForm.email.value.trim(), role: inviteForm.role.value, profiles: checkedProfiles(inviteForm) };
+  if (isSuper() && inviteForm.structure_id.value) body.structure_id = Number(inviteForm.structure_id.value);
+  const btn = inviteForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  try {
+    const r = await Session.api("/api/admin/structure-invitations", { method: "POST", body });
+    status.textContent = r.detail;
+    inviteForm.email.value = "";
+    for (const box of inviteForm.querySelectorAll("[name=profile]")) box.checked = false;
+    loadInvitations();
+  } catch (err) {
+    status.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("invitations-body").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-act=cancel-invitation]");
+  if (!btn) return;
+  const id = btn.closest("tr").dataset.id;
+  try {
+    await Session.api(`/api/admin/structure-invitations/${id}${inviteScope()}`, { method: "DELETE" });
+  } catch (err) {
+    $("invite-status").textContent = err.message;
+  }
+  loadInvitations();
+});
 
 // ---- Mot de passe : envoi par e-mail ou mot de passe provisoire saisi ----
 
@@ -1515,6 +1613,12 @@ usersBody.addEventListener("click", async e => {
       case "edit":
         editUser(user);
         return;
+      case "remove": {
+        const scope = isSuper() ? `?structure_id=${$("users-filter").value}` : "";
+        if (!confirm(`Retirer « ${user.display_name} » de cette structure ? Son compte reste membre de ses autres structures ; ses inscriptions à ses créneaux sont retirées.`)) return;
+        await Session.api(`/api/admin/users/${user.id}${scope}`, { method: "DELETE" });
+        break;
+      }
       case "delete":
         if (!confirm(`Supprimer le compte « ${user.display_name} » (${user.username}) et ses préférences ? Les créneaux qu'il a choisis restent à sa structure.`)) return;
         await Session.api(`/api/admin/users/${user.id}`, { method: "DELETE" });

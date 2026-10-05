@@ -17,8 +17,8 @@ from .db_core import get_conn
 
 _STRUCTURE_SELECT = """
     SELECT st.*,
-        (SELECT COUNT(*) FROM users u WHERE u.structure_id = st.id AND u.structure_role = 'manager') AS managers,
-        (SELECT COUNT(*) FROM users u WHERE u.structure_id = st.id AND u.structure_role = 'viewer') AS viewers,
+        (SELECT COUNT(*) FROM memberships m WHERE m.structure_id = st.id AND m.role = 'manager') AS managers,
+        (SELECT COUNT(*) FROM memberships m WHERE m.structure_id = st.id AND m.role = 'viewer') AS viewers,
         (SELECT COUNT(*) FROM slot_types t WHERE t.structure_id = st.id) AS types,
         (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id) AS selections
     FROM structures st
@@ -88,6 +88,13 @@ def get_lock_days(structure_id: int) -> dict[str, int | None]:
 
 def delete_structure(structure_id: int) -> None:
     """Types et créneaux choisis suivent (CASCADE). Lève sqlite3.IntegrityError
-    s'il reste des membres (ON DELETE RESTRICT sur users.structure_id)."""
+    s'il reste des membres (ON DELETE RESTRICT sur memberships.structure_id)."""
     with get_conn() as conn:
+        # un super administrateur qui n'y était que de passage (structure par défaut, sans appartenance)
+        # n'empêche pas la suppression
+        conn.execute(
+            "UPDATE users SET structure_id = NULL, structure_role = NULL WHERE structure_id = ? "
+            "AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = users.id AND m.structure_id = ?)",
+            (structure_id, structure_id),
+        )
         conn.execute("DELETE FROM structures WHERE id = ?", (structure_id,))

@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, contact, db, mailjet_admin, newsletters, recovery, security, selections, structures, user_import
+from . import admin, auth, calendar_fr, contact, db, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, user_import
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -61,6 +61,8 @@ app.include_router(selections.router)
 app.include_router(contact.router)
 # Connexion Mailjet d'une structure (/api/admin/mailjet)
 app.include_router(mailjet_admin.router)
+# Invitations à rejoindre une structure (/api/admin/structure-invitations, /api/me/invitations)
+app.include_router(memberships.router)
 # Newsletters : rédaction, envoi, suivi, désinscription, événements Mailjet (/api/newsletters, /api/mailjet/events)
 app.include_router(newsletters.router)
 
