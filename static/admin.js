@@ -1069,6 +1069,7 @@ async function loadTypes() {
   const noStructure = isSuper() && !typesScope;
   typeForm.hidden = noStructure;
   loadSettings();
+  loadUnavailabilities();
   if (noStructure) {
     slotTypes = [];
     typesBody.innerHTML = `<tr><td colspan="5" class="empty">Créez d'abord une structure (onglet « Structures »).</td></tr>`;
@@ -1082,6 +1083,112 @@ async function loadTypes() {
   }
   renderTypes();
 }
+
+// ---- Plages d'indisponibilité : aucun créneau ne peut y être choisi ou créé ----
+
+const unavPanel = $("unav-panel");
+const unavBody = $("unav-body");
+const unavStatus = $("unav-status");
+let unavailabilities = [];
+
+async function loadUnavailabilities() {
+  unavPanel.hidden = isSuper() && !typesScope;
+  if (unavPanel.hidden) return;
+  const qs = new URLSearchParams();
+  if (isSuper() && typesScope) qs.set("structure_id", typesScope);
+  if ($("unav-past").checked) qs.set("past", "true");
+  try {
+    unavailabilities = await Session.api(`/api/admin/unavailabilities?${qs}`);
+  } catch (e) {
+    unavBody.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  unavBody.innerHTML = unavailabilities.length ? unavailabilities.map(u => `
+    <tr data-id="${u.id}" class="${u.past ? "inactive" : ""}">
+      <th scope="row">${esc(u.label.charAt(0).toUpperCase() + u.label.slice(1))}</th>
+      <td data-label="Motif">${u.reason ? esc(u.reason) : `<span class="muted">—</span>`}</td>
+      <td data-label="Ajoutée par">${u.created_by ? esc(u.created_by) : `<span class="muted">—</span>`}</td>
+      <td class="actions">
+        <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
+        <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
+      </td>
+    </tr>`).join("")
+    : `<tr><td colspan="4" class="empty">Aucune indisponibilité${$("unav-past").checked ? "" : " à venir"}.</td></tr>`;
+}
+
+$("unav-past").addEventListener("change", loadUnavailabilities);
+$("unav-add").addEventListener("click", () => editUnavailability(null));
+
+const fmtUnavDay = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+
+// Créneaux à venir déjà choisis dans la plage : gardés, mais signalés
+function showOverlapping(u, overlapping) {
+  if (!overlapping.length) {
+    unavStatus.innerHTML = `<p>Indisponibilité enregistrée : ${esc(u.label)}.</p>`;
+    return;
+  }
+  const items = overlapping.map(o => {
+    const day = fmtUnavDay.format(new Date(`${o.date}T12:00:00`));
+    const regs = o.registrations ? ` — ${o.registrations} inscrit(s)` : "";
+    return `<li>${esc(day)}, RDV ${esc(o.rdv.time)} · ${esc(o.type)}${o.note ? ` « ${esc(o.note)} »` : ""} · ${esc(o.place)}${regs}</li>`;
+  }).join("");
+  unavStatus.innerHTML = `<div class="unav-warning">
+      <p><strong>Indisponibilité enregistrée (${esc(u.label)}), mais ${overlapping.length} créneau(x) déjà choisi(s) s'y trouvent.</strong>
+      Ils sont conservés, inscrits compris ; retirez-les depuis <a href="mes-creneaux.html">Créneaux choisis</a> si besoin.</p>
+      <ul>${items}</ul>
+    </div>`;
+}
+
+function editUnavailability(u) {
+  const qs = isSuper() && typesScope ? `?structure_id=${typesScope}` : "";
+  const v = (x) => esc(x ?? "");
+  openDialog({
+    title: u ? "Modifier l'indisponibilité" : "Ajouter une indisponibilité",
+    submitLabel: u ? "Enregistrer" : "Ajouter",
+    body: `
+      <div class="unav-fields">
+        <label>Du <input name="start_date" type="date" required value="${v(u?.start_date)}"></label>
+        <label>à partir de <input name="start_time" type="time" value="${v(u?.start_time)}"></label>
+        <label>Au <input name="end_date" type="date" value="${v(u?.end_date !== u?.start_date ? u?.end_date : "")}"></label>
+        <label>jusqu'à <input name="end_time" type="time" value="${v(u?.end_time)}"></label>
+      </div>
+      <p class="dialog-hint">« Au » vide : un seul jour. Heures vides : journées entières (dès 0 h le premier jour, jusqu'à minuit le dernier). L'heure de fin est exclue : jusqu'à 12:00, un rendez-vous à 12:00 reste possible.</p>
+      <label>Motif (facultatif) <input name="reason" maxlength="80" placeholder="ex. Carénage du bateau" value="${v(u?.reason)}"></label>`,
+    onSubmit: async form => {
+      const body = {
+        start_date: form.start_date.value,
+        end_date: form.end_date.value || null,
+        start_time: form.start_time.value || null,
+        end_time: form.end_time.value || null,
+        reason: form.reason.value.trim() || null,
+      };
+      const r = await Session.api(u ? `/api/admin/unavailabilities/${u.id}${qs}` : `/api/admin/unavailabilities${qs}`,
+        { method: u ? "PUT" : "POST", body });
+      showOverlapping(r.unavailability, r.overlapping);
+      loadUnavailabilities();
+    },
+  });
+}
+
+unavBody.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const u = unavailabilities.find(x => x.id === Number(btn.closest("tr").dataset.id));
+  if (!u) return;
+  if (btn.dataset.act === "edit") {
+    editUnavailability(u);
+    return;
+  }
+  if (!confirm(`Supprimer l'indisponibilité ${u.label} ?`)) return;
+  const qs = isSuper() && typesScope ? `?structure_id=${typesScope}` : "";
+  try {
+    await Session.api(`/api/admin/unavailabilities/${u.id}${qs}`, { method: "DELETE" });
+    unavStatus.innerHTML = "";
+  } catch (err) {
+    flash(esc(err.message));
+  }
+  loadUnavailabilities();
+});
 
 function renderTypes() {
   typesBody.innerHTML = slotTypes.length ? slotTypes.map((t, i) => `

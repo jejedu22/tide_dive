@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, contact, db, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, user_import
+from . import admin, auth, calendar_fr, contact, db, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -57,6 +57,7 @@ app.include_router(admin.router)
 app.include_router(structures.router)
 # Types de créneaux et créneaux choisis par structure (/api/slot-types, /api/selections, /api/admin/slot-types)
 app.include_router(selections.router)
+app.include_router(unavailability.router)
 # Demandes de création de structure : formulaire public et administration (/api/structure-requests)
 app.include_router(contact.router)
 # Connexion Mailjet d'une structure (/api/admin/mailjet)
@@ -139,6 +140,9 @@ def api_dive_windows(
     # Heure de RDV réservée aux comptes connectés, selon le délai de leur
     # structure (2 h sans structure) ; None : visiteur anonyme, pas de RDV.
     rdv_offset = db.get_rdv_offset(user["structure_id"]) if user is not None else None
+    # Plages d'indisponibilité de la structure du compte : étales qu'elle ne peut pas choisir
+    unavailable = (db.list_unavailabilities(user["structure_id"], (start - timedelta(days=1)).isoformat())   # RDV la veille
+                   if user is not None and user["structure_id"] is not None else [])
 
     start_utc = datetime.combine(start, datetime.min.time(), tzinfo=tz).astimezone(ZoneInfo("UTC"))
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
@@ -228,6 +232,10 @@ def api_dive_windows(
         if rdv_offset is not None:
             rdv_dt = rdv_time(local_dt, rdv_offset)
             results[-1]["rdv"] = {"date": rdv_dt.date().isoformat(), "time": rdv_dt.strftime("%H:%M")}
+            blocked = unavailability.blocking(unavailable, *unavailability.tide_span(
+                rdv_dt.date().isoformat(), rdv_dt.strftime("%H:%M"), day_key, local_dt.strftime("%H:%M")))
+            if blocked is not None:
+                results[-1]["unavailable"] = {"label": unavailability.describe(blocked), "reason": blocked["reason"]}
 
     results.sort(key=lambda r: (r["date"], r["time"]))
 

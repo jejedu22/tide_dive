@@ -439,6 +439,23 @@ CREATE TABLE IF NOT EXISTS slot_types (
 -- jour, l'heure de RDV et un intitulé facultatif (note). SQLite tient les NULL
 -- pour distincts : la contrainte UNIQUE ne s'applique pas à ces créneaux.
 CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
+
+-- Plages d'indisponibilité d'une structure (tous lieux) : aucun créneau ne peut y être choisi ou créé.
+-- Du jour start_date (à start_time, sinon dès 00:00) au jour end_date (jusqu'à end_time exclu, sinon toute la
+-- journée), heures locales. Les créneaux déjà choisis dans la plage restent (l'administrateur est prévenu).
+CREATE TABLE IF NOT EXISTS unavailabilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    start_date TEXT NOT NULL,               -- YYYY-MM-DD
+    start_time TEXT,                        -- HH:MM ; NULL : dès le début du jour
+    end_date TEXT NOT NULL,                 -- YYYY-MM-DD, >= start_date
+    end_time TEXT,                          -- HH:MM exclu ; NULL : jusqu'à la fin du jour
+    reason TEXT,                            -- motif facultatif (« Carénage du bateau »)
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    CHECK (end_date >= start_date)
+);
+CREATE INDEX IF NOT EXISTS idx_unavailabilities_structure ON unavailabilities(structure_id, end_date);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);

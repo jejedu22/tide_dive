@@ -20,6 +20,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_memberships.py appartenances à plusieurs structures, structure active, invitations
   db_jobs.py        file de tâches, worker
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
+  db_unavailabilities.py plages d'indisponibilité des structures
   db_requests.py    demandes de création de structure
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
 Les évolutions nouvelles du schéma : migrations.py.
@@ -189,6 +190,19 @@ from .db_selections import (  # noqa: F401
     add_registration,
     delete_registration,
     update_selection_capacity,
+)
+from .db_unavailabilities import (  # noqa: F401
+    _UNAV_START,
+    _UNAV_END,
+    _UNAV_SEL_START,
+    _UNAV_SEL_END,
+    _UNAV_SQL,
+    list_unavailabilities,
+    get_unavailability,
+    create_unavailability,
+    update_unavailability,
+    delete_unavailability,
+    selections_in_unavailability,
 )
 from .db_requests import (  # noqa: F401
     create_structure_request,

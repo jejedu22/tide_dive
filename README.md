@@ -461,6 +461,16 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+### Indisponibilités
+
+Les administrateurs d'une structure déclarent des **plages d'indisponibilité** (bateau au carénage, congés du club…) dans `/admin.html` → **Créneaux** → *Indisponibilités*. La plage vaut pour **tous les lieux** de la structure. Pendant une plage, **aucun créneau ne peut être choisi** dans la recherche, ni créé ou déplacé (créneau personnalisé) : l'API refuse avec le motif.
+
+- **Plage** : du jour… (« au » facultatif : un seul jour), avec des heures facultatives : sans heure, journées entières ; « à partir de 14:00 » le premier jour, « jusqu'à 12:00 » le dernier (heure de fin exclue : un RDV à 12:00 reste possible). Motif facultatif (80 caractères). Durée : un an au plus.
+- **Règle** : un créneau est bloqué si sa période **touche** la plage : du rendez-vous à l'étale pour une étale (un RDV pris pendant la plage suffit), l'heure de RDV pour un créneau personnalisé, tout le séjour pour un créneau sur plusieurs jours.
+- **Créneaux déjà choisis** dans une nouvelle plage : ils sont **conservés**, inscrits compris. L'administration les liste à l'enregistrement de la plage ; à l'administrateur de les retirer s'il le souhaite.
+- **Affichage** : dans la recherche, les étales concernées sont hachurées et marquées « Indisponible · motif », sans liste de choix. Dans « Créneaux choisis », un bandeau rappelle les plages à venir et les jours concernés sont hachurés dans le calendrier.
+- Modification et suppression depuis la même liste ; les plages passées sont masquées (case « Afficher les plages passées »).
+
 ### Plusieurs créneaux sur une même étale
 
 Une même étale peut porter **plusieurs créneaux choisis** (deux bateaux, une sortie et une formation…). Chacun a son type, son **intitulé** facultatif (80 caractères, ex. « Bateau 1 », « Bateau 2 »), ses inscrits et ses places.
