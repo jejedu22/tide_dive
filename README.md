@@ -461,6 +461,19 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+### Places limitées et file d'attente
+
+Le nombre d'inscrits d'un créneau peut être **limité**. Au-delà, les inscriptions passent en **file d'attente**.
+
+- **Par défaut : illimité.** Les administrateurs de la structure renseignent un **nombre de places par défaut** dans `/admin.html` → **Créneaux** → *Places*. Il est **copié sur chaque nouveau créneau** à sa création : le modifier ne touche pas les créneaux existants, et aucun inscrit ne change de statut à son insu.
+- **Par créneau** : bouton **« Places… »** d'un créneau à venir (administration). Vide : illimité. Le nombre se règle aussi à la création d'un créneau personnalisé (champ prérempli avec la valeur par défaut) ; un créneau choisi depuis la recherche reprend la valeur par défaut.
+- **Ordre d'inscription.** Les *N* premiers inscrits sont confirmés, les suivants attendent dans l'ordre. Le statut est **calculé à chaque lecture**, jamais stocké : il ne peut pas se désynchroniser. Se réinscrire après s'être désinscrit remet en fin de file.
+- **Une place se libère** (désinscription, retrait par un administrateur, ou places ajoutées) : le premier de la file est confirmé et **prévenu par e-mail**, si l'envoi d'e-mails est configuré. Si le membre qui part est **retiré de la structure ou son compte supprimé**, le suivant est bien confirmé, mais **sans e-mail** : il le voit à sa prochaine visite. **Réduire** le nombre de places remet en file d'attente les derniers inscrits, sans e-mail (la boîte de dialogue annonce l'effet avant d'enregistrer).
+- **Inscrire d'autres membres** respecte aussi les places : au-delà, ils sont placés en file d'attente (leur e-mail le dit, avec leur rang).
+- **Affichage** : « 3/8 » (confirmés / places), « +2 » pour la file, « complet » ; le bouton devient « Rejoindre la file d'attente » ; l'info-bulle des inscrits sépare confirmés et file. L'export Excel ajoute les colonnes *Places* et *File d'attente*.
+- **Newsletters** : l'audience « inscrits au créneau » ne contient que les inscrits **confirmés**.
+- Limites : de 1 à 500 places. Les délais d'inscription et de désinscription s'appliquent comme avant.
+
 ### Inscrire d'autres membres
 
 Les membres s'inscrivent eux-mêmes sur les créneaux à venir, dans les délais fixés par la structure. Un administrateur de la structure, ou un compte ayant le profil **Inscriptions**, peut aussi **inscrire d'autres membres** : bouton **« + Inscrire… »** de chaque créneau à venir, qui ouvre la liste des membres pas encore inscrits (recherche, plusieurs à la fois). Il peut aussi retirer une inscription (croix dans la liste des inscrits, au clic sur leur nombre).

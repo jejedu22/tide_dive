@@ -178,8 +178,12 @@ def audience_members(structure_id: int, audience: dict) -> list[sqlite3.Row]:
     elif kind == "viewers":
         sql += " AND mem.role = 'viewer'"
     elif kind == "selection":
+        # inscrits CONFIRMÉS : ceux de la file d'attente ne reçoivent rien tant qu'ils n'ont pas de place
         sql += (" AND u.id IN (SELECT r.user_id FROM slot_registrations r JOIN slot_selections s "
-                "ON s.id = r.selection_id WHERE s.id = ? AND s.structure_id = ?)")
+                "ON s.id = r.selection_id WHERE s.id = ? AND s.structure_id = ? AND (s.max_registrations IS NULL OR "
+                "(SELECT COUNT(*) FROM slot_registrations r2 WHERE r2.selection_id = r.selection_id AND "
+                "(r2.created_at < r.created_at OR (r2.created_at = r.created_at AND r2.rowid < r.rowid))) "
+                "< s.max_registrations))")
         params += [audience.get("selection_id"), structure_id]
     with get_conn() as conn:
         return conn.execute(sql + " ORDER BY u.email", params).fetchall()

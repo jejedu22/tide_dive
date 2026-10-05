@@ -35,6 +35,9 @@ SLOT_SELECTIONS_COLUMNS = """(
     coefficient REAL,
     note TEXT,                              -- intitulé d'un créneau personnalisé
     created_at TEXT NOT NULL,
+    -- places : au-delà, les inscriptions passent en file d'attente (par ordre d'inscription). NULL : illimité.
+    -- Copiée de structures.default_max_registrations à la création du créneau, puis modifiable.
+    max_registrations INTEGER CHECK (max_registrations IS NULL OR max_registrations BETWEEN 1 AND 500),
     UNIQUE (structure_id, port_id, ts_utc),
     -- étale : tous ses champs ; personnalisé : aucun
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
@@ -143,7 +146,10 @@ CREATE TABLE IF NOT EXISTS structures (
     unregister_lock_days INTEGER CHECK (unregister_lock_days BETWEEN 0 AND 365),
     register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365),
     rdv_offset_minutes INTEGER NOT NULL DEFAULT 120 CHECK (rdv_offset_minutes BETWEEN 0 AND 720),
-    default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL
+    default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL,
+    -- nombre de places proposé aux NOUVEAUX créneaux (modifier cette valeur ne touche pas les créneaux existants) ;
+    -- NULL : illimité
+    default_max_registrations INTEGER CHECK (default_max_registrations IS NULL OR default_max_registrations BETWEEN 1 AND 500)
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).

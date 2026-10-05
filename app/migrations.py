@@ -87,9 +87,21 @@ def _m002_multi_structures(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE user_profiles_new RENAME TO user_profiles")
 
 
+def _m003_registration_limits(conn: sqlite3.Connection) -> None:
+    """Nombre de places par créneau et valeur par défaut par structure (NULL : illimité, comme avant)."""
+    check = "CHECK ({col} IS NULL OR {col} BETWEEN 1 AND 500)"
+    if "max_registrations" not in _columns(conn, "slot_selections"):
+        conn.execute("ALTER TABLE slot_selections ADD COLUMN max_registrations INTEGER "
+                     + check.format(col="max_registrations"))
+    if "default_max_registrations" not in _columns(conn, "structures"):
+        conn.execute("ALTER TABLE structures ADD COLUMN default_max_registrations INTEGER "
+                     + check.format(col="default_max_registrations"))
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
+    Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
 ]
 
 

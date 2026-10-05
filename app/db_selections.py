@@ -122,20 +122,21 @@ def get_extremum(port_id: int, ts_utc: str) -> sqlite3.Row | None:
 
 
 def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: str, type_id: int,
-                     snapshot: dict, now: str) -> int:
-    """Lève sqlite3.IntegrityError si la structure a déjà choisi ce créneau."""
+                     snapshot: dict, now: str, max_registrations: int | None = None) -> int:
+    """Lève sqlite3.IntegrityError si la structure a déjà choisi ce créneau.
+    max_registrations : nombre de places (None : illimité)."""
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO slot_selections
                 (structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, local_time,
-                 rdv_date, rdv_time, height_m, coefficient, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rdv_date, rdv_time, height_m, coefficient, created_at, max_registrations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 structure_id, picked_by, port_id, ts_utc, type_id, snapshot["kind"], snapshot["date"],
                 snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"], snapshot["height_m"],
-                snapshot["coefficient"], now,
+                snapshot["coefficient"], now, max_registrations,
             ),
         )
         return cur.lastrowid
@@ -143,7 +144,7 @@ def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: st
 
 def create_custom_selection(structure_id: int, picked_by: int, port_id: int | None, location: str | None,
                             type_id: int, local_date: str, end_date: str | None, rdv_time: str,
-                            note: str | None, now: str) -> int:
+                            note: str | None, now: str, max_registrations: int | None = None) -> int:
     """
     Créneau personnalisé : un jour (ou du premier jour à end_date) et une heure
     de RDV le premier jour, sans étale, dans un port OU un lieu libre.
@@ -153,11 +154,11 @@ def create_custom_selection(structure_id: int, picked_by: int, port_id: int | No
             """
             INSERT INTO slot_selections
                 (structure_id, picked_by, port_id, location, type_id, local_date, end_date,
-                 rdv_date, rdv_time, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rdv_date, rdv_time, note, created_at, max_registrations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (structure_id, picked_by, port_id, location, type_id, local_date, end_date,
-             local_date, rdv_time, note, now),
+             local_date, rdv_time, note, now, max_registrations),
         )
         return cur.lastrowid
 
@@ -193,7 +194,8 @@ def delete_selection(structure_id: int, selection_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 def list_registrations(structure_id: int, selection_id: int | None = None) -> list[sqlite3.Row]:
-    """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription."""
+    """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription (confirmés d'abord,
+    puis file d'attente : voir selections.split_registrations)."""
     sql = """
         SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, u.username,
                COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
@@ -208,7 +210,8 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
         sql += " AND r.selection_id = ?"
         params.append(selection_id)
     with get_conn() as conn:
-        return conn.execute(sql + " ORDER BY r.created_at, display_name", params).fetchall()
+        # ordre d'inscription : c'est lui qui décide qui est confirmé et qui attend (rowid départage la même seconde)
+        return conn.execute(sql + " ORDER BY r.selection_id, r.created_at, r.rowid", params).fetchall()
 
 
 def add_registration(selection_id: int, user_id: int, now: str,
@@ -221,6 +224,15 @@ def add_registration(selection_id: int, user_id: int, now: str,
             "VALUES (?, ?, ?, ?, ?)",
             (selection_id, user_id, now, by_id, by_name),
         )
+
+
+def update_selection_capacity(structure_id: int, selection_id: int, max_registrations: int | None) -> bool:
+    """Nombre de places d'un créneau (None : illimité). Filtré par structure."""
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE slot_selections SET max_registrations = ? WHERE id = ? AND structure_id = ?",
+            (max_registrations, selection_id, structure_id),
+        ).rowcount > 0
 
 
 def delete_registration(selection_id: int, user_id: int) -> bool:

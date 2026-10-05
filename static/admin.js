@@ -1005,6 +1005,7 @@ function loadSettings() {
   $("settings-form-status").textContent = "";
   if (!st) return;
   for (const [k, input] of Object.entries(lockInputs)) input.value = st[k] ?? "";
+  $("default-max-registrations").value = st.default_max_registrations ?? "";
   const offset = st.rdv_offset_minutes ?? 120;
   rdvInputs.hours.value = Math.floor(offset / 60);
   rdvInputs.minutes.value = offset % 60;
@@ -1037,6 +1038,14 @@ settingsForm.addEventListener("submit", async e => {
     rdvInputs.hours.focus();
     return;
   }
+  const places = $("default-max-registrations").value.trim();
+  const maxRegistrations = places === "" ? null : Number(places);
+  if (maxRegistrations !== null && (!Number.isInteger(maxRegistrations) || maxRegistrations < 1 || maxRegistrations > 500)) {
+    status.textContent = "Nombre de places : entier de 1 à 500, ou vide pour ne pas limiter.";
+    $("default-max-registrations").focus();
+    return;
+  }
+  body.default_max_registrations = maxRegistrations;
   body.rdv_offset_minutes = offset;
   body.default_port_id = defaultPortSelect.value ? Number(defaultPortSelect.value) : null;
   status.textContent = "";
@@ -1049,6 +1058,7 @@ settingsForm.addEventListener("submit", async e => {
     if (Session.user?.structure?.id === st.id) {
       Session.user.structure.rdv_offset_minutes = saved.rdv_offset_minutes;
       Session.user.structure.default_port_id = saved.default_port_id;
+      Session.user.structure.default_max_registrations = saved.default_max_registrations;
     }
   } catch (err) {
     status.textContent = err.message;

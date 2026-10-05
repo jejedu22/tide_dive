@@ -11,6 +11,12 @@ Créneaux choisis par les structures, et types de créneaux.
   par la structure (inscription / désinscription close à partir de J-N, un N
   pour chacune, paramétré par ses administrateurs ; pas de limite par défaut). Les administrateurs de la
   structure peuvent toujours retirer l'inscription d'un membre.
+- Le nombre de places d'un créneau est limité (facultatif, illimité par défaut). La valeur par défaut de la
+  structure est copiée sur chaque NOUVEAU créneau (la modifier ne touche pas les créneaux existants) ; elle se
+  change ensuite créneau par créneau. Au-delà des places, les inscriptions passent en FILE D'ATTENTE : les N
+  premiers inscrits (par ordre d'inscription) sont confirmés, les suivants attendent. Le statut se calcule à
+  chaque lecture, sans être stocké : une place libérée, ou ajoutée, bénéficie au premier de la file, qui en est
+  prévenu par e-mail ; réduire le nombre de places remet en file d'attente les derniers inscrits.
 - Une structure ne peut pas choisir deux fois le même créneau (contrainte
   UNIQUE en base) ; deux structures peuvent choisir le même.
 - Un administrateur de la structure peut aussi ajouter un créneau
@@ -91,10 +97,15 @@ class SlotTypeOrder(BaseModel):
     ids: list[int] = Field(max_length=500)
 
 
+MAX_PLACES = 500   # = CHECK de max_registrations
+
+
 class SelectionIn(BaseModel):
     port_id: int
     ts_utc: str = Field(max_length=40)
     type_id: int
+    # nombre de places : absent = valeur par défaut de la structure ; null ou 0 = illimité
+    max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)
 
 
 TIME_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
@@ -131,6 +142,7 @@ class CustomSelectionIn(BaseModel):
     time: str = Field(pattern=TIME_PATTERN)   # heure de RDV, HH:MM
     type_id: int
     note: str | None = Field(None, max_length=80)
+    max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # absent : défaut de la structure ; 0/null : illimité
 
     @field_validator("note")
     @classmethod
@@ -159,6 +171,7 @@ class SelectionPatch(BaseModel):
     end_date: dt.date | None = Field(None, ge=MIN_DATE, le=MAX_DATE)   # null : un seul jour
     time: str | None = Field(None, pattern=TIME_PATTERN)
     note: str | None = Field(None, max_length=80)
+    max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # tout créneau ; 0 ou null : illimité
 
     @field_validator("note")
     @classmethod
@@ -203,6 +216,19 @@ def open_until(local_date: str, lock_days: int | None) -> str:
     return (date.fromisoformat(local_date) - timedelta(days=lock_days + 1)).isoformat()
 
 
+def split_registrations(registrations: list, capacity: int | None) -> tuple[list, list]:
+    """(confirmés, file d'attente) d'un créneau, d'après la liste des inscrits PAR ORDRE D'INSCRIPTION :
+    les `capacity` premiers sont confirmés, les suivants attendent (capacity None : tous confirmés)."""
+    if capacity is None:
+        return list(registrations), []
+    return list(registrations[:capacity]), list(registrations[capacity:])
+
+
+def _clean_capacity(value: int | None) -> int | None:
+    """0 ou null : illimité (None en base)."""
+    return value or None
+
+
 def _registrations_by_selection(structure_id: int, selection_id: int | None = None) -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {}
     for r in db.list_registrations(structure_id, selection_id):
@@ -220,6 +246,12 @@ def _selection_out(
 ) -> dict:
     registrations = registrations or []
     locks = locks or {}
+    capacity = row["max_registrations"]
+    confirmed, waiting = split_registrations(registrations, capacity)
+    # file d'attente : rang (1 = prochain à être confirmé) ; les confirmés n'en ont pas
+    ranks = {r["user_id"]: i + 1 for i, r in enumerate(waiting)}
+    registrations = [{**r, "waiting": r["user_id"] in ranks, "position": ranks.get(r["user_id"])} for r in registrations]
+    mine = next((r for r in registrations if r["user_id"] == me_id), None) if me_id is not None else None
     reg_until = open_until(row["local_date"], locks.get("register_lock_days"))
     unreg_until = open_until(row["local_date"], locks.get("unregister_lock_days"))
     return {
@@ -246,8 +278,14 @@ def _selection_out(
         },
         "picked_by": row["picked_by_name"],   # None : compte supprimé depuis
         "created_at": row["created_at"],
-        "registrations": registrations,
-        "registered": me_id is not None and any(r["user_id"] == me_id for r in registrations),
+        "registrations": registrations,       # par ordre d'inscription : les confirmés, puis la file d'attente
+        "registered": mine is not None,       # inscrit, confirmé ou en file d'attente
+        "max_registrations": capacity,        # None : illimité
+        "confirmed_count": len(confirmed),
+        "waiting_count": len(waiting),
+        "full": capacity is not None and len(confirmed) >= capacity,
+        "my_status": None if mine is None else ("waiting" if mine["waiting"] else "confirmed"),
+        "my_position": mine["position"] if mine else None,
         "past": (row["end_date"] or row["local_date"]) < _today(),
         "register_until": reg_until,
         "can_register": _today() <= reg_until,
@@ -293,6 +331,14 @@ def list_structure_selections(user: CurrentMember, upcoming: bool = False):
     return [_selection_out(r, regs.get(r["id"]), user["id"], locks) for r in rows]
 
 
+def _initial_capacity(body: BaseModel, structure_id: int) -> int | None:
+    """Places d'un nouveau créneau : celles qui sont demandées (0 ou null : illimité), sinon la valeur par
+    défaut de la structure, copiée ici une fois pour toutes."""
+    if "max_registrations" in body.model_fields_set:
+        return _clean_capacity(body.max_registrations)
+    return db.get_default_max_registrations(structure_id)
+
+
 @router.post("/selections", status_code=201)
 def create_selection(body: SelectionIn, user: CurrentPicker):
     sid = user["structure_id"]
@@ -309,6 +355,7 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
     try:
         sel_id = db.create_selection(
             sid, user["id"], body.port_id, body.ts_utc, body.type_id, describe_extremum(port, ex, db.get_rdv_offset(sid)), _now_iso(),
+            max_registrations=_initial_capacity(body, sid),
         )
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est déjà choisi par votre structure")
@@ -325,12 +372,13 @@ def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
     sel_id = db.create_custom_selection(
         sid, user["id"], body.port_id, body.location, body.type_id, body.date.isoformat(),
         body.end_date.isoformat() if body.end_date else None, body.time, body.note, _now_iso(),
+        max_registrations=_initial_capacity(body, sid),
     )
     return _one_out(sid, sel_id, user["id"])
 
 
 @router.patch("/selections/{selection_id}")
-def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicker):
+def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicker, background: BackgroundTasks):
     sid = user["structure_id"]
     row = db.get_selection(sid, selection_id)
     if row is None:
@@ -371,6 +419,12 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         )
     if body.type_id is not None:
         db.update_selection_type(sid, selection_id, body.type_id)
+    if "max_registrations" in sent:
+        # plus de places : les premiers de la file sont confirmés (et prévenus) ; moins de places : les derniers
+        # inscrits repassent en file d'attente
+        _, waiting_before = _status(sid, selection_id)
+        db.update_selection_capacity(sid, selection_id, _clean_capacity(body.max_registrations))
+        _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, user["id"])
 
 
@@ -412,6 +466,32 @@ def _upcoming_selection_or_error(structure_id: int, selection_id: int) -> sqlite
     return row
 
 
+def _status(structure_id: int, selection_id: int) -> tuple[list[int], list[int]]:
+    """(identifiants des inscrits confirmés, de ceux en file d'attente) du créneau, par ordre d'inscription."""
+    row = db.get_selection(structure_id, selection_id)
+    if row is None:
+        return [], []
+    ids = [r["user_id"] for r in db.list_registrations(structure_id, selection_id)]
+    confirmed, waiting = split_registrations(ids, row["max_registrations"])
+    return confirmed, waiting
+
+
+def _notify_promotions(background: BackgroundTasks, structure_id: int, selection_id: int, waiting_before: list[int]) -> None:
+    """Prévient par e-mail les membres qui attendaient et sont désormais confirmés (place libérée, places ajoutées)."""
+    if not mailer.enabled() or not waiting_before:
+        return
+    row = db.get_selection(structure_id, selection_id)
+    confirmed_now, _ = _status(structure_id, selection_id)
+    messages = []
+    for uid in waiting_before:
+        if uid in confirmed_now:
+            member = db.get_user(uid, structure_id)
+            if member is not None and member["email"]:
+                messages.append(promoted_message(member, row))
+    if messages:
+        background.add_task(_notify, messages)
+
+
 @router.post("/selections/{selection_id}/registration")
 def register(selection_id: int, user: CurrentMember):
     """S'inscrire sur un créneau à venir de sa structure (tout membre, y compris en visualisation)."""
@@ -426,12 +506,15 @@ def register(selection_id: int, user: CurrentMember):
 
 
 @router.delete("/selections/{selection_id}/registration")
-def unregister(selection_id: int, user: CurrentMember):
-    """Se désinscrire d'un créneau à venir, avant le délai fixé par la structure."""
+def unregister(selection_id: int, user: CurrentMember, background: BackgroundTasks):
+    """Se désinscrire d'un créneau à venir, avant le délai fixé par la structure. Le premier de la file
+    d'attente, s'il y en a un, prend la place libérée et en est prévenu."""
     sid = user["structure_id"]
     row = _upcoming_selection_or_error(sid, selection_id)
     _check_open(row, db.get_lock_days(sid)["unregister_lock_days"], "Désinscription close")
+    _, waiting_before = _status(sid, selection_id)
     db.delete_registration(selection_id, user["id"])  # déjà désinscrit : idem
+    _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, user["id"])
 
 
@@ -473,11 +556,21 @@ def _when(row: sqlite3.Row) -> str:
     return f"{when}, {rdv}"
 
 
-def registered_message(member: sqlite3.Row, row: sqlite3.Row, by: str) -> tuple[str, str, str]:
+def registered_message(member: sqlite3.Row, row: sqlite3.Row, by: str,
+                       waiting_position: int | None = None) -> tuple[str, str, str]:
+    """waiting_position : rang dans la file d'attente si le créneau est complet, sinon None (inscription confirmée)."""
     app = mailer.APP_NAME
+    day = _fr_date(date.fromisoformat(row["local_date"]))
+    if waiting_position is None:
+        what = f"{by} vous a inscrit au créneau {_when(row)} : {_place(row)}."
+        subject = f"{app} : inscription au créneau du {day}"
+    else:
+        what = (f"{by} vous a placé en file d'attente (n° {waiting_position}) pour le créneau {_when(row)} : "
+                f"{_place(row)}.\nCe créneau est complet : vous serez prévenu(e) par e-mail si une place se libère.")
+        subject = f"{app} : file d'attente pour le créneau du {day}"
     body = f"""{accounts.greeting(member)}
 
-{by} vous a inscrit au créneau {_when(row)} : {_place(row)}.
+{what}
 
 Vos créneaux, et la désinscription dans les délais fixés par votre structure :
 {mailer.link('mes-creneaux.html')}
@@ -485,7 +578,23 @@ Vos créneaux, et la désinscription dans les délais fixés par votre structure
 -- 
 {app}
 """
-    return member["email"], f"{app} : inscription au créneau du {_fr_date(date.fromisoformat(row['local_date']))}", body
+    return member["email"], subject, body
+
+
+def promoted_message(member: sqlite3.Row, row: sqlite3.Row) -> tuple[str, str, str]:
+    """Une place s'est libérée : le membre qui attendait est maintenant inscrit."""
+    app = mailer.APP_NAME
+    body = f"""{accounts.greeting(member)}
+
+Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {_when(row)} : {_place(row)}.
+
+Si vous ne pouvez plus venir, désinscrivez-vous dès que possible pour laisser la place au suivant :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+    return member["email"], f"{app} : une place s'est libérée pour le créneau du {_fr_date(date.fromisoformat(row['local_date']))}", body
 
 
 def _notify(messages: list[tuple[str, str, str]]) -> None:
@@ -520,12 +629,14 @@ def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegi
             pass  # déjà inscrit
     if mailer.enabled():
         messages = []
+        _, waiting_now = _status(sid, selection_id)
         for uid in added:
             if uid == actor["id"]:
                 continue
-            member = db.get_user(uid)
+            member = db.get_user(uid, sid)
             if member is not None and member["email"]:
-                messages.append(registered_message(member, row, by))
+                position = waiting_now.index(uid) + 1 if uid in waiting_now else None
+                messages.append(registered_message(member, row, by, position))
         if messages:
             background.add_task(_notify, messages)
     out = _one_out(sid, selection_id, actor["id"])
@@ -534,13 +645,15 @@ def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegi
 
 
 @router.delete("/selections/{selection_id}/registrations/{user_id}")
-def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar):
+def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar, background: BackgroundTasks):
     """Administration de la structure ou profil « inscriptions » : retirer l'inscription
     d'un membre (même sur un créneau passé ou après le délai de désinscription)."""
     sid = actor["structure_id"]
     if db.get_selection(sid, selection_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    _, waiting_before = _status(sid, selection_id)
     db.delete_registration(selection_id, user_id)
+    _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, actor["id"])
 
 

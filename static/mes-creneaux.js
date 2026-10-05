@@ -95,27 +95,40 @@ function typeCell(p) {
   return `<select data-act="type" style="--type-color:${esc(p.type.color)}" aria-label="Type du créneau">${options.join("")}</select>`;
 }
 
+// Places : « 3/8 » (confirmés / places), « 8/8 complet », et le nombre d'inscrits en file d'attente
+function placesLabel(p) {
+  if (p.max_registrations == null) return `${p.confirmed_count}`;
+  return `${p.confirmed_count}/${p.max_registrations}`;
+}
+
 function registrationsCell(p) {
-  const n = p.registrations.length;
   const open = popFor === p.id;
-  const count = `<button type="button" class="reg-count${p.registered ? " reg-me" : ""}" data-act="show-regs"
+  const waiting = p.waiting_count
+    ? ` <span class="reg-wait-count" title="En file d'attente">+${p.waiting_count}</span>` : "";
+  const count = `<button type="button" class="reg-count${p.registered ? " reg-me" : ""}${p.full ? " reg-full" : ""}" data-act="show-regs"
     aria-haspopup="true" aria-expanded="${open}" aria-controls="regs-pop"
-    title="Voir les inscrits">${n}<span class="visually-hidden"> inscrit(s)</span></button>`;
+    title="${p.full ? "Complet. " : ""}Voir les inscrits">${placesLabel(p)}${waiting}<span class="visually-hidden"> inscrit(s)${p.full ? ", complet" : ""}${p.waiting_count ? `, ${p.waiting_count} en file d'attente` : ""}</span></button>`;
+  const mine = p.my_status === "waiting"
+    ? `<span class="reg-status reg-status-wait" title="Vous serez inscrit automatiquement si une place se libère, et prévenu par e-mail">En file d'attente (n° ${p.my_position})</span>`
+    : "";
   const button = p.past
     ? ""
     : !p.registered
       ? p.can_register
         ? `<button type="button" class="btn-primary btn-small" data-act="register"
-             title="Inscription possible jusqu'au ${formatDay(p.register_until)} inclus">S'inscrire</button>`
+             title="${p.full ? "Créneau complet : vous serez placé en file d'attente. " : ""}Inscription possible jusqu'au ${formatDay(p.register_until)} inclus">${p.full ? "Rejoindre la file d'attente" : "S'inscrire"}</button>`
         : `<span class="reg-locked" title="Inscriptions closes depuis le ${formatDay(nextDay(p.register_until))} : contactez un administrateur de la structure">🔒 Inscriptions closes</span>`
       : p.can_unregister
         ? `<button type="button" class="btn-quiet btn-small" data-act="unregister"
-             title="Possible jusqu'au ${formatDay(p.unregister_until)} inclus">Se désinscrire</button>`
+             title="Possible jusqu'au ${formatDay(p.unregister_until)} inclus">${p.my_status === "waiting" ? "Quitter la file" : "Se désinscrire"}</button>`
         : `<span class="reg-locked" title="Désinscription close depuis le ${formatDay(nextDay(p.unregister_until))} : contactez un administrateur de la structure">🔒 Désinscription close</span>`;
   const others = !p.past && canRegisterOthers()
     ? `<button type="button" class="btn-quiet btn-small" data-act="register-others" title="Inscrire d'autres membres de la structure">+ Inscrire…</button>`
     : "";
-  return `<div class="regs">${count}${button}${others}</div>`;
+  const places = !p.past && canPick()
+    ? `<button type="button" class="btn-quiet btn-small" data-act="capacity" title="Nombre de places de ce créneau">Places…</button>`
+    : "";
+  return `<div class="regs">${count}${mine}${button}${others}${places}</div>`;
 }
 
 // Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
@@ -207,17 +220,24 @@ function renderPop() {
   const anchor = popAnchor();
   if (!p || !anchor) return closePop();
   const me = Session.user.id;
-  const items = p.registrations.map(r => {
+  const item = r => {
     const mine = r.user_id === me;
     const remove = canRegisterOthers() && !mine
       ? `<button type="button" class="chip-remove" data-act="unregister-other" data-user="${r.user_id}"
            title="Retirer l'inscription" aria-label="Retirer l'inscription de ${esc(r.display_name)}">×</button>`
       : "";
     const by = r.registered_by ? `<span class="reg-by">inscrit par ${esc(r.registered_by)}</span>` : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${esc(r.display_name)}${mine ? " (vous)" : ""}${by}</span>${remove}</li>`;
-  }).join("");
-  pop.innerHTML = `<p class="regs-pop-title">${p.registrations.length} inscrit(s)</p>` +
-    (items ? `<ul>${items}</ul>` : `<p class="muted">Personne pour l'instant.</p>`);
+    const rank = r.waiting ? `<span class="reg-rank">${r.position}.</span> ` : "";
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${by}</span>${remove}</li>`;
+  };
+  const confirmed = p.registrations.filter(r => !r.waiting);
+  const waiting = p.registrations.filter(r => r.waiting);
+  const places = p.max_registrations == null ? "" : ` sur ${p.max_registrations} place(s)${p.full ? " : complet" : ""}`;
+  pop.innerHTML = `<p class="regs-pop-title">${confirmed.length} inscrit(s)${places}</p>` +
+    (confirmed.length ? `<ul>${confirmed.map(item).join("")}</ul>` : `<p class="muted">Personne pour l'instant.</p>`) +
+    (waiting.length
+      ? `<p class="regs-pop-title regs-pop-wait">File d'attente (${waiting.length})</p><ul>${waiting.map(item).join("")}</ul>`
+      : "");
   pop.hidden = false;
   // sous le bouton, sans déborder de la fenêtre
   const a = anchor.getBoundingClientRect();
@@ -706,7 +726,10 @@ async function openCustomDialog(p = null) {
       <label>Heure de rendez-vous <input type="time" name="time" required value="${p ? p.rdv.time : ""}"></label>
       ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
       <label>Intitulé <span class="field-hint">(facultatif)</span>
-        <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>`,
+        <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>
+      ${p ? "" : `<label>Places <span class="field-hint">(vide : illimité)</span>
+        <input type="number" name="max_registrations" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité"
+          value="${Session.user?.structure?.default_max_registrations ?? ""}"></label>`}`,
     onSubmit: async form => {
       const f = new FormData(form);
       const other = f.get("port_id") === "other";
@@ -718,7 +741,11 @@ async function openCustomDialog(p = null) {
         time: f.get("time").slice(0, 5),
         note: f.get("note").trim() || null,
       };
-      if (!p) body.type_id = Number(f.get("type_id"));
+      if (!p) {
+        body.type_id = Number(f.get("type_id"));
+        const places = String(f.get("max_registrations") ?? "").trim();
+        body.max_registrations = places === "" ? null : Number(places);   // toujours envoyé : vide = illimité, pas « défaut »
+      }
       const saved = await Session.api(p ? `/api/selections/${p.id}` : "/api/selections/custom",
         { method: p ? "PATCH" : "POST", body });
       picks = p ? picks.map(x => (x.id === saved.id ? saved : x)) : [...picks, saved];
@@ -753,6 +780,55 @@ picksEl.addEventListener("click", e => {
   if (p) openCustomDialog(p);
 });
 
+// ---- Nombre de places d'un créneau (administration) ----
+
+function openCapacityDialog(p) {
+  const when = p.end_date ? `du ${formatLong(p.date)} au ${formatLong(p.end_date)}` : `du ${formatLong(p.date)}`;
+  const form = openDialog({
+    title: "Nombre de places",
+    submitLabel: "Enregistrer",
+    body: `
+      <p class="dialog-hint">Créneau ${esc(when)}, ${esc(p.note || p.port)}. Au-delà, les inscriptions passent en file d'attente, par ordre d'inscription.</p>
+      <label>Places <span class="field-hint">(vide : illimité)</span>
+        <input type="number" name="max" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité"
+          value="${p.max_registrations ?? ""}"></label>
+      <p class="dialog-hint" data-effect></p>`,
+    onSubmit: async form => {
+      const raw = form.max.value.trim();
+      const n = raw === "" ? null : Number(raw);
+      if (n !== null && (!Number.isInteger(n) || n < 1 || n > 500)) throw new Error("Nombre entier de 1 à 500, ou vide pour ne pas limiter.");
+      const saved = await Session.api(`/api/selections/${p.id}`, { method: "PATCH", body: { max_registrations: n } });
+      picks = picks.map(x => (x.id === p.id ? saved : x));
+      render();
+      if (popFor === p.id) renderPop();
+      statusEl.textContent = n === null ? "Places illimitées." : `${n} place(s).`;
+    },
+  });
+  // effet immédiat annoncé : qui sera confirmé, qui passera en file d'attente
+  const effect = form.querySelector("[data-effect]");
+  const total = p.registrations.length;
+  const show = () => {
+    if (!effect) return;
+    const raw = form.max.value.trim();
+    const n = raw === "" ? null : Number(raw);
+    if (!total || (n !== null && (!Number.isInteger(n) || n < 1))) { effect.textContent = ""; return; }
+    const confirmed = n === null ? total : Math.min(total, n);
+    const waiting = total - confirmed;
+    effect.textContent = `${plural(confirmed, "inscrit confirmé", "inscrits confirmés")}` +
+      (waiting ? `, ${plural(waiting, "en file d'attente", "en file d'attente")}` : "") +
+      (p.waiting_count && confirmed > p.confirmed_count ? " : les premiers de la file seront prévenus par e-mail." : ".");
+  };
+  form.addEventListener("input", show);
+  show();
+}
+
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=capacity]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openCapacityDialog(p);
+});
+
 // ---- Export Excel des créneaux affichés (filtres compris, quel que soit l'affichage) ----
 
 const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
@@ -770,10 +846,13 @@ const EXPORT_COLUMNS = [
   { header: "Coefficient", type: "int", width: 11, value: p => (p.coefficient != null ? Math.round(p.coefficient) : null) },
   { header: "Type", width: 16, value: p => p.type.label },
   { header: "Intitulé", width: 24, value: p => p.note || "" },
-  { header: "Nb inscrits", type: "int", width: 11, value: p => p.registrations.length },
-  { header: "Inscrits", width: 40, value: p => p.registrations.map(r =>
+  { header: "Places", type: "int", width: 8, value: p => p.max_registrations },
+  { header: "Nb inscrits", type: "int", width: 11, value: p => p.confirmed_count },
+  { header: "Inscrits", width: 40, value: p => p.registrations.filter(r => !r.waiting).map(r =>
     r.display_name + (r.registered_by ? ` (inscrit par ${r.registered_by})` : "")).join(", ") },
-  { header: "Inscrit (moi)", width: 12, value: p => (p.registered ? "oui" : "") },
+  { header: "File d'attente", width: 40, value: p => p.registrations.filter(r => r.waiting).map(r =>
+    `${r.position}. ${r.display_name}`).join(", ") },
+  { header: "Inscrit (moi)", width: 12, value: p => (p.my_status === "waiting" ? `file d'attente n° ${p.my_position}` : p.registered ? "oui" : "") },
   { header: "Choisi / ajouté par", width: 18, value: p => p.picked_by || "compte supprimé" },
 ];
 

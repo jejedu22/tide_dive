@@ -32,6 +32,7 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
            u.created_at, u.last_login_at, st.name AS structure_name,
            st.rdv_offset_minutes AS structure_rdv_offset_minutes,
            st.default_port_id AS structure_default_port_id,
+           st.default_max_registrations AS structure_default_max_registrations,
            u.first_name, u.last_name, u.email, u.phone,
            u.must_change_password, u.password_changed_at,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,

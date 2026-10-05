@@ -230,6 +230,15 @@
             <select id="default-port" name="default_port_id"></select>
           </div>
           <p class="hint">Port proposé d'office aux membres de la structure dans la recherche. Les préférences enregistrées par un membre restent prioritaires.</p>
+          <h2>Places</h2>
+          <div class="field">
+            <label for="default-max-registrations">Nombre de places par défaut</label>
+            <span class="lock-days">
+              <input id="default-max-registrations" name="default_max_registrations" type="number" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité">
+              <span>inscrit(s) par créneau</span>
+            </span>
+          </div>
+          <p class="hint">Copié sur chaque <strong>nouveau</strong> créneau choisi : le modifier ne touche pas les créneaux existants (leur nombre de places se change depuis « Créneaux choisis », bouton « Places… »). Au-delà des places, les inscriptions passent en file d'attente, par ordre d'inscription ; le premier de la file est prévenu par e-mail quand une place se libère. Vide : illimité.</p>
           <h2>Délais d'inscription</h2>
           <div class="field">
             <label for="register-lock-days">Inscription impossible à partir de</label>
