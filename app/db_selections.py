@@ -122,21 +122,21 @@ def get_extremum(port_id: int, ts_utc: str) -> sqlite3.Row | None:
 
 
 def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: str, type_id: int,
-                     snapshot: dict, now: str, max_registrations: int | None = None) -> int:
-    """Lève sqlite3.IntegrityError si la structure a déjà choisi ce créneau.
+                     snapshot: dict, now: str, max_registrations: int | None = None, note: str | None = None) -> int:
+    """Une structure peut choisir plusieurs fois la même étale (note : intitulé pour les distinguer).
     max_registrations : nombre de places (None : illimité)."""
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO slot_selections
                 (structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, local_time,
-                 rdv_date, rdv_time, height_m, coefficient, created_at, max_registrations)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rdv_date, rdv_time, height_m, coefficient, created_at, max_registrations, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 structure_id, picked_by, port_id, ts_utc, type_id, snapshot["kind"], snapshot["date"],
                 snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"], snapshot["height_m"],
-                snapshot["coefficient"], now, max_registrations,
+                snapshot["coefficient"], now, max_registrations, note,
             ),
         )
         return cur.lastrowid
@@ -170,6 +170,14 @@ def update_custom_selection(structure_id: int, selection_id: int, port_id: int |
             "UPDATE slot_selections SET port_id = ?, location = ?, local_date = ?, end_date = ?, rdv_date = ?, "
             "rdv_time = ?, note = ? WHERE id = ? AND structure_id = ? AND ts_utc IS NULL",
             (port_id, location, local_date, end_date, local_date, rdv_time, note, selection_id, structure_id),
+        )
+
+
+def update_selection_note(structure_id: int, selection_id: int, note: str | None) -> None:
+    """Intitulé d'un créneau, étale ou personnalisé (None : aucun)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE slot_selections SET note = ? WHERE id = ? AND structure_id = ?", (note, selection_id, structure_id),
         )
 
 

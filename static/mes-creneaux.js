@@ -144,7 +144,8 @@ function rdvTitle(p) {
 const veilleMark = p => (p.rdv.date !== p.date ? `<span class="veille" title="RDV la veille">J-1</span> ` : "");
 const pickedBy = p => (p.picked_by ? esc(p.picked_by) : `<span class="muted">compte supprimé</span>`);
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
-const editButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="edit">Modifier</button>` : "");
+// Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
+const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
 
 // Séjour sur plusieurs jours (créneau personnalisé) : dernier jour, nombre de jours, mention affichée
@@ -777,8 +778,28 @@ picksEl.addEventListener("click", e => {
   const btn = e.target.closest("button[data-act=edit]");
   if (!btn) return;
   const p = picks.find(x => x.id === holderId(btn));
-  if (p) openCustomDialog(p);
+  if (p) (p.custom ? openCustomDialog(p) : openNoteDialog(p));
 });
+
+// Intitulé d'un créneau d'étale : distingue plusieurs créneaux choisis sur la même étale (« Bateau 2 »…)
+function openNoteDialog(p) {
+  const twins = picks.filter(x => x.id !== p.id && !x.custom && x.port_id === p.port_id && x.ts_utc === p.ts_utc);
+  openDialog({
+    title: "Intitulé du créneau",
+    submitLabel: "Enregistrer",
+    body: `
+      <p class="dialog-hint">Étale ${esc(p.kind)} de ${esc(p.time)} le ${esc(formatLong(p.date))}, ${esc(p.port)}.${twins.length
+        ? ` Autres créneaux sur cette étale : ${twins.map(x => esc(x.type.label + (x.note ? ` (${x.note})` : ""))).join(", ")}.` : ""}</p>
+      <label>Intitulé <span class="field-hint">(facultatif)</span>
+        <input type="text" name="note" maxlength="80" placeholder="ex. Bateau 2, Baptêmes" value="${esc(p.note || "")}"></label>`,
+    onSubmit: async form => {
+      const saved = await Session.api(`/api/selections/${p.id}`, { method: "PATCH", body: { note: form.note.value.trim() || null } });
+      picks = picks.map(x => (x.id === p.id ? saved : x));
+      render();
+      statusEl.textContent = "Intitulé enregistré.";
+    },
+  });
+}
 
 // ---- Nombre de places d'un créneau (administration) ----
 

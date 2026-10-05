@@ -217,9 +217,9 @@ def _rebind_selections(conn, port_id: int, start: str, end: str, extrema: list) 
     """
     Recale les créneaux choisis de l'année sur les étales recalculées : un
     recalcul peut décaler l'horodatage de quelques minutes, et le créneau ne
-    serait plus reconnu dans la recherche (ni protégé contre un second choix).
-    On prend l'étale de même nature la plus proche, dans la tolérance. Les
-    champs d'affichage figés au moment du choix ne changent pas.
+    serait plus reconnu dans la recherche. On prend l'étale de même nature la
+    plus proche, dans la tolérance ; tous les créneaux choisis sur une même étale
+    la suivent ensemble. Les champs d'affichage figés au moment du choix ne changent pas.
     """
     by_kind: dict[str, list[tuple[datetime, str]]] = {"PM": [], "BM": []}
     for ts, kind, _, _ in extrema:
@@ -237,13 +237,7 @@ def _rebind_selections(conn, port_id: int, start: str, end: str, extrema: list) 
         near = [(abs(t - old), ts) for t, ts in by_kind[r["kind"]] if abs(t - old) <= REBIND_TOLERANCE]
         if not near:
             continue  # étale disparue : le choix reste, avec ses champs figés
-        new_ts = min(near)[1]
-        taken = conn.execute(
-            "SELECT 1 FROM slot_selections WHERE structure_id = ? AND port_id = ? AND ts_utc = ?",
-            (r["structure_id"], port_id, new_ts),
-        ).fetchone()
-        if not taken:
-            conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (new_ts, r["id"]))
+        conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (min(near)[1], r["id"]))
 
 
 def replace_range(

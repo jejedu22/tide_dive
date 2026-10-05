@@ -545,7 +545,7 @@ const Session = (() => {
     get config() { return config; },
     onChange: fn => listeners.push(fn),
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
-    init, login, logout, api, esc, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
+    init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
   };
 })();

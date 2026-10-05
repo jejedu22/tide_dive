@@ -98,10 +98,30 @@ def _m003_registration_limits(conn: sqlite3.Connection) -> None:
                      + check.format(col="default_max_registrations"))
 
 
+def _m004_several_picks_per_tide(conn: sqlite3.Connection) -> None:
+    """Plusieurs créneaux choisis sur la même étale : retire UNIQUE (structure_id, port_id, ts_utc).
+    SQLite ne sait pas supprimer une contrainte : nouvelle table (db.SLOT_SELECTIONS_COLUMNS), copie avec les
+    mêmes identifiants, renommage. Les inscriptions pointent vers la table par son nom et l'identifiant : elles
+    suivent sans être touchées. Clés étrangères suspendues par le lanceur, vérifiées avant validation."""
+    unique = [r for r in conn.execute("PRAGMA index_list(slot_selections)") if r["origin"] == "u"]
+    if not unique:
+        return   # base neuve, ou déjà reconstruite
+    from .db_schema import SLOT_SELECTIONS_COLUMNS
+    cols = ", ".join(sorted(_columns(conn, "slot_selections")))
+    conn.execute("CREATE TABLE slot_selections_new " + SLOT_SELECTIONS_COLUMNS)
+    conn.execute(f"INSERT INTO slot_selections_new ({cols}) SELECT {cols} FROM slot_selections")
+    conn.execute("DROP TABLE slot_selections")
+    conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
+    # les index partent avec l'ancienne table
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_selections_structure ON slot_selections(structure_id, local_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_selections_tide ON slot_selections(port_id, ts_utc)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
     Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
+    Migration(4, "plusieurs créneaux choisis sur la même étale", _m004_several_picks_per_tide),
 ]
 
 
