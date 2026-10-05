@@ -17,8 +17,8 @@ Créneaux choisis par les structures, et types de créneaux.
   premiers inscrits (par ordre d'inscription) sont confirmés, les suivants attendent. Le statut se calcule à
   chaque lecture, sans être stocké : une place libérée, ou ajoutée, bénéficie au premier de la file, qui en est
   prévenu par e-mail ; réduire le nombre de places remet en file d'attente les derniers inscrits.
-- Une structure ne peut pas choisir deux fois le même créneau (contrainte
-  UNIQUE en base) ; deux structures peuvent choisir le même.
+- Une structure peut choisir plusieurs fois la même étale (plusieurs bateaux, une sortie et une formation…),
+  chaque créneau avec son type, son intitulé facultatif pour les distinguer, ses inscrits et ses places.
 - Un administrateur de la structure peut aussi ajouter un créneau
   personnalisé, en dehors des étales proposées par la recherche : port (ou,
   pour une sortie ailleurs, un lieu libre : carrière, ville à l'étranger…),
@@ -106,6 +106,13 @@ class SelectionIn(BaseModel):
     type_id: int
     # nombre de places : absent = valeur par défaut de la structure ; null ou 0 = illimité
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)
+    # intitulé facultatif : distingue plusieurs créneaux choisis sur la même étale (« Bateau 1 », « Baptêmes »…)
+    note: str | None = Field(None, max_length=80)
+
+    @field_validator("note")
+    @classmethod
+    def _note(cls, v: str | None) -> str | None:
+        return _clean_note(v)
 
 
 TIME_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
@@ -163,7 +170,8 @@ class CustomSelectionIn(BaseModel):
 
 
 class SelectionPatch(BaseModel):
-    """type_id : tout créneau. port_id / location, date, end_date, time, note : créneau personnalisé uniquement."""
+    """type_id, note, max_registrations : tout créneau. port_id / location, date, end_date, time : créneau
+    personnalisé uniquement (ceux d'une étale sont ceux de l'étale)."""
     type_id: int | None = None
     port_id: int | None = None
     location: str | None = Field(None, max_length=80)
@@ -353,13 +361,11 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
             "Ce créneau n'existe plus (l'année a peut-être été recalculée) : relancez la recherche.",
         )
     _active_type_or_422(body.type_id, sid)
-    try:
-        sel_id = db.create_selection(
-            sid, user["id"], body.port_id, body.ts_utc, body.type_id, describe_extremum(port, ex, db.get_rdv_offset(sid)), _now_iso(),
-            max_registrations=_initial_capacity(body, sid),
-        )
-    except sqlite3.IntegrityError:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est déjà choisi par votre structure")
+    # plusieurs créneaux possibles sur la même étale : pas de refus « déjà choisi »
+    sel_id = db.create_selection(
+        sid, user["id"], body.port_id, body.ts_utc, body.type_id, describe_extremum(port, ex, db.get_rdv_offset(sid)), _now_iso(),
+        max_registrations=_initial_capacity(body, sid), note=body.note,
+    )
     return _one_out(sid, sel_id, user["id"])
 
 
@@ -385,7 +391,7 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     sent = body.model_fields_set
-    custom_fields = {"port_id", "location", "date", "end_date", "time", "note"}
+    custom_fields = {"port_id", "location", "date", "end_date", "time"}
     if sent & custom_fields:
         if row["ts_utc"] is not None:
             raise HTTPException(
@@ -420,6 +426,8 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         )
     if body.type_id is not None:
         db.update_selection_type(sid, selection_id, body.type_id)
+    if "note" in sent and not sent & custom_fields:   # sinon déjà enregistré avec les champs du créneau personnalisé
+        db.update_selection_note(sid, selection_id, body.note)
     if "max_registrations" in sent:
         # plus de places : les premiers de la file sont confirmés (et prévenus) ; moins de places : les derniers
         # inscrits repassent en file d'attente

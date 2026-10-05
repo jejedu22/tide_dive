@@ -461,6 +461,15 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+### Plusieurs créneaux sur une même étale
+
+Une même étale peut porter **plusieurs créneaux choisis** (deux bateaux, une sortie et une formation…). Chacun a son type, son **intitulé** facultatif (80 caractères, ex. « Bateau 1 », « Bateau 2 »), ses inscrits et ses places.
+
+- **Recherche** : une fois un créneau choisi, la cellule « Choix » liste les créneaux de l'étale (type, intitulé, croix pour retirer) et propose **« + Autre… »**. Ajouter un créneau à une étale déjà choisie ouvre une fenêtre pour saisir l'intitulé, conseillé quand le type est le même.
+- **Créneaux choisis** : le bouton **« Modifier »** d'un créneau d'étale change son intitulé (la fenêtre rappelle les autres créneaux de la même étale) ; l'heure et le lieu restent ceux de l'étale.
+- Quand une étale est recalculée (mois glissant api-maree.fr, nouveau calcul), **tous** ses créneaux suivent la nouvelle heure.
+- **Mise à jour d'une base existante** : la migration n° 4 retire la contrainte « un seul choix par étale » ; créneaux et inscriptions sont conservés.
+
 ### Places limitées et file d'attente
 
 Le nombre d'inscrits d'un créneau peut être **limité**. Au-delà, les inscriptions passent en **file d'attente**.

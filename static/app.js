@@ -271,7 +271,7 @@ function buildRows(results) {
       const first = i === 0;
       const picked = pickedFor(r);
       rows.push(`
-        <tr class="${[first ? "day-start" : "", deco.classes, picked ? "is-picked" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}" data-day="${escapeHtml(formatDay(day))}">
+        <tr class="${[first ? "day-start" : "", deco.classes, picked.length ? "is-picked" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}" data-day="${escapeHtml(formatDay(day))}">
           ${first ? `<th scope="row" rowspan="${span}" class="c-date"${deco.title ? ` title="${deco.title}"` : ""}>${formatDay(day)}${deco.notes}</th>` : ""}
           <td class="c-rdv" data-label="RDV">${rdvCell(r)}</td>
           <td class="c-tide" data-label="Étale"><span class="kind ${r.kind}">${r.kind}</span>${r.time}</td>
@@ -426,8 +426,8 @@ function exportColumns() {
   ];
   if (Session.user?.can.view_selections) {
     cols.push(
-      { header: "Choix", width: 16, value: r => pickedFor(r)?.type.label || "" },
-      { header: "Choisi par", width: 18, value: r => pickedFor(r)?.picked_by || "" },
+      { header: "Choix", width: 24, value: r => pickedFor(r).map(p => p.type.label + (p.note ? ` (${p.note})` : "")).join(", ") },
+      { header: "Choisi par", width: 18, value: r => [...new Set(pickedFor(r).map(p => p.picked_by).filter(Boolean))].join(", ") },
     );
   }
   return cols;
@@ -447,31 +447,41 @@ endInput.value = todayISO(13);
 // Administration de la structure : choisit et retire. Visualisation : voit seulement.
 
 let slotTypes = [];                 // types actifs de la structure, dans l'ordre de l'administration
-let picks = new Map();              // "port_id|ts_utc" → créneau choisi
+// "port_id|ts_utc" → créneaux choisis sur cette étale (une structure peut en choisir plusieurs : plusieurs
+// bateaux, une sortie et une formation… distingués par leur type et leur intitulé)
+let picks = new Map();
 
 const slotKey = r => `${r.port_id}|${r.ts_utc}`;
-const pickedFor = r => picks.get(slotKey(r)) || null;
-const isPicked = r => picks.has(slotKey(r));
+const pickedFor = r => picks.get(slotKey(r)) || [];
+const isPicked = r => pickedFor(r).length > 0;
+
+function addPick(s) {
+  const key = slotKey(s);
+  picks.set(key, [...(picks.get(key) || []), s]);
+}
 
 function typePill(t) {
   return `<span class="type-pill" style="--type-color:${escapeHtml(t.color)}">${escapeHtml(t.label)}</span>`;
 }
 
+// Choix d'une étale : chacun des créneaux déjà choisis (type, intitulé, ×), puis la liste pour en ajouter un
 function pickCell(picked) {
   const u = Session.user;
   if (!u?.can.view_selections) return "";
-  if (picked) {
-    const by = picked.picked_by ? ` title="Choisi par ${escapeHtml(picked.picked_by)}"` : "";
-    return `<span${by}>${typePill(picked.type)}</span>` + (u.can.pick
-      ? `<button type="button" class="unpick" data-unpick="${picked.id}" title="Retirer ce choix" aria-label="Retirer ce choix">×</button>`
-      : "");
-  }
-  if (!u.can.pick) return "";
+  const items = picked.map(p => {
+    const by = p.picked_by ? ` title="Choisi par ${escapeHtml(p.picked_by)}"` : "";
+    const note = p.note ? ` <span class="pick-note">${escapeHtml(p.note)}</span>` : "";
+    const remove = u.can.pick
+      ? `<button type="button" class="unpick" data-unpick="${p.id}" title="Retirer ce choix" aria-label="Retirer le choix ${escapeHtml(p.type.label)}${p.note ? ` (${escapeHtml(p.note)})` : ""}">×</button>`
+      : "";
+    return `<span class="pick-item"><span${by}>${typePill(p.type)}${note}</span>${remove}</span>`;
+  }).join("");
+  if (!u.can.pick) return items;
   if (!slotTypes.length) {
-    return `<span class="muted" title="Créez d'abord des types de créneaux dans l'administration">aucun type</span>`;
+    return items || `<span class="muted" title="Créez d'abord des types de créneaux dans l'administration">aucun type</span>`;
   }
-  return `<select data-pick aria-label="Choisir ce créneau avec un type">
-      <option value="">Choisir…</option>
+  return `${items}<select data-pick aria-label="${picked.length ? "Choisir un autre créneau sur cette étale" : "Choisir ce créneau avec un type"}">
+      <option value="">${picked.length ? "+ Autre…" : "Choisir…"}</option>
       ${slotTypes.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join("")}
     </select>`;
 }
@@ -487,7 +497,7 @@ async function loadPicks(user) {
       ]);
       slotTypes = types;
       // les créneaux personnalisés n'ont pas d'étale : rien à griser dans la recherche
-      picks = new Map(sels.filter(s => !s.custom).map(s => [slotKey(s), s]));
+      for (const s of sels) if (!s.custom) addPick(s);
     } catch (e) {
       statusEl.textContent = `Créneaux choisis non chargés : ${e.message}`;
     }
@@ -495,27 +505,51 @@ async function loadPicks(user) {
   if (tableEl) renderRows();
 }
 
+async function createPick(r, typeId, note = null) {
+  const s = await Session.api("/api/selections", {
+    method: "POST",
+    body: { port_id: r.port_id, ts_utc: r.ts_utc, type_id: typeId, note },
+  });
+  addPick(s);
+  renderRows();
+}
+
 async function onPickChange(e) {
   const sel = e.target.closest("select[data-pick]");
   if (!sel || !sel.value) return;
   const r = lastData.results.find(x => slotKey(x) === sel.closest("tr").dataset.key);
   if (!r) return;
-  sel.disabled = true;
-  try {
-    const s = await Session.api("/api/selections", {
-      method: "POST",
-      body: { port_id: r.port_id, ts_utc: r.ts_utc, type_id: Number(sel.value) },
-    });
-    picks.set(slotKey(s), s);
-  } catch (err) {
-    statusEl.textContent = `Choix impossible : ${err.message}`;
-    // déjà choisi (autre onglet) : on resynchronise pour griser la ligne
-    if (err.status === 409) return loadPicks(Session.user);
-    sel.disabled = false;
+  const typeId = Number(sel.value);
+  const existing = pickedFor(r);
+  // étale déjà choisie : un intitulé (facultatif) aide à distinguer les créneaux, surtout de même type
+  if (existing.length) {
+    const type = slotTypes.find(t => t.id === typeId);
+    const same = existing.filter(p => p.type.id === typeId).length;
     sel.value = "";
+    Session.openForm({
+      title: "Autre créneau sur cette étale",
+      intro: `<p class="dialog-hint">${escapeHtml(type?.label || "Créneau")} le ${escapeHtml(formatDay(r.date))}, étale ${escapeHtml(r.kind)} de ${escapeHtml(r.time)}. `
+        + `Déjà choisi : ${existing.map(p => escapeHtml(p.type.label + (p.note ? ` (${p.note})` : ""))).join(", ")}.</p>`,
+      fields: [{
+        name: "note", label: "Intitulé", required: false, value: "",
+        hint: same ? "Conseillé : ce type est déjà choisi sur cette étale (ex. Bateau 2)." : "Facultatif (ex. Bateau 2, Baptêmes).",
+      }],
+      submitLabel: "Ajouter",
+      onSubmit: async values => {
+        const note = (values.note || "").trim().slice(0, 80) || null;
+        await createPick(r, typeId, note);
+      },
+    });
     return;
   }
-  renderRows();
+  sel.disabled = true;
+  try {
+    await createPick(r, typeId);
+  } catch (err) {
+    statusEl.textContent = `Choix impossible : ${err.message}`;
+    sel.disabled = false;
+    sel.value = "";
+  }
 }
 
 async function onUnpickClick(e) {
@@ -531,7 +565,10 @@ async function onUnpickClick(e) {
       return;
     }
   }
-  for (const [k, s] of picks) if (String(s.id) === btn.dataset.unpick) picks.delete(k);
+  for (const [k, list] of picks) {
+    const left = list.filter(s => String(s.id) !== btn.dataset.unpick);
+    if (left.length) picks.set(k, left); else picks.delete(k);
+  }
   renderRows();
 }
 

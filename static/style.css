@@ -1578,3 +1578,7 @@ main.unsub-main { max-width: 40rem; }
 .reg-status-wait { background: #fff3cd; color: #6b4a00; border: 1px solid #f1d98c; }
 .regs-pop-wait { margin-top: 0.6rem; }
 .reg-rank { font-weight: 700; color: #6b4a00; }
+
+/* Plusieurs créneaux choisis sur une même étale (recherche) : un choix par ligne dans la cellule */
+.windows .c-pick .pick-item { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem; white-space: nowrap; }
+.windows .c-pick .pick-note { font-size: 0.8rem; color: var(--blue-deep); white-space: normal; }

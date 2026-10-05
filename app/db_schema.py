@@ -15,8 +15,9 @@ from .db_core import db_path, get_conn
 from .db_jobs import _prune_jobs
 
 
-# Colonnes de slot_selections, partagées par le schéma et la migration qui
-# reconstruit la table (_migrate_custom_selections).
+# Colonnes de slot_selections, partagées par le schéma et les migrations qui reconstruisent la table
+# (_migrate_custom_selections, migrations._m004_several_picks_per_tide). Une structure peut choisir plusieurs
+# fois la même étale (plusieurs bateaux, une sortie et une formation…) : pas de contrainte d'unicité.
 SLOT_SELECTIONS_COLUMNS = """(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
@@ -33,12 +34,11 @@ SLOT_SELECTIONS_COLUMNS = """(
     rdv_time TEXT NOT NULL,
     height_m REAL,
     coefficient REAL,
-    note TEXT,                              -- intitulé d'un créneau personnalisé
+    note TEXT,                              -- intitulé (facultatif) : distingue les créneaux d'une même étale
     created_at TEXT NOT NULL,
     -- places : au-delà, les inscriptions passent en file d'attente (par ordre d'inscription). NULL : illimité.
     -- Copiée de structures.default_max_registrations à la création du créneau, puis modifiable.
     max_registrations INTEGER CHECK (max_registrations IS NULL OR max_registrations BETWEEN 1 AND 500),
-    UNIQUE (structure_id, port_id, ts_utc),
     -- étale : tous ses champs ; personnalisé : aucun
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
            AND (ts_utc IS NULL) = (height_m IS NULL)),
@@ -465,6 +465,7 @@ CREATE TABLE IF NOT EXISTS slot_registrations (
 );
 CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_selections_structure ON slot_selections(structure_id, local_date);
+CREATE INDEX IF NOT EXISTS idx_selections_tide ON slot_selections(port_id, ts_utc);
 CREATE INDEX IF NOT EXISTS idx_slot_types_structure ON slot_types(structure_id, position);
 CREATE INDEX IF NOT EXISTS idx_users_structure ON users(structure_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
