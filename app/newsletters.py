@@ -169,7 +169,8 @@ def _audience_label(structure_id: int, audience: dict) -> str:
         return "Inscrits à un créneau supprimé"
     day = datetime.fromisoformat(sel["local_date"]).strftime("%d/%m/%Y")
     what = sel["note"] or sel["port_name"]
-    return f"Inscrits au créneau du {day}{' (' + what + ')' if what else ''}"
+    limited = ", hors file d'attente" if sel["max_registrations"] else ""
+    return f"Inscrits au créneau du {day}{' (' + what + ')' if what else ''}{limited}"
 
 
 def _out(row: sqlite3.Row, with_body: bool = False) -> dict:

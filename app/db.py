@@ -96,6 +96,7 @@ from .db_structures import (  # noqa: F401
     update_structure_settings,
     DEFAULT_RDV_OFFSET_MINUTES,
     get_rdv_offset,
+    get_default_max_registrations,
     get_lock_days,
     delete_structure,
 )
@@ -186,6 +187,7 @@ from .db_selections import (  # noqa: F401
     list_registrations,
     add_registration,
     delete_registration,
+    update_selection_capacity,
 )
 from .db_requests import (  # noqa: F401
     create_structure_request,

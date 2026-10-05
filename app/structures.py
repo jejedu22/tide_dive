@@ -44,6 +44,9 @@ class StructureSettingsIn(BaseModel):
     rdv_offset_minutes: int | None = Field(None, ge=0, le=720)
     # Port proposé d'office dans la recherche ; None : aucun (le premier de la liste)
     default_port_id: int | None = None
+    # Nombre de places proposé aux NOUVEAUX créneaux (copié sur chacun à sa création : le modifier ne touche pas
+    # les créneaux existants). null ou 0 : illimité
+    default_max_registrations: int | None = Field(None, ge=0, le=500)
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -59,6 +62,7 @@ def _out(row: sqlite3.Row) -> dict:
         "unregister_lock_days": row["unregister_lock_days"],
         "rdv_offset_minutes": row["rdv_offset_minutes"],
         "default_port_id": row["default_port_id"],
+        "default_max_registrations": row["default_max_registrations"],
     }
 
 
@@ -107,6 +111,8 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
         del fields["rdv_offset_minutes"]  # pas de « sans délai » : null = inchangé
     if fields.get("default_port_id") is not None and db.get_port(fields["default_port_id"]) is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Port inconnu")
+    if "default_max_registrations" in fields:
+        fields["default_max_registrations"] = fields["default_max_registrations"] or None   # 0 : illimité
     db.update_structure_settings(structure_id, **fields)
     offset = fields.get("rdv_offset_minutes")
     if offset is not None and offset != before["rdv_offset_minutes"]:

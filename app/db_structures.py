@@ -51,12 +51,12 @@ def rename_structure(structure_id: int, name: str) -> None:
 LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
 
 
-SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id")
+SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id", "default_max_registrations")
 
 
 def update_structure_settings(structure_id: int, **fields) -> None:
-    """Met à jour les réglages fournis (clés de SETTINGS_COLUMNS ; pour les délais,
-    None = pas de limite ; pour le port par défaut, None = aucun)."""
+    """Met à jour les réglages fournis (clés de SETTINGS_COLUMNS ; pour les délais et le nombre de places par
+    défaut, None = pas de limite ; pour le port par défaut, None = aucun)."""
     fields = {k: v for k, v in fields.items() if k in SETTINGS_COLUMNS}
     if not fields:
         return
@@ -75,6 +75,13 @@ def get_rdv_offset(structure_id: int | None) -> int:
     with get_conn() as conn:
         row = conn.execute("SELECT rdv_offset_minutes FROM structures WHERE id = ?", (structure_id,)).fetchone()
     return row["rdv_offset_minutes"] if row else DEFAULT_RDV_OFFSET_MINUTES
+
+
+def get_default_max_registrations(structure_id: int) -> int | None:
+    """Nombre de places proposé aux nouveaux créneaux de la structure (None : illimité)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT default_max_registrations FROM structures WHERE id = ?", (structure_id,)).fetchone()
+    return row["default_max_registrations"] if row else None
 
 
 def get_lock_days(structure_id: int) -> dict[str, int | None]:

@@ -140,3 +140,19 @@ def test_sessions_et_invitations_disponibles_apres_mise_a_jour(upgraded):
     uid = 2
     db.create_session("tok", uid, "2099-01-01T00:00:00+00:00", "2025-01-01T00:00:00+00:00")
     assert db.get_session_user("tok", "2025-01-02T00:00:00+00:00")["structure_id"] == db.list_structures()[0]["id"]
+
+
+def test_creneaux_existants_restent_illimites(upgraded):
+    """Après la mise à jour, aucun créneau n'a de limite : les inscriptions existantes sont toutes confirmées."""
+    sid = db.list_structures()[0]["id"]
+    assert db.get_default_max_registrations(sid) is None
+    selections = db.list_selections(sid)
+    assert selections and all(s["max_registrations"] is None for s in selections)
+    for s in selections:
+        already = {r["user_id"] for r in db.list_registrations(sid, s["id"])}
+        for uid in {1, 2} - already:
+            db.add_registration(s["id"], uid, "2025-01-01T00:00:00+00:00")
+    from app.selections import split_registrations
+    for s in selections:
+        regs = [r["user_id"] for r in db.list_registrations(sid, s["id"])]
+        assert split_registrations(regs, s["max_registrations"]) == (regs, [])
