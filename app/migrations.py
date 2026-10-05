@@ -2,14 +2,14 @@
 Migrations de schéma versionnées (`PRAGMA user_version`).
 
 Historique : jusqu'ici le schéma évoluait par des `ALTER TABLE` conditionnels exécutés à chaque
-démarrage (db._migrate*). Ils restent en place, inchangés : ils amènent n'importe quelle base
+démarrage (`_migrate*`, dans db_schema.py). Ils restent en place, inchangés : ils amènent n'importe quelle base
 ancienne à la VERSION 1 (« référence »). Toute évolution NOUVELLE du schéma s'ajoute ici.
 
 Ajouter une migration
 ---------------------
 1. écrire une fonction `def _m002_description(conn): ...` (SQL via `conn.execute`) ;
 2. l'ajouter à MIGRATIONS avec le numéro suivant : `Migration(2, "description", _m002_description)` ;
-3. mettre à jour SCHEMA dans db.py pour qu'une base NEUVE ait déjà le résultat
+3. mettre à jour SCHEMA dans db_schema.py pour qu'une base NEUVE ait déjà le résultat
    (une base neuve est marquée à la dernière version sans rejouer les migrations) ;
 4. écrire la migration de façon IDEMPOTENTE (tester l'existence d'une colonne avant de l'ajouter) :
    si l'API, le worker et le planificateur démarrent ensemble sur une base vierge, l'un d'eux peut
@@ -99,7 +99,7 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False) -> list[
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         if version == 0:
-            # Base neuve (SCHEMA à jour), ou antérieure au versionnement dont db._migrate* vient de rattraper le schéma
+            # Base neuve (SCHEMA à jour), ou antérieure au versionnement dont `_migrate*` vient de rattraper le schéma
             version = latest if fresh else BASELINE
             conn.execute(f"PRAGMA user_version = {version}")
         if version > latest:

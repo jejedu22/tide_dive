@@ -1,0 +1,676 @@
+"""
+Schéma de la base (SCHEMA), création et migrations historiques (`_migrate*`), `init_db`.
+
+Les évolutions NOUVELLES du schéma passent par `migrations.py` (versionné) ; ce qui est ici amène
+une base ancienne à la version de référence.
+
+Regroupé dans `app.db` (façade) : le reste du code continue d'écrire `db.fonction(...)`.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+
+from .db_core import db_path, get_conn
+from .db_jobs import _prune_jobs
+
+
+# Colonnes de slot_selections, partagées par le schéma et la migration qui
+# reconstruit la table (_migrate_custom_selections).
+SLOT_SELECTIONS_COLUMNS = """(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- qui l'a choisi (NULL : compte supprimé)
+    port_id INTEGER REFERENCES ports(id) ON DELETE CASCADE,  -- NULL : créneau personnalisé dans un autre lieu
+    location TEXT,                          -- lieu libre (ville, carrière…) d'un créneau personnalisé hors port
+    ts_utc TEXT,                            -- = tide_extrema.ts_utc ; NULL : créneau personnalisé
+    type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
+    kind TEXT CHECK (kind IN ('PM', 'BM')),
+    local_date TEXT NOT NULL,               -- YYYY-MM-DD, jour local de l'étale (ou du créneau personnalisé)
+    end_date TEXT,                          -- dernier jour d'un créneau personnalisé sur plusieurs jours, sinon NULL
+    local_time TEXT,                        -- HH:MM, heure de l'étale
+    rdv_date TEXT NOT NULL,
+    rdv_time TEXT NOT NULL,
+    height_m REAL,
+    coefficient REAL,
+    note TEXT,                              -- intitulé d'un créneau personnalisé
+    created_at TEXT NOT NULL,
+    UNIQUE (structure_id, port_id, ts_utc),
+    -- étale : tous ses champs ; personnalisé : aucun
+    CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
+           AND (ts_utc IS NULL) = (height_m IS NULL)),
+    -- un port ou un lieu libre, jamais les deux ; une étale a toujours son port
+    CHECK ((port_id IS NULL) <> (location IS NULL) AND (ts_utc IS NULL OR port_id IS NOT NULL)),
+    -- plusieurs jours : créneau personnalisé uniquement, fin après le premier jour
+    CHECK (end_date IS NULL OR (ts_utc IS NULL AND end_date > local_date))
+)"""
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS ports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'Europe/Paris',
+    offset_zh_m REAL,                         -- niveau moyen au-dessus du zéro des cartes (NULL = inconnu)
+    auto_precompute INTEGER NOT NULL DEFAULT 1, -- inclus dans le précalcul annuel automatique
+    api_maree_site TEXT                       -- identifiant du site api-maree.fr (recalage), NULL = aucun
+);
+
+-- Recalage du modèle FES sur api-maree.fr (voir calibration.py) : la hauteur
+-- stockée à t vaut amplitude × FES(t − time_shift_min) + correction harmonique
+-- (harmonics_json) + offset_zh_m. Les recalages actuels ont τ = 0 et a = 1.
+CREATE TABLE IF NOT EXISTS tide_calibration (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    site TEXT NOT NULL,                 -- site api-maree.fr utilisé
+    model TEXT NOT NULL,                -- modèle FES recalé (ignoré pour un autre modèle)
+    time_shift_min REAL NOT NULL,
+    amplitude REAL NOT NULL,
+    harmonics_json TEXT,                -- ondes de correction [{name, speed °/h, cos, sin}], NULL = aucune
+    mean_level_m REAL,                  -- niveau moyen de la référence (comparable à offset_zh_m)
+    rmse_before_m REAL,
+    rmse_after_m REAL,
+    extrema_dt_before_min REAL,         -- écart moyen des heures de PM/BM, avant / après
+    extrema_dt_after_min REAL,
+    n_points INTEGER NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tide_heights (
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    ts_utc TEXT NOT NULL,          -- horodatage ISO8601 UTC
+    height_m REAL NOT NULL,
+    PRIMARY KEY (port_id, ts_utc)
+);
+
+CREATE TABLE IF NOT EXISTS tide_extrema (
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    ts_utc TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
+    height_m REAL NOT NULL,
+    coefficient REAL,               -- rempli uniquement pour les PM
+    PRIMARY KEY (port_id, ts_utc)
+);
+
+-- Fenêtre glissante où les hauteurs et étales viennent d'api-maree.fr
+-- (rafraîchie chaque jour, voir short_term.py) au lieu du calcul FES
+CREATE TABLE IF NOT EXISTS short_term_windows (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    site TEXT NOT NULL,
+    window_start TEXT NOT NULL,         -- [début, fin[ ISO UTC des données remplacées
+    window_end TEXT NOT NULL,
+    n_extrema INTEGER NOT NULL,
+    max_shift_min REAL,                 -- plus grand écart d'heure avec l'étale FES remplacée
+    level_diff_m REAL,                  -- hauteur moyenne api-maree.fr − FES sur la fenêtre
+    refreshed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sun_times (
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,             -- YYYY-MM-DD, jour local
+    sunrise_local TEXT,
+    sunset_local TEXT,
+    nautical_dawn_local TEXT,
+    nautical_dusk_local TEXT,
+    PRIMARY KEY (port_id, date)
+);
+
+-- Vacances scolaires par académie (source : data.education.gouv.fr).
+-- Intervalle [start_date, end_date[ : end_date = jour de reprise des cours.
+CREATE TABLE IF NOT EXISTS school_holidays (
+    academy TEXT NOT NULL,
+    start_date TEXT NOT NULL,       -- YYYY-MM-DD, premier jour de vacances
+    end_date TEXT NOT NULL,         -- YYYY-MM-DD, jour de reprise (exclu)
+    description TEXT NOT NULL,
+    PRIMARY KEY (academy, start_date, description)
+);
+
+-- Structures (clubs, groupes) : chacune a ses membres, ses types de créneaux
+-- et sa liste de créneaux choisis. Créées par un super administrateur.
+-- register_lock_days / unregister_lock_days : inscription / désinscription close
+-- à partir de J-N (N jours avant la date du créneau, heure de Paris) ;
+-- NULL = pas de limite (jusqu'au jour J).
+-- rdv_offset_minutes : heure de rendez-vous = étale moins ce délai (arrondie
+-- au pas de 5 min inférieur).
+-- default_port_id : port proposé d'office dans la recherche (NULL = le premier).
+CREATE TABLE IF NOT EXISTS structures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at TEXT NOT NULL,
+    unregister_lock_days INTEGER CHECK (unregister_lock_days BETWEEN 0 AND 365),
+    register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365),
+    rdv_offset_minutes INTEGER NOT NULL DEFAULT 120 CHECK (rdv_offset_minutes BETWEEN 0 AND 720),
+    default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL
+);
+
+-- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
+-- is_admin = super administrateur (toute l'application, toutes les structures).
+-- structure_role : 'viewer' (visualisation) ou 'manager' (administration de la
+-- structure : choix des créneaux, membres, types). Un compte qui n'est pas
+-- super administrateur appartient toujours à une structure (vérifié par l'API).
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,    -- scrypt, voir auth.py
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_login_at TEXT,
+    structure_id INTEGER REFERENCES structures(id) ON DELETE RESTRICT,
+    structure_role TEXT CHECK (structure_role IN ('viewer', 'manager')),
+    -- Profil (NULL possible sur les comptes créés avant ces colonnes)
+    first_name TEXT,
+    last_name TEXT,
+    email TEXT,                     -- en minuscules, unique (index idx_users_email)
+    phone TEXT,
+    -- 1 : mot de passe provisoire, à changer à la prochaine connexion
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    password_changed_at TEXT,
+    -- Mot de passe oublié : mot de passe provisoire envoyé par e-mail (scrypt).
+    -- Il s'ajoute au mot de passe actuel sans le remplacer : une demande faite
+    -- par un tiers ne bloque donc pas le compte. À sa première utilisation il
+    -- devient le mot de passe du compte (must_change_password = 1).
+    temp_password_hash TEXT,
+    temp_password_expires_at TEXT,  -- ISO8601 UTC
+    temp_password_sent_at TEXT      -- anti-rafale (un envoi toutes les 2 min)
+);
+
+-- Jetons à usage unique envoyés par e-mail : invitation (définir son premier
+-- mot de passe) ou réinitialisation (mot de passe oublié). Comme pour les
+-- sessions, seul le SHA-256 du jeton est stocké. Tous les jetons d'un compte
+-- sont supprimés dès que son mot de passe change.
+CREATE TABLE IF NOT EXISTS user_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+-- Sessions : on ne stocke que le SHA-256 du jeton envoyé en cookie
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL        -- ISO8601 UTC
+);
+
+-- Préférences de filtrage : formulaire de recherche + filtres des colonnes (JSON)
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    form_json TEXT NOT NULL DEFAULT '{}',
+    filters_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
+-- File de tâches longues (précalcul, téléchargement FES…), exécutées une par
+-- une par le worker (python -m app.jobs worker). Voir jobs.py.
+CREATE TABLE IF NOT EXISTS jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    exit_code INTEGER,
+    log TEXT NOT NULL DEFAULT ''
+);
+
+-- Réglages de l'application modifiables depuis l'administration (clé → valeur)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+);
+
+-- Modèle de marée utilisé pour chaque année calculée d'un port
+CREATE TABLE IF NOT EXISTS computed_years (
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    year INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+    PRIMARY KEY (port_id, year)
+);
+
+-- Profils d'un compte, en plus de son rôle de structure (visualisation / administration) :
+-- un compte en a autant qu'il faut. Catalogue : accounts.PROFILES (sans CHECK ici, pour
+-- en ajouter sans migration). « gestionnaire » : newsletters.
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile TEXT NOT NULL,
+    PRIMARY KEY (user_id, profile)
+);
+
+-- Connexion Mailjet d'une structure (voir mailjet_admin.py). Clé API et clé secrète sont
+-- chiffrées (secrets_store.py) et ne ressortent jamais ; api_key_hint = 4 derniers caractères.
+CREATE TABLE IF NOT EXISTS mailjet_settings (
+    structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+    api_key_enc TEXT NOT NULL,
+    api_secret_enc TEXT NOT NULL,
+    api_key_hint TEXT NOT NULL,
+    sender_email TEXT NOT NULL,
+    sender_name TEXT NOT NULL,
+    checked_at TEXT,                 -- dernier test de connexion
+    check_ok INTEGER,
+    check_message TEXT,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT,
+    events_token TEXT,               -- secret de l'adresse de suivi (webhook) de la structure
+    events_registered_at TEXT        -- suivi activé chez Mailjet
+);
+
+-- Newsletters d'une structure (voir newsletters.py). audience_json : {"kind": "all" |
+-- "managers" | "viewers" | "selection", "selection_id": …}. Les destinataires sont figés
+-- au moment de l'envoi (newsletter_recipients).
+CREATE TABLE IF NOT EXISTS newsletters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    preheader TEXT,
+    body TEXT NOT NULL DEFAULT '',
+    audience_json TEXT NOT NULL DEFAULT '{"kind": "all"}',
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'scheduled', 'queued', 'sending', 'sent', 'failed')),
+    scheduled_at TEXT,               -- envoi programmé (UTC)
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TEXT NOT NULL,
+    sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_newsletters_structure ON newsletters(structure_id, created_at);
+
+-- Un destinataire d'une newsletter envoyée, et son suivi (événements Mailjet)
+CREATE TABLE IF NOT EXISTS newsletter_recipients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    newsletter_id INTEGER NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    email TEXT NOT NULL,
+    name TEXT,
+    unsubscribe_token TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'failed')),
+    message_id TEXT,
+    error TEXT,
+    sent_at TEXT,
+    delivered_at TEXT,
+    opened_at TEXT,
+    clicked_at TEXT,
+    bounced_at TEXT,
+    blocked_at TEXT,
+    spam_at TEXT,
+    unsubscribed_at TEXT,
+    open_count INTEGER NOT NULL DEFAULT 0,
+    click_count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (newsletter_id, email)
+);
+
+-- Événements reçus de Mailjet (url : '' hors clic, pour que l'unicité écarte les doublons)
+CREATE TABLE IF NOT EXISTS newsletter_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_id INTEGER NOT NULL REFERENCES newsletter_recipients(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,
+    at TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
+    detail TEXT,
+    UNIQUE (recipient_id, event, at, url)
+);
+
+-- Groupes d'envoi d'une structure (encadrants, préparants N1…), gérés par ses gestionnaires.
+-- Les membres sont des comptes de la structure ; un compte qui la quitte n'est plus visé
+-- (audience_members filtre sur la structure), même s'il reste inscrit au groupe.
+CREATE TABLE IF NOT EXISTS mailing_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (structure_id, name COLLATE NOCASE)
+);
+CREATE TABLE IF NOT EXISTS mailing_group_members (
+    group_id INTEGER NOT NULL REFERENCES mailing_groups(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, user_id)
+);
+
+-- Désinscriptions des newsletters, par structure et adresse
+CREATE TABLE IF NOT EXISTS newsletter_unsubscribes (
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    source TEXT NOT NULL,            -- lien | compte | plainte | mailjet
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (structure_id, email)
+);
+
+-- Demandes de création d'une structure (formulaire public, voir contact.py)
+CREATE TABLE IF NOT EXISTS structure_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_name TEXT NOT NULL,
+    city TEXT,
+    contact_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    message TEXT,
+    status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'done', 'rejected')),
+    created_at TEXT NOT NULL,
+    handled_at TEXT,
+    handled_by TEXT,
+    structure_id INTEGER REFERENCES structures(id) ON DELETE SET NULL  -- structure créée pour la demande
+);
+CREATE INDEX IF NOT EXISTS idx_structure_requests_created ON structure_requests(created_at);
+
+-- Une seule ligne (id = 1) : signe de vie du worker
+CREATE TABLE IF NOT EXISTS worker_status (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    heartbeat_at TEXT NOT NULL,
+    current_job_id INTEGER,
+    info_json TEXT NOT NULL DEFAULT '{}'
+);
+
+-- Types de créneaux d'une structure (liste déroulante paramétrée par ses administrateurs)
+CREATE TABLE IF NOT EXISTS slot_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    label TEXT NOT NULL COLLATE NOCASE,
+    color TEXT NOT NULL DEFAULT '#118ab2',  -- #rrggbb, pastille dans les listes
+    position INTEGER NOT NULL DEFAULT 0,    -- ordre d'affichage
+    active INTEGER NOT NULL DEFAULT 1,      -- 0 : plus proposé, mais conservé sur les choix existants
+    UNIQUE (structure_id, label)
+);
+
+-- Créneaux choisis par une structure. Un créneau = une étale (port + horodatage
+-- UTC de l'extremum). UNIQUE(structure_id, port_id, ts_utc) : une structure ne
+-- peut pas choisir deux fois le même créneau ; deux structures le peuvent.
+-- Les champs d'affichage sont figés au moment du choix : un recalcul de l'année
+-- ne fait pas disparaître la sélection.
+-- Créneau personnalisé (ajouté par l'administration en dehors des étales
+-- proposées) : ts_utc, kind, local_time et height_m sont NULL ; on saisit le
+-- jour, l'heure de RDV et un intitulé facultatif (note). SQLite tient les NULL
+-- pour distincts : la contrainte UNIQUE ne s'applique pas à ces créneaux.
+CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
+CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
+"""
+
+
+# Créés après la migration des structures : index sur des colonnes ajoutées
+# par _migrate (ils échoueraient sur une base existante), et tables qui
+# référencent slot_selections (reconstruite par _migrate_structures).
+INDEXES_AFTER_MIGRATION = """
+-- Inscriptions des membres d'une structure sur ses créneaux choisis.
+-- Un membre (visualisation ou administration) s'inscrit une fois par créneau.
+-- Retirer le créneau ou supprimer le compte retire l'inscription (CASCADE).
+-- registered_by : qui a inscrit le membre, quand ce n'est pas lui-même
+-- (administration ou profil « inscriptions ») ; NULL s'il s'est inscrit seul.
+CREATE TABLE IF NOT EXISTS slot_registrations (
+    selection_id INTEGER NOT NULL REFERENCES slot_selections(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    registered_by_name TEXT,
+    PRIMARY KEY (selection_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);
+CREATE INDEX IF NOT EXISTS idx_selections_structure ON slot_selections(structure_id, local_date);
+CREATE INDEX IF NOT EXISTS idx_slot_types_structure ON slot_types(structure_id, position);
+CREATE INDEX IF NOT EXISTS idx_users_structure ON users(structure_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_user_tokens_user ON user_tokens(user_id, purpose);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mailjet_events_token ON mailjet_settings(events_token) WHERE events_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_nl ON newsletter_recipients(newsletter_id, status);
+"""
+
+
+def init_db() -> None:
+    db_path().parent.mkdir(parents=True, exist_ok=True)
+    with get_conn() as conn:
+        fresh = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ports'").fetchone() is None
+        # WAL : l'API continue de lire pendant qu'un précalcul écrit une année entière
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.executescript(SCHEMA)
+        _migrate(conn)
+        _prune_jobs(conn)  # historique d'avant la limite
+    _migrate_structures()
+    _migrate_custom_selections()
+    with get_conn() as conn:
+        conn.executescript(INDEXES_AFTER_MIGRATION)
+        reg_cols = _columns(conn, "slot_registrations")
+        if "registered_by" not in reg_cols:
+            conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
+        if "registered_by_name" not in reg_cols:
+            conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by_name TEXT")
+    from . import migrations   # import tardif : migrations importe db
+    migrations.run(fresh=fresh)    # évolutions de schéma versionnées (voir migrations.py)
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+DEFAULT_STRUCTURE_NAME = "Structure principale"
+
+
+def _migrate_structures() -> None:
+    """
+    Passage des créneaux « par utilisateur » aux créneaux « par structure ».
+
+    Sur une base antérieure aux structures :
+      - crée « Structure principale » s'il existe des comptes, types ou choix ;
+      - y rattache les comptes : super administrateurs en administration,
+        autres comptes en visualisation (moindre privilège : à promouvoir
+        ensuite depuis l'administration) ;
+      - reconstruit slot_types et slot_selections (SQLite ne sait pas modifier
+        une contrainte UNIQUE) ; si plusieurs comptes avaient choisi le même
+        créneau, seul le premier choix est conservé.
+
+    Tout se fait en une transaction, clés étrangères suspendues le temps de la
+    reconstruction (procédure recommandée par SQLite), puis vérifiées.
+    """
+    conn = sqlite3.connect(db_path(), timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    try:
+        user_cols = _columns(conn, "users")
+        types_old = "structure_id" not in _columns(conn, "slot_types")
+        sels_old = "structure_id" not in _columns(conn, "slot_selections")
+        if {"structure_id", "structure_role"} <= user_cols and not types_old and not sels_old:
+            return
+
+        conn.execute("PRAGMA foreign_keys = OFF")  # sans effet dans une transaction : avant BEGIN
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if "structure_id" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN structure_id INTEGER REFERENCES structures(id) ON DELETE RESTRICT")
+            if "structure_role" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN structure_role TEXT CHECK (structure_role IN ('viewer', 'manager'))")
+
+            n_users = conn.execute("SELECT COUNT(*) FROM users WHERE structure_id IS NULL").fetchone()[0]
+            n_types = conn.execute("SELECT COUNT(*) FROM slot_types").fetchone()[0] if types_old else 0
+            n_sels = conn.execute("SELECT COUNT(*) FROM slot_selections").fetchone()[0] if sels_old else 0
+
+            default_id = None
+            if n_types or n_sels or (n_users and "structure_id" not in user_cols):
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                row = conn.execute(
+                    "SELECT id FROM structures WHERE name = ? COLLATE NOCASE", (DEFAULT_STRUCTURE_NAME,)
+                ).fetchone()
+                default_id = row["id"] if row else conn.execute(
+                    "INSERT INTO structures (name, created_at) VALUES (?, ?)", (DEFAULT_STRUCTURE_NAME, now)
+                ).lastrowid
+                if "structure_id" not in user_cols:
+                    conn.execute(
+                        "UPDATE users SET structure_id = ?, "
+                        "structure_role = CASE WHEN is_admin = 1 THEN 'manager' ELSE 'viewer' END "
+                        "WHERE structure_id IS NULL",
+                        (default_id,),
+                    )
+
+            if types_old:
+                conn.execute("""
+                    CREATE TABLE slot_types_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+                        label TEXT NOT NULL COLLATE NOCASE,
+                        color TEXT NOT NULL DEFAULT '#118ab2',
+                        position INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        UNIQUE (structure_id, label)
+                    )""")
+                conn.execute(
+                    "INSERT INTO slot_types_new (id, structure_id, label, color, position, active) "
+                    "SELECT id, ?, label, color, position, active FROM slot_types",
+                    (default_id,),
+                )
+                conn.execute("DROP TABLE slot_types")
+                conn.execute("ALTER TABLE slot_types_new RENAME TO slot_types")
+
+            if sels_old:
+                conn.execute("""
+                    CREATE TABLE slot_selections_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+                        picked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+                        ts_utc TEXT NOT NULL,
+                        type_id INTEGER NOT NULL REFERENCES slot_types(id) ON DELETE RESTRICT,
+                        kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
+                        local_date TEXT NOT NULL,
+                        local_time TEXT NOT NULL,
+                        rdv_date TEXT NOT NULL,
+                        rdv_time TEXT NOT NULL,
+                        height_m REAL NOT NULL,
+                        coefficient REAL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE (structure_id, port_id, ts_utc)
+                    )""")
+                # un seul choix par créneau : le plus ancien (plus petit id)
+                conn.execute(
+                    """
+                    INSERT INTO slot_selections_new
+                        (id, structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date,
+                         local_time, rdv_date, rdv_time, height_m, coefficient, created_at)
+                    SELECT id, ?, user_id, port_id, ts_utc, type_id, kind, local_date,
+                           local_time, rdv_date, rdv_time, height_m, coefficient, created_at
+                    FROM slot_selections
+                    WHERE id IN (SELECT MIN(id) FROM slot_selections GROUP BY port_id, ts_utc)
+                    """,
+                    (default_id,),
+                )
+                conn.execute("DROP TABLE slot_selections")
+                conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
+
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"Migration structures : clés étrangères invalides {[tuple(p) for p in problems[:5]]}")
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+
+
+def _migrate_custom_selections() -> None:
+    """
+    Créneaux personnalisés : reconstruit slot_selections pour rendre facultatifs
+    les champs de l'étale (ts_utc, kind, local_time, height_m) et ajouter
+    l'intitulé (note), puis le port (port_id) au profit d'un lieu libre
+    (location), et ajouter une date de fin (end_date). SQLite ne sait pas retirer un NOT NULL : nouvelle table,
+    copie, renommage, clés étrangères suspendues puis vérifiées (même procédure
+    que _migrate_structures). Les inscriptions (slot_registrations) pointent
+    vers la table par son nom : elles suivent sans être touchées.
+    """
+    conn = sqlite3.connect(db_path(), timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    try:
+        old_cols = _columns(conn, "slot_selections")
+        if "end_date" in old_cols:
+            return
+        conn.execute("PRAGMA foreign_keys = OFF")  # sans effet dans une transaction : avant BEGIN
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("CREATE TABLE slot_selections_new " + SLOT_SELECTIONS_COLUMNS)
+            cols = ("id, structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, "
+                    "local_time, rdv_date, rdv_time, height_m, coefficient, created_at"
+                    + "".join(f", {c}" for c in ("note", "location") if c in old_cols))
+            conn.execute(f"INSERT INTO slot_selections_new ({cols}) SELECT {cols} FROM slot_selections")
+            conn.execute("DROP TABLE slot_selections")
+            conn.execute("ALTER TABLE slot_selections_new RENAME TO slot_selections")
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"Migration créneaux personnalisés : clés étrangères invalides {[tuple(p) for p in problems[:5]]}")
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Colonnes ajoutées après coup sur une base existante."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(ports)")}
+    if "offset_zh_m" not in cols:
+        conn.execute("ALTER TABLE ports ADD COLUMN offset_zh_m REAL")
+        # reprend les décalages connus du catalogue pour les ports déjà en base
+        from .ports_catalog import PORTS
+        for p in PORTS:
+            if p.get("offset_zh_m"):
+                conn.execute(
+                    "UPDATE ports SET offset_zh_m = ? WHERE name = ? COLLATE NOCASE AND offset_zh_m IS NULL",
+                    (p["offset_zh_m"], p["name"]),
+                )
+    if "auto_precompute" not in cols:
+        conn.execute("ALTER TABLE ports ADD COLUMN auto_precompute INTEGER NOT NULL DEFAULT 1")
+    if "api_maree_site" not in cols:
+        conn.execute("ALTER TABLE ports ADD COLUMN api_maree_site TEXT")
+    mailjet_cols = _columns(conn, "mailjet_settings")
+    for col in ("events_token", "events_registered_at"):
+        if col not in mailjet_cols:
+            conn.execute(f"ALTER TABLE mailjet_settings ADD COLUMN {col} TEXT")
+    if "harmonics_json" not in _columns(conn, "tide_calibration"):
+        conn.execute("ALTER TABLE tide_calibration ADD COLUMN harmonics_json TEXT")
+
+    # Profil des comptes : nom, prénom, e-mail, téléphone, mot de passe provisoire
+    user_cols = _columns(conn, "users")
+    for col, ddl in (
+        ("first_name", "TEXT"),
+        ("last_name", "TEXT"),
+        ("email", "TEXT"),
+        ("phone", "TEXT"),
+        ("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
+        ("password_changed_at", "TEXT"),
+        ("temp_password_hash", "TEXT"),
+        ("temp_password_expires_at", "TEXT"),
+        ("temp_password_sent_at", "TEXT"),
+    ):
+        if col not in user_cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+
+    # Délais d'inscription / de désinscription par structure (NULL = pas de limite)
+    structure_cols = _columns(conn, "structures")
+    for col in ("unregister_lock_days", "register_lock_days"):
+        if col not in structure_cols:
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} INTEGER CHECK ({col} BETWEEN 0 AND 365)")
+    # Délai entre l'heure de rendez-vous et l'étale (2 h, la valeur fixe d'avant)
+    if "rdv_offset_minutes" not in structure_cols:
+        conn.execute(
+            "ALTER TABLE structures ADD COLUMN rdv_offset_minutes INTEGER NOT NULL DEFAULT 120"
+            " CHECK (rdv_offset_minutes BETWEEN 0 AND 720)"
+        )
+    # Port affiché par défaut dans la recherche pour les membres
+    if "default_port_id" not in structure_cols:
+        conn.execute("ALTER TABLE structures ADD COLUMN default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL")

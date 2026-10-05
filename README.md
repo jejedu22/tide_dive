@@ -618,7 +618,7 @@ Le résultat s'affiche en haut de l'administration (`GET /api/admin/health`). Un
 
 ### Migrations de schéma
 
-La base est versionnée (`PRAGMA user_version`, `python -m app.migrations status`). Les anciens `ALTER TABLE` conditionnels de `db.py` amènent toute base à la version 1 ; **toute nouvelle évolution** s'ajoute à `app/migrations.py` (une transaction par migration, sauvegarde automatique dans `data/backups/avant-migration/` avant la première en attente). Mode d'emploi en tête de ce fichier.
+La base est versionnée (`PRAGMA user_version`, `python -m app.migrations status`). Les anciens `ALTER TABLE` conditionnels de `db_schema.py` amènent toute base à la version 1 ; **toute nouvelle évolution** s'ajoute à `app/migrations.py` (une transaction par migration, sauvegarde automatique dans `data/backups/avant-migration/` avant la première en attente). Mode d'emploi en tête de ce fichier.
 
 ### Tests et intégration continue
 
@@ -662,7 +662,16 @@ app/
   security.py       limitation des tentatives, en-têtes de sécurité, contrôle d'origine
   twilight.py       lever/coucher civil, crépuscule nautique (astral)
   ports_catalog.py  ports préréglés et leurs offset_zh_m
-  db.py             schéma et accès SQLite
+  db.py             accès SQLite : façade (le code écrit `db.fonction()`), DB_PATH
+  db_core.py        connexion (get_conn) et réglages de l'application
+  db_schema.py      schéma SQL, migrations historiques, init_db
+  db_tides.py       ports, recalage, marées, soleil, vacances scolaires
+  db_structures.py  structures
+  db_users.py       comptes, sessions, jetons, préférences
+  db_jobs.py        file de tâches, worker
+  db_selections.py  types de créneaux, créneaux choisis, inscriptions
+  db_requests.py    demandes de création de structure
+  db_newsletters.py connexion Mailjet, newsletters, groupes d'envoi
   auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
   accounts.py       profil (normalisation), identifiant proposé, jetons et e-mails de compte
   passwords.py      politique de mots de passe et génération
