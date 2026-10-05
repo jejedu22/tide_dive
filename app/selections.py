@@ -290,7 +290,8 @@ def _selection_out(
         "register_until": reg_until,
         "can_register": _today() <= reg_until,
         "unregister_until": unreg_until,
-        "can_unregister": _today() <= unreg_until,
+        # le délai protège les places confirmées ; un membre en file d'attente n'en occupe aucune : il peut la quitter
+        "can_unregister": _today() <= unreg_until or (mine is not None and mine["waiting"]),
     }
 
 
@@ -481,13 +482,16 @@ def _notify_promotions(background: BackgroundTasks, structure_id: int, selection
     if not mailer.enabled() or not waiting_before:
         return
     row = db.get_selection(structure_id, selection_id)
+    if row is None or (row["end_date"] or row["local_date"]) < _today():
+        return   # créneau passé (retrait ou places changées après coup) : il n'y a plus de place à annoncer
+    can_unregister = _today() <= open_until(row["local_date"], db.get_lock_days(structure_id)["unregister_lock_days"])
     confirmed_now, _ = _status(structure_id, selection_id)
     messages = []
     for uid in waiting_before:
         if uid in confirmed_now:
             member = db.get_user(uid, structure_id)
             if member is not None and member["email"]:
-                messages.append(promoted_message(member, row))
+                messages.append(promoted_message(member, row, can_unregister))
     if messages:
         background.add_task(_notify, messages)
 
@@ -507,12 +511,13 @@ def register(selection_id: int, user: CurrentMember):
 
 @router.delete("/selections/{selection_id}/registration")
 def unregister(selection_id: int, user: CurrentMember, background: BackgroundTasks):
-    """Se désinscrire d'un créneau à venir, avant le délai fixé par la structure. Le premier de la file
-    d'attente, s'il y en a un, prend la place libérée et en est prévenu."""
+    """Se désinscrire d'un créneau à venir, avant le délai fixé par la structure (quitter la file d'attente :
+    à tout moment). Le premier de la file d'attente, s'il y en a un, prend la place libérée et en est prévenu."""
     sid = user["structure_id"]
     row = _upcoming_selection_or_error(sid, selection_id)
-    _check_open(row, db.get_lock_days(sid)["unregister_lock_days"], "Désinscription close")
     _, waiting_before = _status(sid, selection_id)
+    if user["id"] not in waiting_before:   # quitter la file d'attente reste possible après le délai
+        _check_open(row, db.get_lock_days(sid)["unregister_lock_days"], "Désinscription close")
     db.delete_registration(selection_id, user["id"])  # déjà désinscrit : idem
     _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, user["id"])
@@ -581,14 +586,20 @@ Vos créneaux, et la désinscription dans les délais fixés par votre structure
     return member["email"], subject, body
 
 
-def promoted_message(member: sqlite3.Row, row: sqlite3.Row) -> tuple[str, str, str]:
-    """Une place s'est libérée : le membre qui attendait est maintenant inscrit."""
+def promoted_message(member: sqlite3.Row, row: sqlite3.Row, can_unregister: bool = True) -> tuple[str, str, str]:
+    """Une place s'est libérée : le membre qui attendait est maintenant inscrit. can_unregister : le délai de
+    désinscription n'est pas passé (sinon, il faut passer par un administrateur pour libérer la place)."""
     app = mailer.APP_NAME
+    if can_unregister:
+        leave = "Si vous ne pouvez plus venir, désinscrivez-vous dès que possible pour laisser la place au suivant :"
+    else:
+        leave = ("Le délai de désinscription est passé : si vous ne pouvez plus venir, prévenez un administrateur "
+                 "de votre structure pour laisser la place au suivant.\nVos créneaux :")
     body = f"""{accounts.greeting(member)}
 
 Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {_when(row)} : {_place(row)}.
 
-Si vous ne pouvez plus venir, désinscrivez-vous dès que possible pour laisser la place au suivant :
+{leave}
 {mailer.link('mes-creneaux.html')}
 
 -- 
