@@ -23,6 +23,8 @@ Pour une faille de sécurité, suivez plutôt [SECURITY.md](SECURITY.md).
    `ruff check app tests` et `python -m pytest` : la CI exécute les mêmes. Un correctif ou une
    fonction qui touche aux marées, aux créneaux ou aux droits d'accès s'accompagne d'un test.
    Une évolution du schéma de la base passe par `app/migrations.py` (mode d'emploi en tête de fichier).
+   Une nouvelle requête SQL va dans le module `app/db_*.py` de son domaine : `app/db.py` les réexporte
+   (ajouter le nom à la liste de sa façade).
 4. Ouvrez une Pull Request en expliquant le changement et comment il a été testé.
 
 Ne committez jamais de fichier `.env` réel, de base de données ni de secret.
