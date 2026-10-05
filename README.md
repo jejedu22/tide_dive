@@ -472,7 +472,9 @@ Le nombre d'inscrits d'un créneau peut être **limité**. Au-delà, les inscrip
 - **Inscrire d'autres membres** respecte aussi les places : au-delà, ils sont placés en file d'attente (leur e-mail le dit, avec leur rang).
 - **Affichage** : « 3/8 » (confirmés / places), « +2 » pour la file, « complet » ; le bouton devient « Rejoindre la file d'attente » ; l'info-bulle des inscrits sépare confirmés et file. L'export Excel ajoute les colonnes *Places* et *File d'attente*.
 - **Newsletters** : l'audience « inscrits au créneau » ne contient que les inscrits **confirmés**.
-- Limites : de 1 à 500 places. Les délais d'inscription et de désinscription s'appliquent comme avant.
+- **Délais** : ils s'appliquent comme avant aux places confirmées. **Quitter la file d'attente reste possible après le délai de désinscription**, puisqu'on n'y occupe aucune place. Un membre promu après ce délai ne peut plus se désinscrire lui-même : son e-mail l'invite à prévenir un administrateur.
+- Aucun e-mail n'est envoyé pour un créneau **passé** (inscription retirée ou places changées après coup).
+- Limites : de 1 à 500 places.
 
 ### Inscrire d'autres membres
 

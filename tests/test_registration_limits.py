@@ -1,5 +1,7 @@
 """Nombre de places par créneau, valeur par défaut de la structure et file d'attente."""
 
+from datetime import date, timedelta
+
 import pytest
 
 from app import db, mailer
@@ -330,3 +332,59 @@ def test_base_neuve_a_les_colonnes(tmp_db):
     with db.get_conn() as conn:
         assert "max_registrations" in {r[1] for r in conn.execute("PRAGMA table_info(slot_selections)")}
         assert "default_max_registrations" in {r[1] for r in conn.execute("PRAGMA table_info(structures)")}
+
+
+# ---------------------------------------------------------------------------
+# Relecture : créneau passé, délai de désinscription
+# ---------------------------------------------------------------------------
+
+def _past_full_slot(club):
+    sel = db.create_custom_selection(club["sid"], 1, None, "Carrière", club["type"], "2001-01-01", None, "09:00", None,
+                                     "2000-12-01T00:00:00+00:00", max_registrations=1)
+    db.add_registration(sel, club["members"]["m1"], "2000-12-02T00:00:00+00:00")
+    db.add_registration(sel, club["members"]["m2"], "2000-12-03T00:00:00+00:00")
+    return sel
+
+
+def test_pas_d_e_mail_de_promotion_pour_un_creneau_passe(new_client, club, outbox):
+    admin = _client(new_client, "alice")
+    sel = _past_full_slot(club)
+    assert admin.delete(f"/api/selections/{sel}/registrations/{club['members']['m1']}").status_code == 200
+    assert admin.patch(f"/api/selections/{sel}", json={"max_registrations": 5}).status_code == 200
+    assert outbox == []
+
+
+def _upcoming_full_slot_after_deadline(club):
+    day = (date.today() + timedelta(days=5)).isoformat()
+    sel = db.create_custom_selection(club["sid"], 1, None, "Carrière", club["type"], day, None, "09:00", None,
+                                     "2026-01-01T00:00:00+00:00", max_registrations=1)
+    for i, u in enumerate(("m1", "m2", "m3")):
+        db.add_registration(sel, club["members"][u], f"2026-01-0{i + 2}T00:00:00+00:00")
+    db.update_structure_settings(club["sid"], unregister_lock_days=10)     # désinscription close
+    return sel
+
+
+def test_on_quitte_la_file_d_attente_meme_apres_le_delai(new_client, club):
+    sel = _upcoming_full_slot_after_deadline(club)
+    m2 = _client(new_client, "m2")
+    slot = next(s for s in m2.get("/api/selections").json() if s["id"] == sel)
+    assert (slot["my_status"], slot["can_unregister"]) == ("waiting", True)
+    assert m2.delete(f"/api/selections/{sel}/registration").status_code == 200
+    assert [r["user_id"] for r in db.list_registrations(club["sid"], sel)] == [club["members"]["m1"], club["members"]["m3"]]
+
+
+def test_une_place_confirmee_reste_bloquee_apres_le_delai(new_client, club):
+    sel = _upcoming_full_slot_after_deadline(club)
+    m1 = _client(new_client, "m1")
+    slot = next(s for s in m1.get("/api/selections").json() if s["id"] == sel)
+    assert (slot["my_status"], slot["can_unregister"]) == ("confirmed", False)
+    assert m1.delete(f"/api/selections/{sel}/registration").status_code == 409
+
+
+def test_promu_apres_le_delai_e_mail_renvoie_vers_un_administrateur(new_client, club, outbox):
+    sel = _upcoming_full_slot_after_deadline(club)
+    admin = _client(new_client, "alice")
+    admin.delete(f"/api/selections/{sel}/registrations/{club['members']['m1']}")
+    [(to, _, body)] = outbox
+    assert to == "m2@example.org"
+    assert "prévenez un administrateur" in body and "désinscrivez-vous" not in body
