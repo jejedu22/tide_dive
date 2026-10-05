@@ -1562,3 +1562,11 @@ main.unsub-main { max-width: 40rem; }
 .nl-member-list { list-style: none; margin: 0; padding: 0; max-height: 45vh; overflow-y: auto; }
 .nl-member-list li[hidden] { display: none; }
 .nl-member-list .check { font-size: 0.9rem; margin: 0; padding: 0.25rem 0; }
+
+/* Invitations à rejoindre une structure (boîte de dialogue du compte, formulaire d'administration) */
+.invitations { list-style: none; margin: 0 0 0.75rem; padding: 0; display: grid; gap: 0.75rem; }
+.invitations li { padding: 0.75rem; border: 1px solid #d4e1ea; border-radius: 8px; }
+.invitations li p { margin: 0 0 0.5rem; }
+.invite-panel .hint { margin-top: 0; }
+.invite-panel h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; }
+.invite-form { padding: 0; box-shadow: none; background: none; border: 0; }

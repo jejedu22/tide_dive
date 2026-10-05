@@ -400,13 +400,75 @@ const Session = (() => {
     setUser(res.user);
   }
 
+  // Sélecteur de structure : un super administrateur choisit parmi toutes (ou aucune), un autre compte parmi les
+  // siennes. Un compte d'une seule structure n'a pas de sélecteur.
   function structureSelect(u) {
-    const list = structures || (u.structure ? [u.structure] : []);
-    const opts = [`<option value=""${u.structure ? "" : " selected"}>Aucune structure</option>`]
+    const list = u.is_admin ? (structures || (u.structure ? [u.structure] : [])) : (u.structures || []);
+    const opts = (u.is_admin ? [`<option value=""${u.structure ? "" : " selected"}>Aucune structure</option>`] : [])
       .concat(list.map(st =>
         `<option value="${st.id}"${st.id === u.structure?.id ? " selected" : ""}>${esc(st.name)}</option>`));
     return ` <select class="account-structure-select" data-act="structure" aria-label="Ma structure"
-      title="Changer de structure (super administrateur)">${opts.join("")}</select>`;
+      title="${u.is_admin ? "Changer de structure (super administrateur)" : "Changer de structure"}">${opts.join("")}</select>`;
+  }
+
+  const hasSeveralStructures = u => u.is_admin || (u.structures?.length ?? 0) > 1;
+
+  // Invitations à rejoindre une structure : accepter ou refuser
+  async function openInvitations() {
+    const d = ensureDialog();
+    d.dataset.locked = "";
+    let list;
+    try {
+      list = await api("/api/me/invitations");
+    } catch (err) {
+      openMessage("Invitations", `<p>${esc(err.message)}</p>`);
+      return;
+    }
+    const render = () => {
+      d.innerHTML = `
+        <form method="dialog">
+          <h2>Invitations</h2>
+          ${list.length ? "" : `<p class="dialog-hint">Aucune invitation en attente.</p>`}
+          <ul class="invitations">${list.map(i => `
+            <li data-id="${i.id}">
+              <p><strong>${esc(i.structure.name)}</strong> vous invite à la rejoindre
+                 (${esc(i.role_label.toLowerCase())}${i.profiles.length ? ` · ${esc(i.profiles.join(", "))}` : ""}).
+                 <span class="muted">${i.invited_by ? `Invitation de ${esc(i.invited_by)}.` : ""}</span></p>
+              <div class="dialog-actions">
+                <button type="button" class="btn-quiet" data-answer="decline">Refuser</button>
+                <button type="button" class="btn-primary" data-answer="accept">Accepter</button>
+              </div>
+            </li>`).join("")}</ul>
+          <p class="dialog-error" role="alert"></p>
+          <div class="dialog-actions"><button type="submit" class="btn-quiet">Fermer</button></div>
+        </form>`;
+      d.querySelector("ul")?.addEventListener("click", async e => {
+        const btn = e.target.closest("[data-answer]");
+        if (!btn) return;
+        const li = btn.closest("li");
+        const id = Number(li.dataset.id);
+        const accept = btn.dataset.answer === "accept";
+        const errEl = d.querySelector(".dialog-error");
+        btn.disabled = true;
+        try {
+          const res = await api(`/api/me/invitations/${id}/${btn.dataset.answer}`, { method: "POST" });
+          list = list.filter(i => i.id !== id);
+          if (accept && res?.user) setUser(res.user);
+          else await refreshMe();
+          render();
+        } catch (err) {
+          errEl.textContent = err.message;
+          btn.disabled = false;
+        }
+      });
+    };
+    render();
+    if (!d.open) d.showModal();
+  }
+
+  async function refreshMe() {
+    const res = await api("/api/auth/me");
+    setUser(res.user);
   }
 
   // Encart compte dans l'en-tête ; links = [{ href, label, show(user) }]
@@ -420,14 +482,18 @@ const Session = (() => {
         .filter(l => !l.show || l.show(u))
         .map(l => `<a class="account-btn" href="${l.href}">${esc(l.label)}</a>`).join("");
       if (u.is_admin && structures === null) loadStructures().then(() => { if (user === u) render(u); });
-      const where = u.is_admin
+      const where = hasSeveralStructures(u)
         ? structureSelect(u)
         : u.structure
           ? ` <span class="account-structure" title="${esc(roleLabel(u))}">· ${esc(u.structure.name)}</span>`
           : "";
+      const invitations = u.invitations
+        ? `<button type="button" class="account-btn account-invitations" data-act="invitations"
+             title="Invitations à rejoindre une structure">Invitations <span class="account-dot">${u.invitations}</span></button>`
+        : "";
       el.innerHTML = `
         <span class="account-name" title="${esc(u.username)}">${esc(u.display_name)}${where}</span>
-        ${extra}
+        ${invitations}${extra}
         <button type="button" class="account-btn" data-act="profile">Mon compte${u.profile_complete ? "" : ` <span class="account-dot" title="Profil à compléter">!</span>`}</button>
         <button type="button" class="account-btn" data-act="logout">Se déconnecter</button>`;
     };
@@ -436,6 +502,7 @@ const Session = (() => {
       if (act === "login") openLogin();
       if (act === "profile") openProfile();
       if (act === "logout") logout();
+      if (act === "invitations") openInvitations();
     });
     el.addEventListener("change", async e => {
       const sel = e.target.closest("select[data-act=structure]");

@@ -125,7 +125,7 @@ def reset_password(body: ResetIn, response: Response, request: Request):
         user["id"], password_hash=hash_password(body.new_password), must_change_password=False, now=iso(now()),
     )
     open_session(response, user["id"])
-    return {"user": public_user(db.get_user(user["id"])), "purpose": tok["purpose"]}
+    return {"user": public_user(db.get_user(user["id"]), with_structures=True), "purpose": tok["purpose"]}
 
 
 @router.post("/admin/users/{user_id}/send-link")

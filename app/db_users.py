@@ -15,8 +15,20 @@ from .db_core import get_conn
 # Utilisateurs, sessions et préférences
 # ---------------------------------------------------------------------------
 
-_USER_SELECT = """
-    SELECT u.id, u.username, u.is_admin, u.structure_id, u.structure_role,
+def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
+    """
+    Requête d'un compte vu DANS une structure : `ctx` est l'expression SQL (sur u, et s si `joins` joint les
+    sessions, ou le paramètre nommé :ctx) de la structure considérée. Un compte appartient à plusieurs
+    structures : structure_id, structure_role, structure_name et profiles sont ceux de CETTE structure.
+    Si le compte n'y a pas accès (ni membre, ni super administrateur), la structure vaut NULL : il est
+    vu comme sans structure plutôt que de disparaître. Un super administrateur agit dans n'importe
+    quelle structure, en administration (rôle « manager » faute d'appartenance).
+    """
+    return f"""
+    SELECT u.id, u.username, u.is_admin, st.id AS structure_id,
+           CASE WHEN st.id IS NULL THEN NULL
+                WHEN u.is_admin THEN COALESCE(m.role, 'manager')
+                ELSE m.role END AS structure_role,
            u.created_at, u.last_login_at, st.name AS structure_name,
            st.rdv_offset_minutes AS structure_rdv_offset_minutes,
            st.default_port_id AS structure_default_port_id,
@@ -25,9 +37,17 @@ _USER_SELECT = """
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
            (SELECT MAX(t.expires_at) FROM user_tokens t
              WHERE t.user_id = u.id AND t.purpose = 'invite') AS invite_expires_at,
-           (SELECT GROUP_CONCAT(up.profile) FROM user_profiles up WHERE up.user_id = u.id) AS profiles
-    FROM users u LEFT JOIN structures st ON st.id = u.structure_id
-"""
+           (SELECT GROUP_CONCAT(up.profile) FROM user_profiles up
+             WHERE up.user_id = u.id AND up.structure_id = st.id) AS profiles,
+           (SELECT COUNT(*) FROM memberships mm WHERE mm.user_id = u.id) AS structures_count
+    FROM users u {joins}
+    LEFT JOIN memberships m ON m.user_id = u.id AND m.structure_id = {ctx}
+    LEFT JOIN structures st ON st.id = {ctx} AND (u.is_admin OR m.user_id IS NOT NULL)
+    {where}
+    """
+
+
+_ORDER_USERS = " ORDER BY COALESCE(u.last_name, u.username) COLLATE NOCASE, u.first_name COLLATE NOCASE, u.username"
 
 
 # Mot de passe « inutilisable » d'un compte invité qui n'a pas encore choisi le sien
@@ -35,21 +55,24 @@ UNUSABLE_PASSWORD = "!invite"
 
 
 def list_users(structure_id: int | None = None) -> list[sqlite3.Row]:
-    """Tous les comptes, ou ceux d'une structure."""
-    sql, params = _USER_SELECT, []
-    if structure_id is not None:
-        sql += " WHERE u.structure_id = ?"
-        params.append(structure_id)
+    """Les MEMBRES d'une structure (rôle et profils de cette structure), ou tous les comptes
+    (vus dans leur structure par défaut)."""
     with get_conn() as conn:
+        if structure_id is None:
+            return conn.execute(_user_query("u.structure_id") + _ORDER_USERS).fetchall()
         return conn.execute(
-            sql + " ORDER BY COALESCE(u.last_name, u.username) COLLATE NOCASE, u.first_name COLLATE NOCASE, u.username",
-            params,
+            _user_query(":ctx", where="WHERE m.user_id IS NOT NULL") + _ORDER_USERS, {"ctx": structure_id}
         ).fetchall()
 
 
-def get_user(user_id: int) -> sqlite3.Row | None:
+def get_user(user_id: int, structure_id: int | None = None) -> sqlite3.Row | None:
+    """Un compte, vu dans la structure demandée (à défaut : sa structure par défaut)."""
     with get_conn() as conn:
-        return conn.execute(_USER_SELECT + " WHERE u.id = ?", (user_id,)).fetchone()
+        if structure_id is None:
+            return conn.execute(_user_query("u.structure_id", where="WHERE u.id = :uid"), {"uid": user_id}).fetchone()
+        return conn.execute(
+            _user_query(":ctx", where="WHERE u.id = :uid"), {"uid": user_id, "ctx": structure_id}
+        ).fetchone()
 
 
 def get_user_credentials(login: str) -> sqlite3.Row | None:
@@ -83,7 +106,7 @@ _PROFILE_FIELDS = ("first_name", "last_name", "email", "phone")
 
 
 def _insert_user(conn: sqlite3.Connection, u: dict) -> int:
-    return conn.execute(
+    user_id = conn.execute(
         """
         INSERT INTO users (username, password_hash, is_admin, created_at, structure_id, structure_role,
                            first_name, last_name, email, phone, must_change_password, password_changed_at)
@@ -97,6 +120,12 @@ def _insert_user(conn: sqlite3.Connection, u: dict) -> int:
             None if u["password_hash"].startswith("!") else u["created_at"],
         ),
     ).lastrowid
+    if u.get("structure_id") is not None:   # structure d'origine du compte : sa première appartenance
+        conn.execute(
+            "INSERT INTO memberships (user_id, structure_id, role, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, u["structure_id"], u.get("structure_role") or "viewer", u["created_at"]),
+        )
+    return user_id
 
 
 def create_user(username: str, password_hash: str, is_admin: bool, created_at: str,
@@ -120,15 +149,11 @@ def create_users_bulk(users: list[dict]) -> list[int]:
         return [_insert_user(conn, u) for u in users]
 
 
-_UNSET = object()
-
-
 def update_user(user_id: int, *, password_hash: str | None = None, is_admin: bool | None = None,
-                structure_id=_UNSET, structure_role=_UNSET, must_change_password: bool | None = None,
-                now: str | None = None, **profile) -> None:
+                must_change_password: bool | None = None, now: str | None = None, **profile) -> None:
     """
-    structure_id / structure_role : absents = inchangés, None = retirés.
     profile : first_name, last_name, email, phone (présents = remplacés, None = vidés).
+    Les structures d'un compte (appartenances, rôles, profils) : voir db_memberships.py.
     """
     with get_conn() as conn:
         if password_hash is not None:
@@ -150,26 +175,15 @@ def update_user(user_id: int, *, password_hash: str | None = None, is_admin: boo
                 conn.execute(f"UPDATE users SET {field} = ? WHERE id = ?", (profile[field], user_id))
         if is_admin is not None:
             conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
-        if structure_id is not _UNSET:
-            conn.execute("UPDATE users SET structure_id = ? WHERE id = ?", (structure_id, user_id))
-            # changement (ou retrait) de structure : ses inscriptions ailleurs tombent,
-            # sauf pour un super administrateur, qui passe d'une structure à l'autre
-            conn.execute(
-                "DELETE FROM slot_registrations WHERE user_id = ? AND selection_id IN "
-                "(SELECT id FROM slot_selections WHERE structure_id IS NOT ?) "
-                "AND NOT EXISTS (SELECT 1 FROM users WHERE id = ? AND is_admin = 1)",
-                (user_id, structure_id, user_id),
-            )
-        if structure_role is not _UNSET:
-            conn.execute("UPDATE users SET structure_role = ? WHERE id = ?", (structure_role, user_id))
 
 
-def set_user_profiles(user_id: int, profiles: list[str]) -> None:
-    """Remplace les profils du compte (liste vide : aucun)."""
+def set_user_profiles(user_id: int, structure_id: int, profiles: list[str]) -> None:
+    """Remplace les profils du compte DANS cette structure (liste vide : aucun)."""
     with get_conn() as conn:
-        conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_profiles WHERE user_id = ? AND structure_id = ?", (user_id, structure_id))
         conn.executemany(
-            "INSERT INTO user_profiles (user_id, profile) VALUES (?, ?)", [(user_id, p) for p in profiles]
+            "INSERT INTO user_profiles (user_id, structure_id, profile) VALUES (?, ?, ?)",
+            [(user_id, structure_id, p) for p in profiles],
         )
 
 
@@ -195,8 +209,12 @@ def create_session(token_hash: str, user_id: int, expires_at: str, now: str) -> 
 
 def get_session_user(token_hash: str, now: str) -> sqlite3.Row | None:
     with get_conn() as conn:
+        # structure ACTIVE de cette session (changée par le sélecteur), à défaut la structure par défaut du compte
         return conn.execute(
-            _USER_SELECT + " JOIN sessions s ON s.user_id = u.id WHERE s.token_hash = ? AND s.expires_at > ?",
+            _user_query(
+                "COALESCE(s.structure_id, u.structure_id)", joins="JOIN sessions s ON s.user_id = u.id",
+                where="WHERE s.token_hash = ? AND s.expires_at > ?",
+            ),
             (token_hash, now),
         ).fetchone()
 

@@ -166,7 +166,20 @@ def permissions(row: sqlite3.Row) -> dict:
     }
 
 
-def public_user(row: sqlite3.Row) -> dict:
+def public_user(row: sqlite3.Row, *, with_structures: bool = False) -> dict:
+    """with_structures : ajoute les structures du compte (pour le sélecteur) et ses invitations en attente.
+    Réservé aux vues du compte lui-même ; les listes d'administration s'en passent (une requête par ligne)."""
+    out = _public_user_fields(row)
+    if with_structures:
+        out["structures"] = [
+            {"id": m["structure_id"], "name": m["structure_name"], "role": m["role"]}
+            for m in db.list_memberships(row["id"])
+        ]
+        out["invitations"] = len(db.invitations_for_user(row["id"], iso(now())))
+    return out
+
+
+def _public_user_fields(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
         "username": row["username"],
@@ -184,6 +197,7 @@ def public_user(row: sqlite3.Row) -> dict:
             if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],
+        "structures_count": row["structures_count"],   # > 1 : compte partagé, profil réservé à son titulaire
         "profiles": profiles_of(row),
         "can": permissions(row),
         "must_change_password": bool(row["must_change_password"]),
@@ -266,6 +280,26 @@ mot de passe actuel reste valable et le mot de passe provisoire expirera seul.
 {app}
 """
     return row["email"], f"{app} : votre mot de passe provisoire", body
+
+
+def structure_invitation_message(row: sqlite3.Row, structure_name: str, role: str,
+                                 inviter: str | None = None) -> tuple[str, str, str]:
+    """E-mail d'invitation à rejoindre une structure : le titulaire du compte l'accepte depuis l'application."""
+    app = mailer.APP_NAME
+    who = inviter or "Un administrateur"
+    body = f"""{greeting(row)}
+
+{who} vous invite à rejoindre la structure « {structure_name} » sur {app}, avec le rôle « {ROLE_LABELS[role]} ».
+
+Pour accepter ou refuser, connectez-vous : l'invitation s'affiche en haut de la page.
+{mailer.link('/')}
+
+Si vous ne vous attendiez pas à ce message, ignorez-le : vous ne rejoindrez la structure que si vous acceptez.
+
+-- 
+{app}
+"""
+    return row["email"], f"{app} : invitation à rejoindre « {structure_name} »", body
 
 
 def send_invitation(user_id: int, inviter: str | None = None) -> None:

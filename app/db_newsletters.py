@@ -165,7 +165,8 @@ def audience_members(structure_id: int, audience: dict) -> list[sqlite3.Row]:
     kind all | managers | viewers | selection (inscrits au créneau selection_id) | group (group_id).
     """
     sql = ("SELECT u.id AS user_id, u.email, u.first_name, u.last_name, u.username FROM users u "
-           "WHERE u.structure_id = ? AND u.email IS NOT NULL AND u.email != ''")
+           "JOIN memberships mem ON mem.user_id = u.id AND mem.structure_id = ? "
+           "WHERE u.email IS NOT NULL AND u.email != ''")
     params: list = [structure_id]
     kind = audience.get("kind", "all")
     if kind == "group":
@@ -173,9 +174,9 @@ def audience_members(structure_id: int, audience: dict) -> list[sqlite3.Row]:
                 "ON g.id = m.group_id WHERE g.id = ? AND g.structure_id = ?)")
         params += [audience.get("group_id"), structure_id]
     elif kind == "managers":
-        sql += " AND u.structure_role = 'manager'"
+        sql += " AND mem.role = 'manager'"
     elif kind == "viewers":
-        sql += " AND u.structure_role = 'viewer'"
+        sql += " AND mem.role = 'viewer'"
     elif kind == "selection":
         sql += (" AND u.id IN (SELECT r.user_id FROM slot_registrations r JOIN slot_selections s "
                 "ON s.id = r.selection_id WHERE s.id = ? AND s.structure_id = ?)")
@@ -315,8 +316,9 @@ def list_mailing_groups(structure_id: int) -> list[sqlite3.Row]:
     """Groupes avec le nombre de membres encore dans la structure."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT g.*, (SELECT COUNT(*) FROM mailing_group_members m JOIN users u ON u.id = m.user_id "
-            "WHERE m.group_id = g.id AND u.structure_id = g.structure_id) AS members "
+            "SELECT g.*, (SELECT COUNT(*) FROM mailing_group_members m JOIN memberships mem "
+            "ON mem.user_id = m.user_id AND mem.structure_id = g.structure_id "
+            "WHERE m.group_id = g.id) AS members "
             "FROM mailing_groups g WHERE g.structure_id = ? ORDER BY g.name COLLATE NOCASE",
             (structure_id,),
         ).fetchall()
@@ -333,7 +335,8 @@ def mailing_group_member_ids(group_id: int) -> list[int]:
     with get_conn() as conn:
         return [r["user_id"] for r in conn.execute(
             "SELECT m.user_id FROM mailing_group_members m JOIN mailing_groups g ON g.id = m.group_id "
-            "JOIN users u ON u.id = m.user_id AND u.structure_id = g.structure_id WHERE m.group_id = ?",
+            "JOIN memberships mem ON mem.user_id = m.user_id AND mem.structure_id = g.structure_id "
+            "WHERE m.group_id = ?",
             (group_id,))]
 
 
@@ -359,7 +362,7 @@ def save_mailing_group(structure_id: int, group_id: int | None, name: str, descr
             # seuls les comptes de la structure entrent dans le groupe
             conn.executemany(
                 "INSERT INTO mailing_group_members (group_id, user_id) "
-                "SELECT ?, id FROM users WHERE id = ? AND structure_id = ?",
+                "SELECT ?, user_id FROM memberships WHERE user_id = ? AND structure_id = ?",
                 [(group_id, uid, structure_id) for uid in set(member_ids)],
             )
         return group_id
@@ -376,7 +379,8 @@ def structure_members(structure_id: int) -> list[sqlite3.Row]:
     """Comptes de la structure, pour composer un groupe."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT id, username, first_name, last_name, email, structure_role FROM users WHERE structure_id = ? "
-            "ORDER BY COALESCE(last_name, username) COLLATE NOCASE, first_name COLLATE NOCASE",
+            "SELECT u.id, u.username, u.first_name, u.last_name, u.email, mem.role AS structure_role FROM users u "
+            "JOIN memberships mem ON mem.user_id = u.id AND mem.structure_id = ? "
+            "ORDER BY COALESCE(u.last_name, u.username) COLLATE NOCASE, u.first_name COLLATE NOCASE",
             (structure_id,),
         ).fetchall()

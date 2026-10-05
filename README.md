@@ -285,7 +285,7 @@ L'application reste utilisable sans compte. Un compte permet d'accéder aux cré
 
 ### Structures et rôles
 
-Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de créneaux** et sa liste de **créneaux choisis**. Chaque compte appartient à une structure avec l'un de ces rôles :
+Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de créneaux** et sa liste de **créneaux choisis**. Chaque compte appartient à une ou **plusieurs** structures ([voir plus bas](#plusieurs-structures-par-compte)), avec l'un de ces rôles dans chacune :
 
 | Rôle | Peut |
 |---|---|
@@ -295,16 +295,32 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 
 Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
+### Plusieurs structures par compte
+
+Un compte peut appartenir à **plusieurs structures**, avec un **rôle et des profils propres à chacune** (administrateur d'un club, simple membre d'un autre). Un **sélecteur dans l'en-tête** permet de passer de l'une à l'autre. La structure choisie est celle de **la session** : deux navigateurs peuvent être sur deux structures, et la dernière utilisée est reprise à la connexion suivante. Un super administrateur choisit parmi toutes les structures (ou aucune) et y est en administration, sans en être membre.
+
+**Rejoindre une deuxième structure : par invitation.** Un administrateur de structure saisit l'adresse e-mail d'un compte existant dans **Utilisateurs → Inviter un compte existant**, avec le rôle et les profils proposés. Le titulaire du compte voit un bouton **Invitations** dans l'en-tête (et reçoit un e-mail si l'envoi d'e-mails est configuré) ; il rejoint la structure **s'il accepte**, rien ne change s'il refuse. Une invitation vaut 30 jours et peut être annulée par l'administrateur. Un super administrateur peut aussi rattacher directement un compte (Utilisateurs → **Modifier**, choix de la structure).
+
+Garde-fous :
+
+- l'invitation est liée au **compte** qui porte l'adresse au moment de l'invitation, pas à l'adresse (modifiable sans vérification) : changer d'adresse ne permet pas de réclamer l'invitation d'un autre ;
+- l'administrateur reçoit **la même réponse** qu'un compte existe ou non à cette adresse, et le nombre d'invitations est limité (30 par heure) : il ne peut pas sonder les comptes des autres structures ;
+- le **profil et le mot de passe d'un compte partagé** ne sont modifiables que par son titulaire ou un super administrateur : sinon l'administrateur d'une structure prendrait la main sur un compte qui en administre une autre. Il reste maître du rôle et des profils **dans sa structure** ;
+- **retirer** un compte partagé de sa structure ne supprime pas le compte (il reste dans ses autres structures, ses inscriptions à ses créneaux sont retirées) ; supprimer un compte qui n'a qu'une structure le supprime, comme avant ;
+- la liste des membres, les newsletters (audiences, désinscriptions, groupes) et les inscriptions se font **par structure**.
+
+Techniquement : table `memberships` (compte, structure, rôle), `user_profiles` par structure, `sessions.structure_id` pour la structure active, `structure_invitations`. `users.structure_id` n'est plus que la structure par défaut (la dernière utilisée). Migration de schéma n° 2 (`app/migrations.py`), reprise automatique des comptes existants.
+
 ### Profils
 
-En plus de son rôle (visualisation ou administration), un compte peut recevoir un ou plusieurs **profils**, cumulables, qui ouvrent des fonctions particulières. Un administrateur de structure les attribue aux comptes de sa structure (y compris le sien), un super administrateur à ceux de toutes les structures, dans **Utilisateurs** (création ou **Modifier**). Un profil exige une structure.
+En plus de son rôle (visualisation ou administration), un compte peut recevoir un ou plusieurs **profils**, cumulables, qui ouvrent des fonctions particulières. Un administrateur de structure les attribue aux comptes de sa structure (y compris le sien), un super administrateur à ceux de toutes les structures, dans **Utilisateurs** (création ou **Modifier**). Un profil exige une structure et vaut **dans cette structure seulement**.
 
 | Profil | Ouvre |
 |---|---|
 | **Gestionnaire** | les [newsletters](#newsletters) de la structure : rédaction, envoi et suivi des envois. Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
 | **Inscriptions** | [inscrire d'autres membres](#inscrire-dautres-membres) de la structure sur les créneaux, et retirer leur inscription (un encadrant qui inscrit ses élèves, par exemple). Un administrateur de structure a ce droit d'office |
 
-Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles`.
+Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles` (par structure).
 
 ### Connexion Mailjet
 
@@ -668,6 +684,7 @@ app/
   db_tides.py       ports, recalage, marées, soleil, vacances scolaires
   db_structures.py  structures
   db_users.py       comptes, sessions, jetons, préférences
+  db_memberships.py appartenances à plusieurs structures, structure active, invitations
   db_jobs.py        file de tâches, worker
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
   db_requests.py    demandes de création de structure
@@ -679,6 +696,7 @@ app/
   user_import.py    import CSV de comptes
   mailer.py         envoi d'e-mails (SMTP ou console)
   structures.py     API des structures (super administrateur)
+  memberships.py    invitations à rejoindre une structure (administrateurs et titulaire du compte)
   contact.py        demandes de création de structure : formulaire public, notification, administration
   mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
   mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test, activation du suivi

@@ -104,3 +104,39 @@ def test_mise_a_jour_idempotente(upgraded):
     db.init_db()
     assert sqlite3.connect(path).execute("SELECT COUNT(*) FROM slot_selections").fetchone()[0] == before
     _check_health(path)
+
+
+def test_comptes_deviennent_membres_avec_leur_role(upgraded):
+    sid = db.list_structures()[0]["id"]
+    roles = {u["username"]: u["structure_role"] for u in db.list_users(sid)}
+    assert roles == {"root": "manager", "alice": "viewer"}
+    for uid in (1, 2):
+        assert [m["structure_id"] for m in db.list_memberships(uid)] == [sid]
+
+
+def test_profils_existants_attaches_a_la_structure_du_compte(tmp_path, monkeypatch):
+    """Avant : un profil appartenait au compte ; après : à (compte, structure)."""
+    path = _load(tmp_path, monkeypatch, "legacy_pre_custom_selections.sql")
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE IF NOT EXISTS user_profiles (user_id INTEGER NOT NULL, profile TEXT NOT NULL, "
+                 "PRIMARY KEY (user_id, profile))")
+    conn.executemany("INSERT INTO user_profiles VALUES (?, ?)", [(1, "gestionnaire"), (2, "inscriptions")])
+    conn.commit()
+    conn.close()
+    db.init_db()
+    sid = db.list_structures()[0]["id"]
+    assert {u["username"]: u["profiles"] for u in db.list_users(sid)} == {"root": "gestionnaire", "alice": "inscriptions"}
+    _check_health(path)
+
+
+def test_sessions_et_invitations_disponibles_apres_mise_a_jour(upgraded):
+    _, path = upgraded
+    conn = sqlite3.connect(path)
+    try:
+        assert "structure_id" in {r[1] for r in conn.execute("PRAGMA table_info(sessions)")}
+        assert conn.execute("SELECT COUNT(*) FROM structure_invitations").fetchone()[0] == 0
+    finally:
+        conn.close()
+    uid = 2
+    db.create_session("tok", uid, "2099-01-01T00:00:00+00:00", "2025-01-01T00:00:00+00:00")
+    assert db.get_session_user("tok", "2025-01-02T00:00:00+00:00")["structure_id"] == db.list_structures()[0]["id"]

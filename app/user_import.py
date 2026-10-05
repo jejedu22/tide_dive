@@ -204,7 +204,7 @@ def _analyse(body: ImportIn, actor) -> dict:
     for r in rows:
         if r["email"]:
             if r["email"] in taken_e:
-                r["errors"].append("Adresse e-mail déjà utilisée par un compte existant")
+                r["errors"].append("Adresse e-mail déjà utilisée par un compte existant (pour l'ajouter à une structure, invitez-le)")
             elif r["email"] in seen_e:
                 r["errors"].append(f"Adresse e-mail en double (ligne {seen_e[r['email']]})")
             seen_e.setdefault(r["email"], r["line"])

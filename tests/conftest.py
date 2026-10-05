@@ -48,3 +48,38 @@ def make_user(tmp_db):
         )
 
     return _make
+
+
+@pytest.fixture()
+def make_structure(tmp_db):
+    """Crée une structure et renvoie son identifiant."""
+    def _make(name):
+        return db.create_structure(name, "2026-01-01T00:00:00+00:00")
+
+    return _make
+
+
+@pytest.fixture()
+def new_client(tmp_db):
+    """Fabrique de clients HTTP indépendants (chacun son cookie) : plusieurs navigateurs."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    clients = []
+
+    def _new():
+        c = TestClient(app, base_url="http://testserver")
+        c.__enter__()
+        clients.append(c)
+        return c
+
+    yield _new
+    for c in clients:
+        c.__exit__(None, None, None)
+
+
+def login(client, username):
+    r = client.post("/api/auth/login", json={"username": username, "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    return r.json()["user"]

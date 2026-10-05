@@ -17,6 +17,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_tides.py       ports, recalage, marées, soleil, vacances scolaires
   db_structures.py  structures
   db_users.py       comptes, sessions, jetons, préférences
+  db_memberships.py appartenances à plusieurs structures, structure active, invitations
   db_jobs.py        file de tâches, worker
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
   db_requests.py    demandes de création de structure
@@ -99,7 +100,8 @@ from .db_structures import (  # noqa: F401
     delete_structure,
 )
 from .db_users import (  # noqa: F401
-    _USER_SELECT,
+    _user_query,
+    _ORDER_USERS,
     UNUSABLE_PASSWORD,
     list_users,
     get_user,
@@ -111,7 +113,6 @@ from .db_users import (  # noqa: F401
     _insert_user,
     create_user,
     create_users_bulk,
-    _UNSET,
     update_user,
     set_user_profiles,
     delete_user,
@@ -130,6 +131,22 @@ from .db_users import (  # noqa: F401
     get_preferences,
     save_preferences,
     delete_preferences,
+)
+from .db_memberships import (  # noqa: F401
+    _sync_default,
+    list_memberships,
+    get_membership,
+    count_memberships,
+    _add_membership,
+    add_membership,
+    set_membership_role,
+    remove_membership,
+    set_active_structure,
+    create_invitation,
+    list_invitations,
+    delete_invitation,
+    invitations_for_user,
+    answer_invitation,
 )
 from .db_jobs import (  # noqa: F401
     JOB_LOG_MAX,

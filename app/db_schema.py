@@ -189,12 +189,47 @@ CREATE TABLE IF NOT EXISTS user_tokens (
     expires_at TEXT NOT NULL
 );
 
--- Sessions : on ne stocke que le SHA-256 du jeton envoyé en cookie
+-- Sessions : on ne stocke que le SHA-256 du jeton envoyé en cookie.
+-- structure_id : structure ACTIVE de cette session (un compte peut appartenir à plusieurs structures et
+-- en changer ; chaque navigateur a la sienne). NULL : la structure par défaut du compte (users.structure_id).
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expires_at TEXT NOT NULL        -- ISO8601 UTC
+    expires_at TEXT NOT NULL,       -- ISO8601 UTC
+    structure_id INTEGER REFERENCES structures(id) ON DELETE SET NULL
 );
+
+-- Appartenance d'un compte à une structure, avec son rôle DANS cette structure : un compte peut appartenir
+-- à plusieurs structures (visualisation chez l'une, administration chez l'autre). users.structure_id et
+-- users.structure_role ne sont plus que la structure par défaut (la dernière utilisée) : le rôle, les
+-- profils et la liste des membres viennent de cette table. Un super administrateur n'a pas besoin d'y
+-- figurer pour agir dans une structure.
+CREATE TABLE IF NOT EXISTS memberships (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE RESTRICT,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'manager')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, structure_id)
+);
+CREATE INDEX IF NOT EXISTS idx_memberships_structure ON memberships(structure_id, role);
+
+-- Invitations à rejoindre une structure, à accepter par le titulaire d'un compte EXISTANT. Liée au COMPTE
+-- (user_id, résolu à l'invitation) et non à l'adresse e-mail, modifiable sans vérification : changer son
+-- adresse ne permet donc pas de réclamer l'invitation d'un autre. user_id NULL : aucun compte à cette adresse
+-- (rien n'est proposé à personne ; l'administrateur voit la même chose dans les deux cas).
+CREATE TABLE IF NOT EXISTS structure_invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,            -- adresse saisie par l'administrateur, en minuscules
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'manager')),
+    profiles TEXT NOT NULL DEFAULT '',  -- profils proposés (accounts.PROFILES), séparés par des virgules
+    invited_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    UNIQUE (structure_id, email)
+);
+CREATE INDEX IF NOT EXISTS idx_invitations_user ON structure_invitations(user_id);
 
 -- Préférences de filtrage : formulaire de recherche + filtres des colonnes (JSON)
 CREATE TABLE IF NOT EXISTS user_preferences (
@@ -243,8 +278,9 @@ CREATE TABLE IF NOT EXISTS computed_years (
 -- en ajouter sans migration). « gestionnaire » : newsletters.
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,  -- profils PAR structure
     profile TEXT NOT NULL,
-    PRIMARY KEY (user_id, profile)
+    PRIMARY KEY (user_id, structure_id, profile)
 );
 
 -- Connexion Mailjet d'une structure (voir mailjet_admin.py). Clé API et clé secrète sont
