@@ -44,6 +44,7 @@ let types = [];       // types actifs, ordre de l'administration
 let picks = [];       // triés par date puis heure de RDV
 let ports = null;     // ports proposés dans le formulaire des créneaux personnalisés (chargés à la demande)
 let members = null;   // membres de la structure, pour inscrire quelqu'un (chargés à la demande)
+let unavailabilities = [];   // plages d'indisponibilité en cours et à venir : aucun créneau n'y est possible
 
 const canPick = () => !!Session.user?.can.pick;
 const canRegisterOthers = () => !!Session.user?.can.manage_registrations;
@@ -313,6 +314,19 @@ function defaultDay(m, list) {
   return monthOf(today) === m ? today : m;
 }
 
+// Plages d'indisponibilité qui touchent ce jour (même en partie)
+const unavailableOn = day => unavailabilities.filter(u => u.start_date <= day && day <= u.end_date);
+const unavText = u => `${u.label}${u.reason ? ` (${u.reason})` : ""}`;
+
+function renderUnavNote() {
+  const el = $("unav-note");
+  el.hidden = !unavailabilities.length;
+  el.innerHTML = unavailabilities.length
+    ? `<strong>Structure indisponible</strong> — aucun créneau ne peut y être ajouté : ${
+      unavailabilities.map(u => esc(unavText(u))).join(" ; ")}.`
+    : "";
+}
+
 function renderCalendar(list) {
   const today = todayISO();
   const byDay = groupByDay(list, { everyDay: true });
@@ -330,12 +344,15 @@ function renderCalendar(list) {
     const day = addDays(start, i);
     const items = byDay.get(day) || [];
     const mine = items.filter(p => p.registered).length;
+    const off = unavailableOn(day).length > 0;
     const cls = ["cal-cell",
       monthOf(day) !== month && "out",
       i % 7 >= 5 && "weekend",
       day < today && "is-past",
+      off && "is-unavailable",
       items.length && "has"].filter(Boolean).join(" ");
     const label = cap(fmtLongYear.format(asDate(day))) +
+      (off ? ", indisponible" : "") +
       (items.length ? `, ${plural(items.length, "créneau", "créneaux")}` : "") +
       (mine ? `, inscrit sur ${mine}` : "");
     // jours suivants d'un séjour : flèche à la place de l'heure de RDV
@@ -353,6 +370,8 @@ function renderCalendar(list) {
 
   const items = byDay.get(selectedDay) || [];
   let html = `<h3 class="day-title">${cap(formatLong(selectedDay))}</h3>`;
+  html += unavailableOn(selectedDay).map(u =>
+    `<p class="day-unavailable">Structure indisponible ${esc(unavText(u))} : aucun créneau ne peut y être ajouté.</p>`).join("");
   if (items.length) {
     html += `<ul class="slot-cards">${items.map(slotCard).join("")}</ul>`;
   } else {
@@ -483,9 +502,10 @@ async function load() {
   closePop();
   statusEl.textContent = "Chargement…";
   try {
-    [types, picks] = await Promise.all([
+    [types, picks, unavailabilities] = await Promise.all([
       canPick() ? Session.api("/api/slot-types") : [],
       Session.api("/api/selections"),
+      Session.api("/api/unavailabilities"),
     ]);
   } catch (e) {
     statusEl.textContent = e.message;
@@ -494,6 +514,7 @@ async function load() {
   picks.sort(byWhen);
   loadedDay = todayISO();
   renderTypeFilter();
+  renderUnavNote();
   render();
 }
 

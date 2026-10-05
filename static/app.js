@@ -271,7 +271,7 @@ function buildRows(results) {
       const first = i === 0;
       const picked = pickedFor(r);
       rows.push(`
-        <tr class="${[first ? "day-start" : "", deco.classes, picked.length ? "is-picked" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}" data-day="${escapeHtml(formatDay(day))}">
+        <tr class="${[first ? "day-start" : "", deco.classes, picked.length ? "is-picked" : "", r.unavailable ? "is-unavailable" : ""].join(" ").trim()}" data-key="${escapeHtml(slotKey(r))}" data-day="${escapeHtml(formatDay(day))}">
           ${first ? `<th scope="row" rowspan="${span}" class="c-date"${deco.title ? ` title="${deco.title}"` : ""}>${formatDay(day)}${deco.notes}</th>` : ""}
           <td class="c-rdv" data-label="RDV">${rdvCell(r)}</td>
           <td class="c-tide" data-label="Étale"><span class="kind ${r.kind}">${r.kind}</span>${r.time}</td>
@@ -280,7 +280,7 @@ function buildRows(results) {
           <td class="c-win" data-label="Fenêtre">${r.window.start}–${r.window.end}</td>
           ${first ? `<td rowspan="${span}" class="c-sun" data-label="Soleil">${pair(sun.sunrise, sun.sunset)}</td>` : ""}
           ${first ? `<td rowspan="${span}" class="c-sun" data-label="Nautique">${pair(sun.nautical_dawn, sun.nautical_dusk)}</td>` : ""}
-          <td class="c-pick" data-label="Choix">${pickCell(picked)}</td>
+          <td class="c-pick" data-label="Choix">${pickCell(picked, r.unavailable)}</td>
         </tr>`);
     });
   }
@@ -464,8 +464,9 @@ function typePill(t) {
   return `<span class="type-pill" style="--type-color:${escapeHtml(t.color)}">${escapeHtml(t.label)}</span>`;
 }
 
-// Choix d'une étale : chacun des créneaux déjà choisis (type, intitulé, ×), puis la liste pour en ajouter un
-function pickCell(picked) {
+// Choix d'une étale : chacun des créneaux déjà choisis (type, intitulé, ×), puis la liste pour en ajouter un.
+// unavailable : étale dans une plage d'indisponibilité de la structure, rien ne peut y être ajouté.
+function pickCell(picked, unavailable = null) {
   const u = Session.user;
   if (!u?.can.view_selections) return "";
   const items = picked.map(p => {
@@ -476,6 +477,10 @@ function pickCell(picked) {
       : "";
     return `<span class="pick-item"><span${by}>${typePill(p.type)}${note}</span>${remove}</span>`;
   }).join("");
+  if (unavailable) {
+    const why = `Structure indisponible ${unavailable.label}${unavailable.reason ? ` : ${unavailable.reason}` : ""}`;
+    return `${items}<span class="unavailable-tag" title="${escapeHtml(why)}">Indisponible${unavailable.reason ? ` <span class="unavailable-reason">· ${escapeHtml(unavailable.reason)}</span>` : ""}</span>`;
+  }
   if (!u.can.pick) return items;
   if (!slotTypes.length) {
     return items || `<span class="muted" title="Créez d'abord des types de créneaux dans l'administration">aucun type</span>`;

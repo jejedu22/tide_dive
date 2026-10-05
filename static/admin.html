@@ -259,6 +259,29 @@
           <p id="settings-form-status" class="form-status" role="status"></p>
         </form>
 
+        <div id="unav-panel" class="panel unav-panel">
+          <h2>Indisponibilités</h2>
+          <p class="hint">Pendant une plage d'indisponibilité, aucun créneau ne peut être choisi dans la recherche, ni créé ou déplacé, quel que soit le lieu. Un créneau est bloqué si sa période (du rendez-vous à l'étale) touche la plage. Les créneaux déjà choisis restent : ils vous sont signalés.</p>
+          <div class="unav-bar">
+            <button type="button" id="unav-add" class="btn-primary btn-small">+ Ajouter une indisponibilité</button>
+            <label class="check"><input type="checkbox" id="unav-past"> Afficher les plages passées</label>
+          </div>
+          <div id="unav-status" class="unav-status" role="status"></div>
+          <div class="table-wrap">
+            <table class="users unav-table">
+              <thead>
+                <tr>
+                  <th scope="col">Période</th>
+                  <th scope="col">Motif</th>
+                  <th scope="col">Ajoutée par</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="unav-body"></tbody>
+            </table>
+          </div>
+        </div>
+
         <form id="type-form" class="panel type-form" autocomplete="off">
           <h2>Ajouter un type de créneau</h2>
           <div class="field">

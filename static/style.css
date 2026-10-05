@@ -775,6 +775,14 @@ input[type="color"] {
   border-radius: 8px;
   background: white;
 }
+/* Indisponibilités (administration) */
+.unav-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 0.6rem 0 0.75rem; }
+.unav-status:empty { display: none; }
+.unav-status { margin-bottom: 0.75rem; }
+.unav-warning { padding: 0.6rem 0.8rem; border-left: 4px solid #e9a23b; background: #fff7e8; border-radius: 6px; }
+.unav-warning p { margin: 0 0 0.35rem; }
+.unav-warning ul { margin: 0; padding-left: 1.2rem; }
+.unav-fields { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem 0.75rem; }
 .types .order { display: inline-flex; gap: 0.2rem; }
 .types .order button { font-size: 0.75rem; padding: 0.15rem 0.4rem; }
 .types tr.inactive th, .types tr.inactive td:not(.actions) { color: var(--picked-text); }
@@ -1579,6 +1587,18 @@ main.unsub-main { max-width: 40rem; }
 .regs-pop-wait { margin-top: 0.6rem; }
 .reg-rank { font-weight: 700; color: #6b4a00; }
 
+/* Étale dans une plage d'indisponibilité de la structure (recherche) : hachurée, sans liste de choix */
+.windows tbody tr.is-unavailable > td:not(.c-sun) {
+  background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(7, 59, 76, 0.06) 6px 12px);
+}
+.unavailable-tag { display: inline-block; font-size: 0.78rem; font-weight: 600; color: #8a5a00; white-space: normal; }
+.unavailable-reason { font-weight: 400; }
+
 /* Plusieurs créneaux choisis sur une même étale (recherche) : un choix par ligne dans la cellule */
 .windows .c-pick .pick-item { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem; white-space: nowrap; }
 .windows .c-pick .pick-note { font-size: 0.8rem; color: var(--blue-deep); white-space: normal; }
+
+/* Plages d'indisponibilité (créneaux choisis) : bandeau, jours hachurés du calendrier, mention du jour */
+.unav-note { margin: 0 0 0.75rem; padding: 0.5rem 0.8rem; border-left: 4px solid #e9a23b; background: #fff7e8; border-radius: 6px; font-size: 0.9rem; }
+.cal-cell.is-unavailable { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(233, 162, 59, 0.18) 6px 12px); }
+.day-unavailable { margin: 0 0 0.5rem; color: #8a5a00; font-weight: 600; font-size: 0.9rem; }

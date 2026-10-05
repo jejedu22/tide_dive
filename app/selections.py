@@ -27,6 +27,8 @@ Créneaux choisis par les structures, et types de créneaux.
   comptent depuis le premier jour ; un séjour reste « à venir » jusqu'au dernier. Il n'a ni étale, ni hauteur,
   ni coefficient ; son heure de RDV ne suit pas le délai de la structure. Il se
   modifie (lieu, jour, heure, intitulé) et accepte les inscriptions comme les autres.
+- Aucun créneau ne peut être choisi, créé ou déplacé dans une plage d'indisponibilité de la structure
+  (voir unavailability.py).
 - Les infos affichées (heure, hauteur, coefficient, RDV) sont recalculées
   côté serveur à partir de la base au moment du choix, puis figées : on ne
   fait jamais confiance à ce que le navigateur envoie. Seule exception : quand
@@ -50,6 +52,7 @@ from .auth import (
     CurrentManager, CurrentMember, CurrentPicker, CurrentRegistrar, CurrentUser, can_manage_structure, scope_structure,
 )
 from .slots import describe_extremum
+from .unavailability import custom_span, ensure_available, tide_span
 
 router = APIRouter(prefix="/api")
 
@@ -361,9 +364,11 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
             "Ce créneau n'existe plus (l'année a peut-être été recalculée) : relancez la recherche.",
         )
     _active_type_or_422(body.type_id, sid)
+    snapshot = describe_extremum(port, ex, db.get_rdv_offset(sid))
+    ensure_available(sid, *tide_span(snapshot["rdv_date"], snapshot["rdv_time"], snapshot["date"], snapshot["time"]))
     # plusieurs créneaux possibles sur la même étale : pas de refus « déjà choisi »
     sel_id = db.create_selection(
-        sid, user["id"], body.port_id, body.ts_utc, body.type_id, describe_extremum(port, ex, db.get_rdv_offset(sid)), _now_iso(),
+        sid, user["id"], body.port_id, body.ts_utc, body.type_id, snapshot, _now_iso(),
         max_registrations=_initial_capacity(body, sid), note=body.note,
     )
     return _one_out(sid, sel_id, user["id"])
@@ -376,6 +381,8 @@ def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
     if body.port_id is not None and db.get_port(body.port_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
     _active_type_or_422(body.type_id, sid)
+    ensure_available(sid, *custom_span(body.date.isoformat(), body.time,
+                                       body.end_date.isoformat() if body.end_date else None))
     sel_id = db.create_custom_selection(
         sid, user["id"], body.port_id, body.location, body.type_id, body.date.isoformat(),
         body.end_date.isoformat() if body.end_date else None, body.time, body.note, _now_iso(),
@@ -417,6 +424,10 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Dates du séjour : {exc}.")
     if body.type_id is not None:
         _active_type_or_422(body.type_id, sid)
+    if sent & {"date", "end_date", "time"}:
+        # déplacé : pas dans une plage d'indisponibilité (rester où il est, ou changer de lieu, reste permis)
+        ensure_available(sid, *custom_span(start.isoformat(), body.time or row["rdv_time"],
+                                           end.isoformat() if end else None))
     if sent & custom_fields:
         db.update_custom_selection(
             sid, selection_id, port_id, location,
