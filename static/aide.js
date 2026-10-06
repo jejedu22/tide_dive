@@ -29,6 +29,17 @@ if (toc) {
   toc.innerHTML = `<h2>Sommaire</h2><ol>${items.join("")}</ol>`;
 }
 
+// Installer l'application (guide Membre) : bouton quand le navigateur le permet, mention si c'est déjà fait
+const installBtn = document.getElementById("install-app");
+if (installBtn) {
+  const done = document.querySelector(".help-installed");
+  done.hidden = !Session.installed();
+  Session.onInstallable(ok => { installBtn.closest(".help-install").hidden = !ok; });
+  installBtn.addEventListener("click", async () => {
+    if (await Session.promptInstall()) done.hidden = false;
+  });
+}
+
 Session.mountAccount(document.getElementById("account"),
   [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin]);
 Session.onChange(markMine);

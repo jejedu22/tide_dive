@@ -10,6 +10,7 @@ autour de l'étale, type de lumière du jour requis).
 
 from __future__ import annotations
 
+import mimetypes
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -26,6 +27,8 @@ from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
 app = FastAPI(title="Calendive")
+# Manifeste de l'application installable : type absent de certaines tables MIME système
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 # Le frontend est servi par cette même application : pas de CORS par défaut. CORS_ORIGINS
 # (liste séparée par des virgules) ouvre l'API à d'autres origines, avec cookies, au cas par cas.
 if security.ALLOWED_ORIGINS:

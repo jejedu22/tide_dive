@@ -38,12 +38,21 @@ const Session = (() => {
   }
 
   async function api(path, { method = "GET", body } = {}) {
-    const res = await fetch(path, {
-      method,
-      credentials: "same-origin",
-      headers: body !== undefined ? { "Content-Type": "application/json" } : {},
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    let res;
+    try {
+      res = await fetch(path, {
+        method,
+        credentials: "same-origin",
+        headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch (e) {     // serveur injoignable (hors connexion) : message lisible plutôt que « Failed to fetch »
+      const err = new Error(navigator.onLine === false
+        ? "Pas de connexion internet : vérifiez votre réseau, puis réessayez."
+        : "Serveur injoignable : vérifiez votre connexion, puis réessayez.");
+      err.status = 0;
+      throw err;
+    }
     if (res.status === 204) return null;
     const data = await res.json().catch(() => null);
     if (!res.ok) {
@@ -550,6 +559,32 @@ const Session = (() => {
     help: { href: "aide.html", label: "Aide" },
   };
 
+  // Application installable (PWA) : service worker (interface disponible hors connexion, voir sw.js) et
+  // proposition d'installation du navigateur, gardée pour un bouton « Installer » (page d'aide)
+  let installPrompt = null;
+  const installListeners = [];
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+  window.addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();
+    installPrompt = e;
+    for (const fn of installListeners) fn(true);
+  });
+  window.addEventListener("appinstalled", () => {
+    installPrompt = null;
+    for (const fn of installListeners) fn(false);
+  });
+  async function promptInstall() {
+    if (!installPrompt) return false;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    installPrompt = null;
+    for (const fn of installListeners) fn(false);
+    return outcome === "accepted";
+  }
+  const installed = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+
   return {
     ROLE_LABELS, LINKS, roleLabel, searchModes,
     get user() { return user; },
@@ -558,5 +593,6 @@ const Session = (() => {
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
+    promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };
 })();

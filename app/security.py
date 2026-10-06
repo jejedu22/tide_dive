@@ -106,6 +106,7 @@ limiter = RateLimiter()
 # Aucun script en ligne dans le frontend : script-src 'self' suffit. Les styles en ligne
 # (attributs style, <style> de demande-structure.html) imposent 'unsafe-inline' pour les styles.
 # Les images de newsletters peuvent venir de n'importe quel site https (aperçu en iframe srcdoc).
+# Application installable : manifeste et service worker (sw.js) servis par le site lui-même.
 CSP = "; ".join([
     "default-src 'self'",
     "script-src 'self'",
@@ -113,6 +114,8 @@ CSP = "; ".join([
     "img-src 'self' data: https:",
     "font-src 'self'",
     "connect-src 'self'",
+    "manifest-src 'self'",
+    "worker-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
