@@ -399,6 +399,16 @@ Un club qui n'a pas encore de structure peut la demander depuis la page publique
 
 Des pages d'aide, publiques, expliquent l'application selon le rôle : **`/aide.html`** (lien « Aide » dans l'en-tête et en bas de la recherche) mène aux guides **Membre** (`aide-membre.html`), **Administrateur de structure** (`aide-administrateur.html`), **Profil Gestionnaire** (`aide-gestionnaire.html`) et **Profil Inscriptions** (`aide-inscriptions.html`). Les guides qui concernent le compte connecté sont signalés « Pour vous ». Pages statiques, à tenir à jour avec les fonctions ; un test vérifie que chaque profil du catalogue (`PROFILES`) a son guide et que les liens internes sont valides.
 
+### Application installable (PWA)
+
+Calendive s'installe sur l'écran d'accueil (Android, iPhone, ordinateur) et s'ouvre alors en plein écran avec son icône : manifeste **`static/manifest.webmanifest`**, icônes `icon-192.png`, `icon-512.png` et `icon-maskable-512.png` (générées depuis `logo-sombre.svg`), service worker **`static/sw.js`** enregistré par `session.js`. Le guide Membre explique l'installation (section « Installer l'application », avec un bouton quand le navigateur le propose).
+
+- **Données jamais en cache** : `/api/…` (et `/healthz`, la documentation de l'API) ne passent pas par le service worker ; comptes, créneaux, inscriptions et marées viennent toujours du serveur.
+- **Interface « réseau d'abord »** : pages, scripts, styles et images sont pris sur le serveur et gardés en cache seulement pour le secours hors connexion ; une mise à jour du serveur est donc visible tout de suite. Les clés de cache ne gardent pas les paramètres d'URL (jetons de désinscription ou de mot de passe).
+- **Hors connexion** : les pages de l'application sont remplacées par `hors-ligne.html` (« Pas de connexion ») ; les pages d'aide et les mentions légales déjà ouvertes restent lisibles. Les appels à l'API échouent avec un message lisible.
+- **HTTPS obligatoire** (sauf `localhost`) : un service worker ne s'enregistre pas sur un site en HTTP.
+- Changer `VERSION` dans `sw.js` vide les caches des appareils (utile seulement si la liste préchargée change).
+
 ### Profil
 
 Chaque compte a un **identifiant**, un **prénom**, un **nom**, une **adresse e-mail** (unique) et un **téléphone** facultatif (numéros français mis en forme : `06 12 34 56 78`, `+33 6 12 34 56 78`). On se connecte avec l'identifiant **ou** l'adresse e-mail. Laissé vide à la création, l'identifiant est proposé sous la forme `prenom.nom` (suffixe 2, 3… s'il est pris).
@@ -800,6 +810,7 @@ static/             frontend (index.html, app.js, style.css)
   modele-import-utilisateurs.csv  modèle d'import CSV
   logo.svg, logo-sombre.svg  logo Calendive (page d'agenda dont le bas est la mer ; point sable : l'étale)
   favicon.svg, favicon-32.png, apple-touch-icon.png  icônes (onglet, écran d'accueil)
+  manifest.webmanifest, icon-*.png, sw.js, hors-ligne.html  application installable (PWA), page hors connexion
   fonts/            police Sora (logo et titres), SIL OFL, hébergée localement
 docker/crontab      tâches périodiques mises en file par le scheduler
 tests/              suite pytest (voir « Tests et intégration continue »)
@@ -821,6 +832,7 @@ Les fichiers FES sont soumis à la licence AVISO+ (indépendante de la licence d
 - Ajouter les courants de marée pour qualifier chaque site au-delà du coefficient.
 - Mode « deux plongées dans la journée ».
 - Export iCal des créneaux retenus.
+- Notifications push (place libérée, nouveau créneau) pour l'application installée.
 
 ## Contribuer
 

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Pas de connexion — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+<style>
+  main.offline-main { max-width: 36rem; }
+  .offline-main .panel { text-align: center; padding: 2rem 1.25rem; }
+  .offline-main p { line-height: 1.55; }
+  .offline-main .btn-primary { display: inline-block; margin-top: 0.75rem; text-decoration: none; }
+</style>
+</head>
+<body>
+  <!-- Page affichée par le service worker (sw.js) quand une page est demandée hors connexion -->
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Pas de connexion</h1>
+        <p class="subtitle">Calendive a besoin d'internet pour afficher les marées et les créneaux.</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="offline-main">
+    <section class="panel">
+      <h2>Vous êtes hors connexion</h2>
+      <p>Les créneaux, les inscriptions et les marées viennent toujours du serveur, pour être à jour : ils ne sont pas conservés sur l'appareil.</p>
+      <p>Vérifiez votre connexion (réseau mobile, Wi-Fi), puis réessayez.</p>
+      <a class="btn-primary" href="./">Réessayer</a>
+    </section>
+  </main>
+</body>
+</html>
