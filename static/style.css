@@ -112,6 +112,10 @@ button#search:hover { transform: translateY(-1px); }
 }
 .results-bar #status { flex: 1 1 16rem; margin: 0; }
 .btn-export { white-space: nowrap; }
+#bulk-pick { white-space: nowrap; }
+#bulk-pick[hidden] { display: none; }
+.bulk-status:empty { display: none; }
+.bulk-status p { margin: 0.5rem 0 0; padding: 0.5rem 0.8rem; border-left: 4px solid var(--blue-deep); background: #eef6f9; border-radius: 6px; }
 .btn-export[hidden],
 #add-custom[hidden] { display: none; }
 .picks-actions {

@@ -471,6 +471,15 @@ Les administrateurs d'une structure déclarent des **plages d'indisponibilité**
 - **Affichage** : dans la recherche, les étales concernées sont hachurées et marquées « Indisponible · motif », sans liste de choix. Dans « Créneaux choisis », un bandeau rappelle les plages à venir et les jours concernés sont hachurés dans le calendrier.
 - Modification et suppression depuis la même liste ; les plages passées sont masquées (case « Afficher les plages passées »).
 
+### Choisir tous les créneaux affichés
+
+Dans la recherche, un administrateur de la structure peut **choisir d'un coup tous les créneaux affichés** : bouton **« Choisir les N créneaux affichés… »** au-dessus du tableau. Les **filtres de colonnes comptent** : on filtre d'abord (ex. étale PM, coefficient ≤ 80, RDV après 9 h), puis on choisit ce qui reste.
+
+- Une fenêtre récapitule la période et le nombre de créneaux, puis demande le **type** (le même pour tous) et un **intitulé** facultatif commun.
+- Sont **ignorées** : les étales déjà choisies par la structure (pas de doublon) et celles d'une plage d'indisponibilité. La fenêtre les compte, le serveur les écarte de toute façon.
+- Après le choix, **« Annuler ce choix groupé »** retire d'un clic les créneaux qui viennent d'être créés.
+- 500 créneaux au plus d'un coup (`POST /api/selections/bulk`) ; au-delà, réduire la période ou filtrer.
+
 ### Plusieurs créneaux sur une même étale
 
 Une même étale peut porter **plusieurs créneaux choisis** (deux bateaux, une sortie et une formation…). Chacun a son type, son **intitulé** facultatif (80 caractères, ex. « Bateau 1 », « Bateau 2 »), ses inscrits et ses places.

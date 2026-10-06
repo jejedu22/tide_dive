@@ -52,7 +52,7 @@ from .auth import (
     CurrentManager, CurrentMember, CurrentPicker, CurrentRegistrar, CurrentUser, can_manage_structure, scope_structure,
 )
 from .slots import describe_extremum
-from .unavailability import custom_span, ensure_available, tide_span
+from .unavailability import blocking, custom_span, ensure_available, tide_span
 
 router = APIRouter(prefix="/api")
 
@@ -110,6 +110,26 @@ class SelectionIn(BaseModel):
     # nombre de places : absent = valeur par défaut de la structure ; null ou 0 = illimité
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)
     # intitulé facultatif : distingue plusieurs créneaux choisis sur la même étale (« Bateau 1 », « Baptêmes »…)
+    note: str | None = Field(None, max_length=80)
+
+    @field_validator("note")
+    @classmethod
+    def _note(cls, v: str | None) -> str | None:
+        return _clean_note(v)
+
+
+class TideRef(BaseModel):
+    port_id: int
+    ts_utc: str = Field(max_length=40)
+
+
+MAX_BULK = 500   # une recherche d'un an, sans filtre, compte environ 1 400 étales : au-delà, filtrer d'abord
+
+
+class BulkSelectionIn(BaseModel):
+    """Choix groupé : les étales affichées dans la recherche, toutes avec le même type (et intitulé facultatif)."""
+    type_id: int
+    items: list[TideRef] = Field(min_length=1, max_length=MAX_BULK)
     note: str | None = Field(None, max_length=80)
 
     @field_validator("note")
@@ -372,6 +392,47 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
         max_registrations=_initial_capacity(body, sid), note=body.note,
     )
     return _one_out(sid, sel_id, user["id"])
+
+
+@router.post("/selections/bulk", status_code=201)
+def create_selections_bulk(body: BulkSelectionIn, user: CurrentPicker):
+    """Choisit d'un coup plusieurs étales avec le même type. Sont ignorées (et listées dans « skipped ») les
+    étales déjà choisies par la structure, celles d'une plage d'indisponibilité et celles qui n'existent plus."""
+    sid = user["structure_id"]
+    _active_type_or_422(body.type_id, sid)
+    rdv_offset = db.get_rdv_offset(sid)
+    capacity = _initial_capacity(body, sid)
+    taken = {(r["port_id"], r["ts_utc"]) for r in db.list_selections(sid) if r["ts_utc"] is not None}
+    unavailable = db.list_unavailabilities(sid)
+    ports: dict[int, sqlite3.Row | None] = {}
+    created, skipped = [], []
+    for item in body.items:
+        key = (item.port_id, item.ts_utc)
+        if key in taken:
+            skipped.append({"port_id": item.port_id, "ts_utc": item.ts_utc, "reason": "déjà choisi"})
+            continue
+        if item.port_id not in ports:
+            ports[item.port_id] = db.get_port(item.port_id)
+        port = ports[item.port_id]
+        ex = db.get_extremum(item.port_id, item.ts_utc) if port is not None else None
+        if ex is None:
+            skipped.append({"port_id": item.port_id, "ts_utc": item.ts_utc, "reason": "étale introuvable"})
+            continue
+        snapshot = describe_extremum(port, ex, rdv_offset)
+        if blocking(unavailable, *tide_span(snapshot["rdv_date"], snapshot["rdv_time"], snapshot["date"], snapshot["time"])):
+            skipped.append({"port_id": item.port_id, "ts_utc": item.ts_utc, "reason": "indisponible"})
+            continue
+        sel_id = db.create_selection(sid, user["id"], item.port_id, item.ts_utc, body.type_id, snapshot, _now_iso(),
+                                     max_registrations=capacity, note=body.note)
+        taken.add(key)   # la même étale deux fois dans la requête : un seul créneau
+        created.append(sel_id)
+    locks = db.get_lock_days(sid)
+    wanted = set(created)
+    rows = {r["id"]: r for r in db.list_selections(sid) if r["id"] in wanted}
+    return {
+        "created": [_selection_out(rows[i], [], user["id"], locks) for i in created],
+        "skipped": skipped,
+    }
 
 
 @router.post("/selections/custom", status_code=201)
