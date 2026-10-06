@@ -81,9 +81,12 @@
     <section class="results">
       <div class="results-bar">
         <p id="status"></p>
+        <button type="button" id="bulk-pick" class="btn-primary btn-small" hidden
+                title="Choisir d'un coup tous les créneaux affichés (filtres compris), avec le même type">Choisir les créneaux affichés…</button>
         <button type="button" id="export-xlsx" class="btn-secondary btn-export" hidden
                 title="Télécharger les créneaux affichés (filtres compris) au format Excel">Exporter en Excel</button>
       </div>
+      <div id="bulk-status" class="bulk-status" role="status"></div>
       <div id="results-list"></div>
     </section>
   </main>

@@ -307,6 +307,7 @@ function renderRows() {
   lastShown = shown;
   exportBtn.hidden = false;
   exportBtn.disabled = !shown.length;
+  renderBulkButton();
 
   tableEl.tHead.querySelector(".reset-filters").disabled = !active;
   const nPicked = Session.user?.can.view_selections ? all.filter(isPicked).length : 0;
@@ -349,9 +350,11 @@ function setFilterInputs(filters) {
 
 function renderResults(data) {
   lastData = data;
+  bulkStatus.innerHTML = "";   // le dernier choix groupé concernait la recherche précédente
   if (data.results.length === 0) {
     lastShown = [];
     exportBtn.hidden = true;
+    renderBulkButton();
     resultsEl.hidden = true;
     statusEl.textContent = "Aucun créneau ne correspond à ces critères sur la période choisie.";
     return;
@@ -555,6 +558,81 @@ async function onPickChange(e) {
     sel.disabled = false;
     sel.value = "";
   }
+}
+
+// ---- Choix groupé : tous les créneaux affichés (filtres compris), avec le même type ----
+
+const bulkBtn = document.getElementById("bulk-pick");
+const bulkStatus = document.getElementById("bulk-status");
+
+// étales affichées qu'on peut encore choisir : ni déjà choisies, ni dans une plage d'indisponibilité
+const bulkCandidates = () => lastShown.filter(r => !isPicked(r) && !r.unavailable);
+
+function renderBulkButton() {
+  const can = !!Session.user?.can.pick && slotTypes.length > 0 && lastShown.length > 0;
+  bulkBtn.hidden = !can;
+  if (!can) return;
+  const n = bulkCandidates().length;
+  bulkBtn.disabled = !n;
+  bulkBtn.textContent = n ? `Choisir les ${n} créneau${n > 1 ? "x" : ""} affiché${n > 1 ? "s" : ""}…` : "Tous les créneaux affichés sont choisis";
+}
+
+bulkBtn.addEventListener("click", () => {
+  const todo = bulkCandidates();
+  if (!todo.length) return;
+  const picked = lastShown.filter(isPicked).length;
+  const off = lastShown.filter(r => !isPicked(r) && r.unavailable).length;
+  const ignored = [picked && `${picked} déjà choisi(s)`, off && `${off} indisponible(s)`].filter(Boolean);
+  const first = todo[0].date, last = todo[todo.length - 1].date;
+  Session.openForm({
+    title: "Choisir les créneaux affichés",
+    intro: `<p class="dialog-hint"><strong>${todo.length} créneau(x)</strong> du ${escapeHtml(formatDay(first))} au ${escapeHtml(formatDay(last))} à ${escapeHtml(lastData.port)}, `
+      + `tels qu'ils sont affichés (filtres compris).${ignored.length ? ` Ignorés : ${ignored.join(", ")}.` : ""}</p>`
+      // le type avant l'intitulé (openForm place « extra » après les champs)
+      + `<label>Type
+        <select name="type_id" required>${slotTypes.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join("")}</select>
+      </label>`,
+    fields: [{ name: "note", label: "Intitulé", required: false, value: "", hint: "Facultatif, le même pour tous (ex. Sortie club)." }],
+    submitLabel: `Choisir ${todo.length} créneau(x)`,
+    onSubmit: async values => {
+      if (todo.length > 500) throw new Error("500 créneaux au plus d'un coup : réduisez la période ou filtrez les créneaux.");
+      const r = await Session.api("/api/selections/bulk", {
+        method: "POST",
+        body: {
+          type_id: Number(values.type_id),
+          note: (values.note || "").trim().slice(0, 80) || null,
+          items: todo.map(x => ({ port_id: x.port_id, ts_utc: x.ts_utc })),
+        },
+      });
+      for (const sel of r.created) addPick(sel);
+      renderRows();
+      showBulkResult(r);
+    },
+  });
+});
+
+function showBulkResult(r) {
+  const n = r.created.length;
+  const skipped = r.skipped.length ? ` ${r.skipped.length} ignoré(s) (${[...new Set(r.skipped.map(x => x.reason))].join(", ")}).` : "";
+  bulkStatus.innerHTML = `<p>${n} créneau(x) choisi(s)${n ? ` : ${escapeHtml(r.created[0].type.label)}` : ""}.${escapeHtml(skipped)}`
+    + (n ? ` <button type="button" class="btn-quiet btn-small" data-bulk-undo>Annuler ce choix groupé</button>` : "") + `</p>`;
+  const undo = bulkStatus.querySelector("[data-bulk-undo]");
+  undo?.addEventListener("click", async () => {
+    undo.disabled = true;
+    const ids = r.created.map(s => s.id);
+    const failed = [];
+    for (let i = 0; i < ids.length; i += 10) {   // par paquets : pas des centaines de requêtes d'un coup
+      await Promise.all(ids.slice(i, i + 10).map(id =>
+        Session.api(`/api/selections/${id}`, { method: "DELETE" }).catch(err => { if (err.status !== 404) failed.push(id); })));
+    }
+    const removed = new Set(ids.filter(id => !failed.includes(id)).map(String));
+    for (const [k, list] of picks) {
+      const left = list.filter(s => !removed.has(String(s.id)));
+      if (left.length) picks.set(k, left); else picks.delete(k);
+    }
+    renderRows();
+    bulkStatus.innerHTML = `<p>${failed.length ? `${removed.size} choix annulé(s), ${failed.length} n'ont pas pu l'être : réessayez depuis la liste.` : `Choix groupé annulé (${removed.size} créneau(x) retiré(s)).`}</p>`;
+  });
 }
 
 async function onUnpickClick(e) {
