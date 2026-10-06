@@ -247,7 +247,7 @@ def test_migration_5(tmp_db):
             conn.execute("INSERT INTO computed_years (port_id, year, model, computed_at) VALUES (?, ?, 'FES2014', 'x')",
                          (port, YEAR))
         conn.execute("PRAGMA user_version = 4")
-    assert migrations.run() == [5]
+    assert migrations.run()[:1] == [5]       # (et les suivantes)
 
     with sqlite3.connect(db.DB_PATH) as conn:
         sources = dict(conn.execute("SELECT ts_utc || '/' || port_id, source FROM tide_extrema").fetchall())

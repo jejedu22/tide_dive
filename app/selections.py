@@ -288,7 +288,15 @@ def _selection_out(
     return {
         "id": row["id"],
         "structure_id": row["structure_id"],
-        "custom": row["ts_utc"] is None,   # créneau personnalisé : kind, time, height_m, coefficient à None
+        # créneau personnalisé : kind, time, height_m, coefficient à None
+        "custom": row["ts_utc"] is None and row["window_start_utc"] is None,
+        # créneau de hauteur d'eau : la plage et la hauteur (recopiée au moment du choix), sinon None
+        "water": ({
+            "threshold_id": row["threshold_id"], "label": row["threshold_label"], "height_m": row["threshold_height"],
+            "direction": row["threshold_direction"], "start_utc": row["window_start_utc"],
+            "end_utc": row["window_end_utc"], "start": row["window_start_time"],
+            "end_date": row["window_end_date"], "end": row["window_end_time"],
+        } if row["window_start_utc"] is not None else None),
         "note": row["note"],
         "port_id": row["port_id"],       # None : créneau personnalisé dans un autre lieu
         "location": row["location"],     # lieu libre, sinon None
@@ -463,10 +471,11 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
     sent = body.model_fields_set
     custom_fields = {"port_id", "location", "date", "end_date", "time"}
     if sent & custom_fields:
-        if row["ts_utc"] is not None:
+        if row["ts_utc"] is not None or row["window_start_utc"] is not None:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Seul le type d'un créneau d'étale se modifie : port, jour et heure sont ceux de l'étale.",
+                "Seuls le type et l'intitulé d'un créneau d'étale ou de hauteur d'eau se modifient : port, jour et "
+                "heures sont ceux de la marée.",
             )
         # lieu : un port OU un lieu libre ; l'un remplace l'autre
         if "location" in sent and body.location:

@@ -186,12 +186,39 @@ def _m005_tide_sources(conn: sqlite3.Connection) -> None:
                          (params, "mise à jour (sources de marée)", now))
 
 
+WINDOW_COLUMNS = {
+    "threshold_id": "INTEGER REFERENCES water_thresholds(id) ON DELETE SET NULL",
+    "threshold_label": "TEXT",
+    "threshold_height": "REAL",
+    "threshold_direction": "TEXT CHECK (threshold_direction IS NULL OR threshold_direction IN ('above', 'below'))",
+    "window_start_utc": "TEXT",
+    "window_end_utc": "TEXT",
+    "window_start_time": "TEXT",
+    "window_end_date": "TEXT",
+    "window_end_time": "TEXT",
+}
+
+
+def _m006_water_heights(conn: sqlite3.Connection) -> None:
+    """Recherche par hauteur d'eau : mode de recherche des structures, créneaux de hauteur d'eau.
+    water_thresholds existe déjà (db.SCHEMA la crée sur toute base). Les colonnes ajoutées sont vides : les
+    créneaux existants restent des étales ou des créneaux personnalisés."""
+    if "search_modes" not in _columns(conn, "structures"):
+        conn.execute("ALTER TABLE structures ADD COLUMN search_modes TEXT NOT NULL DEFAULT 'tides' "
+                     "CHECK (search_modes IN ('tides', 'heights', 'both'))")
+    existing = _columns(conn, "slot_selections")
+    for col, ddl in WINDOW_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_selections ADD COLUMN {col} {ddl}")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
     Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
     Migration(4, "plusieurs créneaux choisis sur la même étale", _m004_several_picks_per_tide),
     Migration(5, "horaires de marée par source (calcul brut, corrigé, api-maree.fr)", _m005_tide_sources),
+    Migration(6, "recherche par hauteur d'eau", _m006_water_heights),
 ]
 
 

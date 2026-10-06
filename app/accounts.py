@@ -194,7 +194,8 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
             {"id": row["structure_id"], "name": row["structure_name"],
              "rdv_offset_minutes": row["structure_rdv_offset_minutes"],
              "default_port_id": row["structure_default_port_id"],
-             "default_max_registrations": row["structure_default_max_registrations"]}
+             "default_max_registrations": row["structure_default_max_registrations"],
+             "search_modes": row["structure_search_modes"]}
             if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],

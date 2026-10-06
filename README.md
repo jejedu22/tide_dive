@@ -246,6 +246,20 @@ Le recalage est refait le 2 de chaque mois. S'il change sensiblement (correction
 
 **Recalages faits avec la version précédente** (décalage et amplitude uniques) : ils restent appliqués et sont signalés dans l'administration. Cliquer sur **Recaler** (ou attendre le recalage mensuel) les remplace et relance le précalcul des années à venir.
 
+### Recherche par hauteur d'eau
+
+En plus de la recherche par étale, une page **`/hauteurs.html`** donne les **plages horaires où l'eau est à la bonne hauteur** : au moins X m pour mettre un bateau à l'eau ou passer une porte de bassin, au plus X m pour un site accessible à marée basse.
+
+- **Hauteurs d'eau** : saisies par les super administrateurs, port par port (`/admin.html` → **Ports** → **Hauteurs d'eau**) : libellé, hauteur au-dessus du zéro des cartes (comme l'annuaire des marées) et sens (« au moins » / « au plus »). Un port peut en avoir plusieurs.
+- **Recherche proposée** : réglée par les super administrateurs, structure par structure (`/admin.html` → **Structures**, colonne *Recherche*) : par étale (défaut), par hauteur d'eau, ou les deux. Les liens de l'en-tête suivent ; une structure réglée sur la seule hauteur d'eau arrive sur `/hauteurs.html` depuis la recherche. Un super administrateur a les deux, un visiteur la recherche par étale.
+- **Calcul** (`app/water_windows.py`) : sur la série de hauteurs au pas de 10 min, dans les horaires de la structure (sources de marée), chaque franchissement de la hauteur est interpolé entre deux points ; début arrondi à la minute supérieure, fin à la minute inférieure. Filtres : période, **lumière du jour** (il faut au moins la durée minimale de jour dans la plage ; la colonne *De jour* donne la partie de jour), **durée minimale**. Les plages qui commencent dans la période sont listées, avec leur hauteur maximale (ou minimale), les jours fériés, vacances et indisponibilités.
+- **Plage « limite »** : quand l'eau ne dépasse la hauteur que de moins de 20 cm, quelques centimètres d'erreur (niveau moyen du port, modèle) décalent beaucoup les heures : la plage est signalée.
+- **Choisir une plage** : comme une étale (type, intitulé, plusieurs créneaux sur la même plage, places, inscriptions) : c'est un **créneau de hauteur d'eau**. **RDV** : début de la plage, arrondi aux 5 minutes inférieures. La hauteur est recopiée : la modifier ou la supprimer ne touche pas les créneaux déjà choisis. Seuls le type et l'intitulé se modifient.
+- **Recalage** : quand les horaires changent (précalcul, mois glissant, changement de sources de la structure), le créneau suit sa plage (celle qui la recouvre le plus, sinon la plus proche à 1 h près) ; une plage disparue laisse le créneau tel quel.
+- Dans **Créneaux choisis**, l'export Excel et les newsletters, le créneau affiche sa hauteur d'eau et sa plage (« ≥ 7,00 m · 09:56 → 14:54 »).
+- API : `GET /api/water-thresholds`, `GET /api/water-windows?threshold_id&start&end&daylight&min_minutes`, `POST /api/selections/height` ; super administrateurs : `/api/admin/water-thresholds`, `POST /api/admin/ports/{id}/water-thresholds`.
+- **Mise à jour d'une base existante** (migration n° 6) : toutes les structures restent sur la recherche par étale.
+
 ### Horaires de marée par structure
 
 Chaque structure choisit les horaires qu'elle voit, dans `/admin.html` → **Créneaux** → *Horaires de marée* (ses administrateurs) :

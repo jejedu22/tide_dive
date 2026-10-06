@@ -731,6 +731,11 @@ function showSavedStamp() {
 }
 
 async function onSessionChange(user) {
+  // structure réglée sur la seule recherche par hauteur d'eau : c'est sa page de recherche
+  if (Session.searchModes(user) === "heights") {
+    location.replace("hauteurs.html");
+    return;
+  }
   resultsEl.closest(".results").classList.toggle("can-pick", !!user?.can.view_selections);
   // connexion / déconnexion : relance la recherche affichée pour ajouter ou retirer le RDV
   let refresh = !!lastData && hasRdv(lastData) !== !!user;
@@ -789,7 +794,7 @@ prefsRestoreBtn.addEventListener("click", () => {
   } catch (e) {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
   }
-  Session.mountAccount(document.getElementById("account"), [Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin]);
+  Session.mountAccount(document.getElementById("account"), [Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin]);
   // connexion depuis la recherche : les membres d'une structure vont directement à leurs créneaux choisis
   Session.redirectAfterLogin = u => (u.can.view_selections ? "mes-creneaux.html" : null);
   Session.onChange(onSessionChange);
