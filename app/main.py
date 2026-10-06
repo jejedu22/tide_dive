@@ -115,6 +115,29 @@ def _sun_info(sun) -> dict:
     }
 
 
+MAX_CALENDAR_DAYS = 62   # un mois affiché (6 semaines) avec de la marge
+
+
+@app.get("/api/calendar-days")
+def api_calendar_days(
+    start: date = Query(..., description="Premier jour (inclus), YYYY-MM-DD"),
+    end: date = Query(..., description="Dernier jour (inclus), YYYY-MM-DD"),
+):
+    """Jours fériés et vacances scolaires de la période, pour le calendrier des créneaux choisis :
+    {jour: {holiday, school_holiday}}, jours ordinaires omis. Données publiques : pas de connexion requise."""
+    if end < start:
+        raise HTTPException(422, "La date de fin précède la date de début")
+    if (end - start).days + 1 > MAX_CALENDAR_DAYS:
+        raise HTTPException(422, f"Période trop longue : {MAX_CALENDAR_DAYS} jours au plus")
+    holidays = calendar_fr.public_holidays_range(start, end)
+    vacations = calendar_fr.school_holidays_by_day(start, end)
+    days = {
+        d.isoformat(): {"holiday": holidays.get(d), "school_holiday": vacations.get(d)}
+        for d in sorted(set(holidays) | set(vacations))
+    }
+    return {"academy": calendar_fr.SCHOOL_ACADEMY, "days": days}
+
+
 MAX_SEARCH_DAYS = 400   # un précalcul couvre une année ; au-delà, la requête ne renverrait presque rien et coûterait cher
 
 

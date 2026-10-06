@@ -477,6 +477,8 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
+Le **calendrier** de cette page montre aussi les **jours fériés** (numéro et nom en corail ; nom masqué sur petit écran) et les **vacances scolaires** de l'académie configurée (`SCHOOL_ACADEMY`, filet violet horizontal en haut de la case, sans changer sa couleur), avec une légende ; le détail du jour les nomme. Ils viennent de `GET /api/calendar-days?start=…&end=…` (62 jours au plus, sans connexion).
+
 ### Indisponibilités
 
 Les administrateurs d'une structure déclarent des **plages d'indisponibilité** (bateau au carénage, congés du club…) dans `/admin.html` → **Créneaux** → *Indisponibilités*. La plage vaut pour **tous les lieux** de la structure. Pendant une plage, **aucun créneau ne peut être choisi** dans la recherche, ni créé ou déplacé (créneau personnalisé) : l'API refuse avec le motif.

@@ -1619,3 +1619,29 @@ main.unsub-main { max-width: 40rem; }
 
 /* Réglages de la structure : cases « Horaires de marée » sur toute la largeur */
 .settings-form > .check { grid-column: 1 / -1; }
+
+/* Calendrier des créneaux choisis : jours fériés (numéro et nom en corail) et vacances scolaires (filet violet en haut) */
+.cal-cell.is-holiday .cal-num { color: var(--coral); }
+.cal-cell[aria-current="date"].is-holiday .cal-num { color: white; background: var(--coral); }
+.cal-holiday {
+  overflow: hidden;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--coral);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* petit écran : cases trop étroites pour le nom, le numéro en corail suffit (nom dans le détail du jour) */
+@media (max-width: 700px) {
+  .cal-holiday { display: none; }
+}
+/* vacances : filet horizontal en haut de la case, qui forme une bande continue sur la semaine ; le fond de la
+   case (week-end, autre mois) ne change pas */
+.cal-cell.is-vacances { box-shadow: inset 0 4px 0 var(--violet); }
+.cal-cell.is-vacances[aria-pressed="true"] { box-shadow: inset 0 4px 0 var(--violet), inset 0 0 0 2px var(--blue); }
+.cal-legend .swatch-vacances { height: 0.3rem; vertical-align: middle; border-radius: 2px; }
+.cal-legend { margin: 0.5rem 0 0.25rem; }
+.day-holiday { margin: 0 0 0.35rem; color: var(--coral); font-weight: 600; font-size: 0.9rem; }
+.day-vacances { margin: 0 0 0.35rem; color: var(--violet); font-weight: 600; font-size: 0.9rem; }
