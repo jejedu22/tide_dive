@@ -170,6 +170,13 @@ def public_user(row: sqlite3.Row, *, with_structures: bool = False) -> dict:
     """with_structures : ajoute les structures du compte (pour le sélecteur) et ses invitations en attente.
     Réservé aux vues du compte lui-même ; les listes d'administration s'en passent (une requête par ligne)."""
     out = _public_user_fields(row)
+    if out["preview"]:
+        # aperçu : le compte vu avec le rôle choisi, sans les structures ni les invitations du super administrateur
+        if with_structures:
+            out["structures"] = [{"id": out["structure"]["id"], "name": out["structure"]["name"], "role": out["role"]}] \
+                if out["structure"] else []
+            out["invitations"] = 0
+        return out
     if with_structures:
         out["structures"] = [
             {"id": m["structure_id"], "name": m["structure_name"], "role": m["role"]}
@@ -208,6 +215,8 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
         "created_at": row["created_at"],
         "last_login_at": row["last_login_at"],
         "password_changed_at": row["password_changed_at"],
+        # aperçu d'un super administrateur (rôle simulé, lecture seule) : None hors aperçu
+        "preview": {"role": row["preview_role"]} if "preview_role" in row.keys() else None,
     }
 
 

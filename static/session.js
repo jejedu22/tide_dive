@@ -79,7 +79,112 @@ const Session = (() => {
       return;
     }
     user = u;
+    renderPreviewBanner(u);
     notify();
+  }
+
+  // Aperçu d'un super administrateur : bandeau sur toutes les pages, avec le rôle vu et le bouton pour en sortir
+  const PREVIEW_ROLE_LABELS = {
+    manager: "administrateur de structure", viewer: "membre (visualisation)", none: "compte sans structure",
+  };
+
+  function previewLabel(u) {
+    const profiles = (u.profiles || []).map(p => ({ gestionnaire: "Gestionnaire", inscriptions: "Inscriptions" })[p] || p);
+    return PREVIEW_ROLE_LABELS[u.preview.role] + (profiles.length ? ` + ${profiles.join(", ")}` : "")
+      + (u.structure ? ` de ${u.structure.name}` : "");
+  }
+
+  function renderPreviewBanner(u) {
+    let banner = document.getElementById("preview-banner");
+    if (!u?.preview) {
+      banner?.remove();
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "preview-banner";
+      banner.className = "preview-banner";
+      banner.setAttribute("role", "status");
+      document.body.prepend(banner);
+      banner.addEventListener("click", e => {
+        if (e.target.closest("[data-preview=change]")) openPreview();
+        if (e.target.closest("[data-preview=stop]")) stopPreview();
+      });
+    }
+    banner.innerHTML = `
+      <span><strong>Aperçu</strong> : vous voyez Calendive comme <strong>${esc(previewLabel(u))}</strong>.
+        Lecture seule : aucune modification possible.</span>
+      <span class="preview-actions">
+        <button type="button" class="btn-quiet" data-preview="change">Changer</button>
+        <button type="button" class="btn-primary" data-preview="stop">Quitter l'aperçu</button>
+      </span>`;
+  }
+
+  async function stopPreview() {
+    try {
+      await api("/api/me/preview", { method: "DELETE" });
+      location.reload();
+    } catch (err) {
+      openMessage("Aperçu", `<p>${esc(err.message)}</p>`);
+    }
+  }
+
+  // « Voir comme… » : le super administrateur choisit le rôle, la structure et les profils de l'aperçu
+  async function openPreview() {
+    let catalog = [];
+    try {
+      [catalog] = await Promise.all([
+        api("/api/admin/profiles").catch(() => []),
+        user?.preview ? null : (structures === null ? loadStructures() : null),
+      ]);
+    } catch { /* catalogue indisponible : pas de profils proposés */ }
+    const list = structures?.length ? structures : (user?.structure ? [user.structure] : []);
+    const current = user?.structure?.id;
+    const role = user?.preview?.role || "viewer";
+    openForm({
+      title: "Voir comme…",
+      intro: `<p class="dialog-hint">Affichez Calendive comme un autre rôle, pour vérifier ce qu'il voit. L'aperçu est
+        <strong>en lecture seule</strong> et ne concerne que ce navigateur ; « Quitter l'aperçu » vous rend vos droits.</p>`,
+      fields: [],
+      extra: `
+        <label>Rôle
+          <select name="role">${Object.entries(PREVIEW_ROLE_LABELS).map(([k, label]) =>
+            `<option value="${k}"${k === role ? " selected" : ""}>${esc(label[0].toUpperCase() + label.slice(1))}</option>`).join("")}
+          </select>
+        </label>
+        <label class="preview-structure">Structure
+          <select name="structure_id">${list.map(st =>
+            `<option value="${st.id}"${st.id === current ? " selected" : ""}>${esc(st.name)}</option>`).join("")}
+          </select>
+        </label>
+        <fieldset class="preview-profiles">
+          <legend>Profils</legend>
+          ${catalog.map(p => `<label class="check" title="${esc(p.description || "")}"><input type="checkbox" name="profiles"
+            value="${esc(p.id)}"${user?.profiles?.includes(p.id) && user?.preview ? " checked" : ""}> ${esc(p.label)}
+            <span class="muted">— ${esc(p.description || "")}</span></label>`).join("")}
+        </fieldset>`,
+      submitLabel: "Voir comme ce rôle",
+      setup(form) {
+        const sync = () => {
+          const none = form.role.value === "none";
+          form.querySelector(".preview-structure").hidden = none;
+          form.querySelector(".preview-profiles").hidden = none || !catalog.length;
+        };
+        form.role.addEventListener("change", sync);
+        sync();
+      },
+      async onSubmit(values, form) {
+        const body = {
+          role: values.role,
+          structure_id: values.role === "none" || !values.structure_id ? null : Number(values.structure_id),
+          profiles: values.role === "none" ? []
+            : [...form.querySelectorAll("input[name=profiles]:checked")].map(i => i.value),
+        };
+        await api("/api/me/preview", { method: "PUT", body });
+        location.assign("./");     // page d'arrivée du rôle (créneaux choisis pour un membre)
+        return true;
+      },
+    });
   }
 
   async function init() {
@@ -500,9 +605,13 @@ const Session = (() => {
         ? `<button type="button" class="account-btn account-invitations" data-act="invitations"
              title="Invitations à rejoindre une structure">Invitations <span class="account-dot">${u.invitations}</span></button>`
         : "";
+      const preview = u.is_admin
+        ? `<button type="button" class="account-btn" data-act="preview"
+             title="Voir l'application comme un autre rôle (lecture seule)">Voir comme…</button>`
+        : "";
       el.innerHTML = `
         <span class="account-name" title="${esc(u.username)}">${esc(u.display_name)}${where}</span>
-        ${invitations}${extra}
+        ${invitations}${extra}${preview}
         <button type="button" class="account-btn" data-act="profile">Mon compte${u.profile_complete ? "" : ` <span class="account-dot" title="Profil à compléter">!</span>`}</button>
         <button type="button" class="account-btn" data-act="logout">Se déconnecter</button>`;
     };
@@ -512,6 +621,7 @@ const Session = (() => {
       if (act === "profile") openProfile();
       if (act === "logout") logout();
       if (act === "invitations") openInvitations();
+      if (act === "preview") openPreview();
     });
     el.addEventListener("change", async e => {
       const sel = e.target.closest("select[data-act=structure]");
@@ -593,6 +703,6 @@ const Session = (() => {
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
-    promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
+    openPreview, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };
 })();

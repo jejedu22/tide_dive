@@ -1695,3 +1695,29 @@ main.help-main { max-width: 52rem; }
 .help-toc ol { columns: 2; column-gap: 2rem; margin: 0; }
 @media (max-width: 600px) { .help-toc ol { columns: 1; } }
 section[id] { scroll-margin-top: 1rem; }
+
+/* --- Aperçu d'un super administrateur (« Voir comme… ») -------------- */
+
+.preview-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 2rem;
+  background: var(--sand);
+  color: var(--blue-deep);
+  font-size: 0.9rem;
+  box-shadow: 0 2px 6px rgba(7, 59, 76, 0.15);
+}
+.preview-banner .preview-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.preview-banner .btn-quiet { background: rgba(255, 255, 255, 0.6); }
+.account-dialog .preview-profiles { border: 1px solid #cfe3ea; border-radius: 8px; padding: 0.5rem 0.75rem 0.25rem; margin: 0 0 0.75rem; }
+.account-dialog .preview-profiles[hidden] { display: none; }
+.account-dialog .preview-profiles legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.3rem; }
+@media (max-width: 700px) {
+  .preview-banner { padding: 0.6rem 1rem; }
+}

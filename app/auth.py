@@ -155,6 +155,15 @@ def optional_user(session: SessionCookie = None) -> sqlite3.Row | None:
     return db.get_session_user(_token_hash(session), _iso(_now()))
 
 
+# Aperçu d'un super administrateur : lecture seule, sauf pour changer ou quitter l'aperçu et se déconnecter
+_ALLOWED_IN_PREVIEW = {"/api/me/preview", "/api/auth/logout"}
+_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def in_preview(user: sqlite3.Row | dict | None) -> bool:
+    return user is not None and "preview_role" in user.keys()
+
+
 def current_user(request: Request, user: Annotated[sqlite3.Row | None, Depends(optional_user)]) -> sqlite3.Row:
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion requise")
@@ -162,6 +171,11 @@ def current_user(request: Request, user: Annotated[sqlite3.Row | None, Depends(o
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Changez d'abord votre mot de passe provisoire",
             headers={"X-Password-Change-Required": "1"},
+        )
+    if (in_preview(user) and request.method not in _READ_METHODS
+            and request.url.path not in _ALLOWED_IN_PREVIEW):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Aperçu en lecture seule : quittez l'aperçu pour faire des modifications",
         )
     return user
 
@@ -509,6 +523,51 @@ def switch_own_structure(body: StructureSwitch, user: CurrentUser, session: Sess
     if not session or not db.set_active_structure(_token_hash(session), user["id"], body.structure_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Vous n'avez pas accès à cette structure")
     return {"user": _public_user(db.get_user(user["id"], body.structure_id), with_structures=True)}
+
+
+class PreviewStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["manager", "viewer", "none"]
+    structure_id: int | None = None    # structure de l'aperçu (sauf « none ») ; à défaut la structure active
+    profiles: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("profiles")
+    @classmethod
+    def _profiles(cls, v: list[str]) -> list[str]:
+        return _clean_profiles(v)
+
+
+def _real_super_admin(user: sqlite3.Row, session: str | None) -> None:
+    """L'aperçu retire les droits de super administrateur à la session : on vérifie le compte lui-même."""
+    real = db.get_user(user["id"])
+    if not session or real is None or not real["is_admin"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux super administrateurs")
+
+
+@router.put("/me/preview")
+def start_preview(body: PreviewStart, user: CurrentUser, session: SessionCookie = None):
+    """Aperçu : un super administrateur voit l'application comme un administrateur de structure, un membre en
+    visualisation (avec ou sans profils) ou un compte sans structure. Propre à CETTE session, en lecture seule :
+    l'API applique les droits du rôle choisi et refuse toute modification jusqu'à la fin de l'aperçu."""
+    _real_super_admin(user, session)
+    structure_id = None
+    if body.role != "none":
+        structure_id = body.structure_id if body.structure_id is not None else user["structure_id"]
+        if structure_id is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choisissez la structure de l'aperçu")
+        if db.get_structure(structure_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Structure inconnue")
+    profiles = body.profiles if body.role != "none" else []
+    db.set_session_preview(_token_hash(session), user["id"], body.role, profiles, structure_id)
+    return {"user": _public_user(db.get_session_user(_token_hash(session), _iso(_now())), with_structures=True)}
+
+
+@router.delete("/me/preview")
+def stop_preview(user: CurrentUser, session: SessionCookie = None):
+    """Fin de l'aperçu : la session retrouve les droits de super administrateur (dans la même structure)."""
+    _real_super_admin(user, session)
+    db.set_session_preview(_token_hash(session), user["id"], None)
+    return {"user": _public_user(db.get_session_user(_token_hash(session), _iso(_now())), with_structures=True)}
 
 
 # ---------------------------------------------------------------------------
