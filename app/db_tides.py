@@ -14,14 +14,127 @@ from .db_core import get_conn
 
 
 _SQL_INSERT_HEIGHTS = (
-    "INSERT OR REPLACE INTO tide_heights (port_id, ts_utc, height_m) VALUES (?, ?, ?)"
+    "INSERT OR REPLACE INTO tide_heights (port_id, source, ts_utc, height_m) VALUES (?, ?, ?, ?)"
 )
 
 
 _SQL_INSERT_EXTREMA = (
-    "INSERT OR REPLACE INTO tide_extrema (port_id, ts_utc, kind, height_m, coefficient) "
-    "VALUES (?, ?, ?, ?, ?)"
+    "INSERT OR REPLACE INTO tide_extrema (port_id, source, ts_utc, kind, height_m, coefficient) "
+    "VALUES (?, ?, ?, ?, ?, ?)"
 )
+
+
+# ---------------------------------------------------------------------------
+# Sources des horaires de marée
+# ---------------------------------------------------------------------------
+# Chaque port garde jusqu'à trois séries, chacune avec sa couverture (tide_coverage) :
+#   fes : calcul FES brut (précalcul annuel) ;
+#   cal : calcul FES corrigé par le recalage du port sur api-maree.fr (précalcul annuel, ports recalés) ;
+#   api : horaires d'api-maree.fr (mois glissant, les jours passés restent).
+# Une structure choisit d'utiliser api-maree.fr et / ou la correction (structures.use_api_maree,
+# use_calibration) : la lecture compose les séries dans son ordre de préférence, chaque instant venant de
+# la première source qui le couvre (tide_sources). Les autres sources suivent en dernier recours, pour ne
+# jamais laisser de trou (année pas encore recalculée, par exemple).
+
+SOURCES = ("api", "cal", "fes")
+DEFAULT_SOURCES = ("api", "cal", "fes")   # visiteur, compte sans structure : tout activé
+_LAST_RESORT = ("cal", "fes", "api")      # sources non choisies : un calcul FES avant api-maree.fr
+
+
+def tide_sources(use_api_maree: bool = True, use_calibration: bool = True) -> tuple[str, ...]:
+    """Ordre de préférence des sources pour ces réglages, les autres en dernier recours."""
+    preferred = [s for s, on in (("api", use_api_maree), ("cal", use_calibration)) if on] + ["fes"]
+    return tuple(preferred + [s for s in _LAST_RESORT if s not in preferred])
+
+
+def _iso(ts: str) -> str:
+    """Borne normalisée, comparable aux horodatages stockés (« YYYY-MM-DD » → minuit UTC)."""
+    return f"{ts}T00:00:00+00:00" if len(ts) == 10 else ts
+
+
+def _merge(intervals: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    out: list[list[str]] = []
+    for a, b in sorted(i for i in intervals if i[0] < i[1]):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [(a, b) for a, b in out]
+
+
+def _subtract(intervals: list[tuple[str, str]], start: str, end: str) -> list[tuple[str, str]]:
+    out = []
+    for a, b in intervals:
+        if b <= start or end <= a:
+            out.append((a, b))
+            continue
+        if a < start:
+            out.append((a, start))
+        if end < b:
+            out.append((end, b))
+    return out
+
+
+def _coverage(conn, port_id: int) -> dict[str, list[tuple[str, str]]]:
+    out: dict[str, list[tuple[str, str]]] = {}
+    for r in conn.execute("SELECT source, start_utc, end_utc FROM tide_coverage WHERE port_id = ? ORDER BY start_utc",
+                          (port_id,)):
+        out.setdefault(r["source"], []).append((r["start_utc"], r["end_utc"]))
+    return out
+
+
+def _set_coverage(conn, port_id: int, source: str, intervals: list[tuple[str, str]]) -> None:
+    conn.execute("DELETE FROM tide_coverage WHERE port_id = ? AND source = ?", (port_id, source))
+    conn.executemany("INSERT INTO tide_coverage (port_id, source, start_utc, end_utc) VALUES (?, ?, ?, ?)",
+                     [(port_id, source, a, b) for a, b in _merge(intervals)])
+
+
+def cover(conn, port_id: int, source: str, start: str, end: str) -> None:
+    """La source couvre désormais [start, end[ (en plus de ce qu'elle couvrait)."""
+    current = _coverage(conn, port_id).get(source, [])
+    _set_coverage(conn, port_id, source, current + [(_iso(start), _iso(end))])
+
+
+def uncover(conn, port_id: int, source: str, start: str, end: str) -> None:
+    """La source ne couvre plus [start, end[."""
+    current = _coverage(conn, port_id).get(source, [])
+    _set_coverage(conn, port_id, source, _subtract(current, _iso(start), _iso(end)))
+
+
+def _plan(coverage: dict[str, list[tuple[str, str]]], sources, start: str, end: str) -> tuple[list, list]:
+    """Découpe [start, end[ : ([(source, début, fin)…] par ordre de préférence, [morceaux non couverts])."""
+    remaining = [(start, end)]
+    pieces = []
+    for source in sources:
+        for a, b in coverage.get(source, []):
+            for r_a, r_b in list(remaining):
+                lo, hi = max(a, r_a), min(b, r_b)
+                if lo < hi:
+                    pieces.append((source, lo, hi))
+                    remaining = _subtract(remaining, lo, hi)
+    return pieces, remaining
+
+
+def _compose(conn, table: str, port_id: int, start: str, end: str, sources) -> list[sqlite3.Row]:
+    """Lignes de la table sur [start, end[, chaque instant pris dans la première source qui le couvre.
+    Une période couverte par aucune source (données écrites sans couverture) prend la première source qui y
+    a des lignes."""
+    sources = tuple(sources or DEFAULT_SOURCES)
+    start, end = _iso(start), _iso(end)
+    pieces, uncovered = _plan(_coverage(conn, port_id), sources, start, end)
+    for a, b in uncovered:
+        present = {r["source"] for r in conn.execute(
+            f"SELECT DISTINCT source FROM {table} WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?", (port_id, a, b))}
+        chosen = next((s for s in sources if s in present), None)
+        if chosen:
+            pieces.append((chosen, a, b))
+    rows = []
+    for source, a, b in pieces:
+        rows += conn.execute(
+            f"SELECT * FROM {table} WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
+            (port_id, source, a, b),
+        ).fetchall()
+    return sorted(rows, key=lambda r: r["ts_utc"])
 
 
 _SQL_INSERT_SUN = """
@@ -169,38 +282,41 @@ def replace_year(
     sun_rows: Iterable[tuple[str, str | None, str | None, str | None, str | None]],
     model: str | None = None,
     computed_at: str | None = None,
+    calibrated: tuple[Iterable[tuple[str, float]], Iterable[tuple[str, str, float, float | None]]] | None = None,
 ) -> None:
     """
     Remplace les données d'UNE année pour un port, en une seule transaction :
     soit tout est écrit, soit rien ne change. Les autres années sont conservées.
     model : modèle de marée utilisé, enregistré pour l'année (si fourni).
 
-    heights  : (ts_utc ISO, height_m)
+    heights  : (ts_utc ISO, height_m)                      — calcul FES brut (source « fes »)
     extrema  : (ts_utc ISO, 'PM'|'BM', height_m, coefficient|None)
     sun_rows : (date YYYY-MM-DD, sunrise, sunset, nautical_dawn, nautical_dusk)
+    calibrated : (heights, extrema) du calcul corrigé par le recalage (source « cal »), None si le port n'a
+                 pas de recalage : l'ancienne série corrigée de l'année disparaît alors.
+    Les horaires api-maree.fr (source « api ») ne sont pas touchés.
     """
     start, end = _year_bounds(year)
-    extrema = list(extrema)
+    series = {"fes": (list(heights), list(extrema))}
+    if calibrated is not None:
+        series["cal"] = (list(calibrated[0]), list(calibrated[1]))
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
-            (port_id, start, end),
-        )
-        conn.execute(
-            "DELETE FROM tide_extrema WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
-            (port_id, start, end),
-        )
+        for source in ("fes", "cal"):
+            conn.execute("DELETE FROM tide_heights WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
+                         (port_id, source, start, end))
+            conn.execute("DELETE FROM tide_extrema WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
+                         (port_id, source, start, end))
+            uncover(conn, port_id, source, start, end)
         conn.execute(
             "DELETE FROM sun_times WHERE port_id = ? AND date >= ? AND date < ?",
             (port_id, start, end),
         )
-        conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, ts, h) for ts, h in heights])
-        conn.executemany(
-            _SQL_INSERT_EXTREMA,
-            [(port_id, ts, kind, h, coef) for ts, kind, h, coef in extrema],
-        )
+        for source, (h_rows, e_rows) in series.items():
+            conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, source, ts, h) for ts, h in h_rows])
+            conn.executemany(_SQL_INSERT_EXTREMA, [(port_id, source, ts, kind, h, coef) for ts, kind, h, coef in e_rows])
+            cover(conn, port_id, source, start, end)
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in sun_rows])
-        _rebind_selections(conn, port_id, start, end, extrema)
+        _rebind_selections(conn, port_id, start, end)
         if model:
             conn.execute(
                 "INSERT OR REPLACE INTO computed_years (port_id, year, model, computed_at) VALUES (?, ?, ?, ?)",
@@ -213,31 +329,55 @@ def replace_year(
 REBIND_TOLERANCE = timedelta(minutes=20)
 
 
-def _rebind_selections(conn, port_id: int, start: str, end: str, extrema: list) -> None:
+def structure_sources(conn, structure_id: int | None) -> tuple[str, ...]:
+    """Ordre des sources de la structure (réglages use_api_maree / use_calibration)."""
+    row = structure_id and conn.execute(
+        "SELECT use_api_maree, use_calibration FROM structures WHERE id = ?", (structure_id,)).fetchone()
+    return tide_sources(bool(row["use_api_maree"]), bool(row["use_calibration"])) if row else DEFAULT_SOURCES
+
+
+def _rebind_selections(conn, port_id: int, start: str, end: str) -> None:
     """
-    Recale les créneaux choisis de l'année sur les étales recalculées : un
+    Recale les créneaux choisis de la période sur les étales recalculées : un
     recalcul peut décaler l'horodatage de quelques minutes, et le créneau ne
-    serait plus reconnu dans la recherche. On prend l'étale de même nature la
-    plus proche, dans la tolérance ; tous les créneaux choisis sur une même étale
-    la suivent ensemble. Les champs d'affichage figés au moment du choix ne changent pas.
+    serait plus reconnu dans la recherche. Chaque structure voit les horaires de ses sources : on prend, dans
+    ceux-ci, l'étale de même nature la plus proche, dans la tolérance ; tous les créneaux choisis sur une même
+    étale la suivent ensemble. Les champs d'affichage figés au moment du choix ne changent pas.
     """
-    by_kind: dict[str, list[tuple[datetime, str]]] = {"PM": [], "BM": []}
-    for ts, kind, _, _ in extrema:
-        by_kind[kind].append((datetime.fromisoformat(ts), ts))
-    known = {ts for ts, *_ in extrema}
+    start, end = _iso(start), _iso(end)
     rows = conn.execute(
         "SELECT id, structure_id, ts_utc, kind FROM slot_selections "
         "WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
         (port_id, start, end),
     ).fetchall()
+    pad = REBIND_TOLERANCE
+    lo = (datetime.fromisoformat(start) - pad).isoformat()
+    hi = (datetime.fromisoformat(end) + pad).isoformat()
+    by_structure: dict[int, list] = {}
     for r in rows:
+        by_structure.setdefault(r["structure_id"], []).append(r)
+    for structure_id, selections in by_structure.items():
+        extrema = _compose(conn, "tide_extrema", port_id, lo, hi, structure_sources(conn, structure_id))
+        for selection_id, ts in rebind_moves(selections, extrema, REBIND_TOLERANCE):
+            conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (ts, selection_id))
+
+
+def rebind_moves(selections, extrema, tolerance: timedelta) -> list[tuple[int, str]]:
+    """[(id du créneau, nouvel horodatage)] : étale de même nature la plus proche, dans la tolérance, pour
+    chaque créneau dont l'étale n'existe plus. Une étale disparue sans remplaçante : le créneau reste."""
+    by_kind: dict[str, list[tuple[datetime, str]]] = {"PM": [], "BM": []}
+    for e in extrema:
+        by_kind[e["kind"]].append((datetime.fromisoformat(e["ts_utc"]), e["ts_utc"]))
+    known = {e["ts_utc"] for e in extrema}
+    moves = []
+    for r in selections:
         if r["ts_utc"] in known:
             continue
         old = datetime.fromisoformat(r["ts_utc"])
-        near = [(abs(t - old), ts) for t, ts in by_kind[r["kind"]] if abs(t - old) <= REBIND_TOLERANCE]
-        if not near:
-            continue  # étale disparue : le choix reste, avec ses champs figés
-        conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (min(near)[1], r["id"]))
+        near = [(abs(t - old), ts) for t, ts in by_kind[r["kind"]] if abs(t - old) <= tolerance]
+        if near:
+            moves.append((r["id"], min(near)[1]))
+    return moves
 
 
 def replace_range(
@@ -246,27 +386,29 @@ def replace_range(
     end: str,
     heights: Iterable[tuple[str, float]],
     extrema: Iterable[tuple[str, str, float, float | None]],
+    source: str = "api",
 ) -> None:
     """
-    Remplace hauteurs et étales d'un port sur [start, end[ (ISO UTC), en une
-    transaction, et recale les créneaux choisis sur les nouvelles étales.
+    Remplace hauteurs et étales d'une source (mois glissant : « api ») sur [start, end[ (ISO UTC), en une
+    transaction, et recale les créneaux choisis sur les nouvelles étales. Les autres sources restent.
     Mêmes formats que replace_year ; le soleil n'est pas concerné.
     """
     extrema = list(extrema)
     with get_conn() as conn:
-        conn.execute("DELETE FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?", (port_id, start, end))
-        conn.execute("DELETE FROM tide_extrema WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?", (port_id, start, end))
-        conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, ts, h) for ts, h in heights])
-        conn.executemany(_SQL_INSERT_EXTREMA, [(port_id, ts, kind, h, coef) for ts, kind, h, coef in extrema])
-        _rebind_selections(conn, port_id, start, end, extrema)
+        conn.execute("DELETE FROM tide_heights WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
+                     (port_id, source, start, end))
+        conn.execute("DELETE FROM tide_extrema WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
+                     (port_id, source, start, end))
+        conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, source, ts, h) for ts, h in heights])
+        conn.executemany(_SQL_INSERT_EXTREMA, [(port_id, source, ts, kind, h, coef) for ts, kind, h, coef in extrema])
+        cover(conn, port_id, source, start, end)
+        _rebind_selections(conn, port_id, start, end)
 
 
-def get_heights_range(port_id: int, start_iso: str, end_iso: str) -> list[sqlite3.Row]:
+def get_heights_range(port_id: int, start_iso: str, end_iso: str, sources=None) -> list[sqlite3.Row]:
+    """Hauteurs composées selon l'ordre des sources (défaut : toutes activées)."""
     with get_conn() as conn:
-        return conn.execute(
-            "SELECT ts_utc, height_m FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ? ORDER BY ts_utc",
-            (port_id, start_iso, end_iso),
-        ).fetchall()
+        return _compose(conn, "tide_heights", port_id, start_iso, end_iso, sources)
 
 
 def save_short_term_window(port_id: int, site: str, window_start: str, window_end: str, n_extrema: int,
@@ -293,6 +435,7 @@ def clear_port_data(port_id: int) -> None:
         conn.execute("DELETE FROM sun_times WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM computed_years WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM short_term_windows WHERE port_id = ?", (port_id,))
+        conn.execute("DELETE FROM tide_coverage WHERE port_id = ?", (port_id,))
 
 
 def years_available(port_id: int) -> list[int]:
@@ -306,16 +449,16 @@ def years_available(port_id: int) -> list[int]:
         return [r["y"] for r in rows]
 
 
-def insert_heights(port_id: int, rows: list[tuple[str, float]]) -> None:
+def insert_heights(port_id: int, rows: list[tuple[str, float]], source: str = "fes") -> None:
     with get_conn() as conn:
-        conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, ts, h) for ts, h in rows])
+        conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, source, ts, h) for ts, h in rows])
 
 
-def insert_extrema(port_id: int, rows: list[tuple[str, str, float, float | None]]) -> None:
+def insert_extrema(port_id: int, rows: list[tuple[str, str, float, float | None]], source: str = "fes") -> None:
     with get_conn() as conn:
         conn.executemany(
             _SQL_INSERT_EXTREMA,
-            [(port_id, ts, kind, h, coef) for ts, kind, h, coef in rows],
+            [(port_id, source, ts, kind, h, coef) for ts, kind, h, coef in rows],
         )
 
 
@@ -324,16 +467,23 @@ def insert_sun_times(port_id: int, rows: list[tuple[str, str | None, str | None,
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in rows])
 
 
-def get_extrema_range(port_id: int, start_iso: str, end_iso: str) -> list[sqlite3.Row]:
+def get_extrema_range(port_id: int, start_iso: str, end_iso: str, sources=None) -> list[sqlite3.Row]:
+    """Étales sur [start, end[, composées selon l'ordre des sources (défaut : toutes activées)."""
     with get_conn() as conn:
-        return conn.execute(
-            """
-            SELECT * FROM tide_extrema
-            WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?
-            ORDER BY ts_utc
-            """,
-            (port_id, start_iso, end_iso),
-        ).fetchall()
+        return _compose(conn, "tide_extrema", port_id, start_iso, end_iso, sources)
+
+
+def get_extremum(port_id: int, ts_utc: str, sources=None) -> sqlite3.Row | None:
+    """L'étale à cet instant, si elle fait partie des horaires vus avec ces sources."""
+    end = (datetime.fromisoformat(ts_utc) + timedelta(seconds=1)).isoformat()
+    with get_conn() as conn:
+        return next((r for r in _compose(conn, "tide_extrema", port_id, ts_utc, end, sources)
+                     if r["ts_utc"] == ts_utc), None)
+
+
+def get_structure_sources(structure_id: int | None) -> tuple[str, ...]:
+    with get_conn() as conn:
+        return structure_sources(conn, structure_id)
 
 
 def get_sun_times_range(port_id: int, start_date: str, end_date: str) -> list[sqlite3.Row]:

@@ -108,17 +108,21 @@ def get_selection(structure_id: int, selection_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def update_selection_tide(selection_id: int, ts_utc: str, snapshot: dict) -> None:
+    """Rattache un créneau d'étale à une autre étale (autres horaires de marée) et met à jour ses champs figés."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE slot_selections SET ts_utc = ?, kind = ?, local_date = ?, local_time = ?, rdv_date = ?, "
+            "rdv_time = ?, height_m = ?, coefficient = ? WHERE id = ? AND ts_utc IS NOT NULL",
+            (ts_utc, snapshot["kind"], snapshot["date"], snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"],
+             snapshot["height_m"], snapshot["coefficient"], selection_id),
+        )
+
+
 def update_selection_rdvs(rdvs: list[tuple[str, str, int]]) -> None:
     """[(rdv_date, rdv_time, selection_id), …]"""
     with get_conn() as conn:
         conn.executemany("UPDATE slot_selections SET rdv_date = ?, rdv_time = ? WHERE id = ?", rdvs)
-
-
-def get_extremum(port_id: int, ts_utc: str) -> sqlite3.Row | None:
-    with get_conn() as conn:
-        return conn.execute(
-            "SELECT * FROM tide_extrema WHERE port_id = ? AND ts_utc = ?", (port_id, ts_utc)
-        ).fetchone()
 
 
 def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: str, type_id: int,

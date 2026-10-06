@@ -175,12 +175,24 @@ def validate_year(extrema: Sequence[tuple], sun_rows: Sequence[tuple], year: int
 
 
 def validate_stored_year(port_id: int, year: int) -> Report:
-    """Mêmes contrôles sur ce qui est actuellement en base."""
+    """Mêmes contrôles sur ce qui est actuellement en base, pour chaque calcul FES de l'année : corrigé et brut
+    (chaque structure voit l'un ou l'autre). Les horaires api-maree.fr ne couvrent qu'un mois : ils ne sont
+    vérifiés qu'en complément, là où un calcul manque."""
     port = db.get_port(port_id)
     start, end = f"{year:04d}-01-01", f"{year + 1:04d}-01-01"   # comparaison de chaînes ISO, comme db.replace_year
-    extrema = [(r["ts_utc"], r["kind"], r["height_m"], r["coefficient"]) for r in db.get_extrema_range(port_id, start, end)]
     sun = [
         (r["date"], r["sunrise_local"], r["sunset_local"], r["nautical_dawn_local"], r["nautical_dusk_local"])
         for r in db.get_sun_times_range(port_id, f"{year}-01-01", f"{year}-12-31")
     ]
-    return validate_year(extrema, sun, year, port["timezone"])
+    views = {}
+    for label, sources in (("calcul corrigé", db.tide_sources(False, True)), ("calcul brut", db.tide_sources(False, False))):
+        extrema = [(r["ts_utc"], r["kind"], r["height_m"], r["coefficient"])
+                   for r in db.get_extrema_range(port_id, start, end, sources)]
+        views.setdefault(tuple(extrema), label)   # même série (port non recalé) : vérifiée une fois
+    report = Report()
+    for extrema, label in views.items():
+        one = validate_year(list(extrema), sun, year, port["timezone"])
+        prefix = f"{label} : " if len(views) > 1 else ""
+        report.errors += [prefix + e for e in one.errors]
+        report.warnings += [prefix + w for w in one.warnings]
+    return report

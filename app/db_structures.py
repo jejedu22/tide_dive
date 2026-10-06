@@ -51,7 +51,8 @@ def rename_structure(structure_id: int, name: str) -> None:
 LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
 
 
-SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id", "default_max_registrations")
+SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id", "default_max_registrations",
+                    "use_api_maree", "use_calibration")
 
 
 def update_structure_settings(structure_id: int, **fields) -> None:

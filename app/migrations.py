@@ -33,8 +33,10 @@ Garanties
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Callable
 
@@ -117,11 +119,79 @@ def _m004_several_picks_per_tide(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_selections_tide ON slot_selections(port_id, ts_utc)")
 
 
+def _m005_tide_sources(conn: sqlite3.Connection) -> None:
+    """Séries de marée par source (fes / cal / api) et réglages des structures (use_api_maree, use_calibration).
+
+    Jusqu'ici, une seule série par port : le calcul FES, corrigé si le port est recalé, remplacé sur le mois
+    glissant par api-maree.fr. Elle est reprise telle quelle : « cal » pour un port recalé, « fes » sinon, et
+    « api » sur la dernière fenêtre du mois glissant. Le calcul brut d'un port recalé, et le calcul sur cette
+    fenêtre, n'existent pas encore : les années à venir concernées sont remises en file de précalcul. D'ici
+    là, la lecture prend une autre source en dernier recours (pas de trou)."""
+    from .db_schema import TIDE_EXTREMA_COLUMNS, TIDE_HEIGHTS_COLUMNS
+    from .db_tides import _subtract, cover, uncover
+
+    for col in ("use_api_maree", "use_calibration"):
+        if col not in _columns(conn, "structures"):
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} INTEGER NOT NULL DEFAULT 1")
+    if "source" in _columns(conn, "tide_extrema"):
+        return   # base neuve, ou déjà migrée
+
+    calibrated = {r["port_id"] for r in conn.execute("SELECT port_id FROM tide_calibration")}
+    windows = {r["port_id"]: (r["window_start"], r["window_end"])
+               for r in conn.execute("SELECT port_id, window_start, window_end FROM short_term_windows")}
+    years = {}
+    for r in conn.execute("SELECT DISTINCT port_id, CAST(substr(ts_utc, 1, 4) AS INTEGER) AS y FROM tide_extrema"):
+        years.setdefault(r["port_id"], []).append(r["y"])
+
+    for table, columns, cols in (("tide_extrema", TIDE_EXTREMA_COLUMNS, "port_id, ts_utc, kind, height_m, coefficient"),
+                                 ("tide_heights", TIDE_HEIGHTS_COLUMNS, "port_id, ts_utc, height_m")):
+        conn.execute(f"CREATE TABLE {table}_new {columns}")
+        conn.execute(
+            f"INSERT INTO {table}_new (source, {cols}) "
+            f"SELECT CASE WHEN port_id IN (SELECT port_id FROM tide_calibration) THEN 'cal' ELSE 'fes' END, {cols} "
+            f"FROM {table}"
+        )
+        for port_id, (start, end) in windows.items():
+            conn.execute(f"UPDATE {table}_new SET source = 'api' WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?",
+                         (port_id, start, end))
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc)")
+
+    for port_id, port_years in years.items():
+        base = "cal" if port_id in calibrated else "fes"
+        for y in port_years:
+            cover(conn, port_id, base, f"{y:04d}-01-01", f"{y + 1:04d}-01-01")
+        if port_id in windows:
+            start, end = windows[port_id]
+            uncover(conn, port_id, base, start, end)
+            cover(conn, port_id, "api", start, end)
+
+    # Années à venir à recalculer : calcul brut d'un port recalé, calcul FES sur la fenêtre api-maree.fr
+    this_year = datetime.now(timezone.utc).year
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for r in conn.execute("SELECT port_id, year, model FROM computed_years WHERE year >= ? ORDER BY port_id, year",
+                          (this_year,)).fetchall():
+        port_id, year = r["port_id"], r["year"]
+        in_window = port_id in windows and _subtract(
+            [(f"{year:04d}-01-01T00:00:00+00:00", f"{year + 1:04d}-01-01T00:00:00+00:00")], *windows[port_id]
+        ) != [(f"{year:04d}-01-01T00:00:00+00:00", f"{year + 1:04d}-01-01T00:00:00+00:00")]
+        if port_id not in calibrated and not in_window:
+            continue
+        params = json.dumps({"model": r["model"], "port_id": port_id, "year": year}, sort_keys=True)
+        if not conn.execute("SELECT 1 FROM jobs WHERE kind = 'precompute' AND params_json = ? "
+                            "AND status IN ('queued', 'running')", (params,)).fetchone():
+            conn.execute("INSERT INTO jobs (kind, params_json, created_by, created_at) VALUES ('precompute', ?, ?, ?)",
+                         (params, "mise à jour (sources de marée)", now))
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
     Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
     Migration(4, "plusieurs créneaux choisis sur la même étale", _m004_several_picks_per_tide),
+    Migration(5, "horaires de marée par source (calcul brut, corrigé, api-maree.fr)", _m005_tide_sources),
 ]
 
 

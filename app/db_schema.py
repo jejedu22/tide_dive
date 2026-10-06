@@ -15,6 +15,25 @@ from .db_core import db_path, get_conn
 from .db_jobs import _prune_jobs
 
 
+# Colonnes des séries de marée, partagées par le schéma et la migration qui ajoute la source (migrations._m005)
+TIDE_HEIGHTS_COLUMNS = """(
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    source TEXT NOT NULL DEFAULT 'fes' CHECK (source IN ('fes', 'cal', 'api')),
+    ts_utc TEXT NOT NULL,          -- horodatage ISO8601 UTC
+    height_m REAL NOT NULL,
+    PRIMARY KEY (port_id, source, ts_utc)
+)"""
+
+TIDE_EXTREMA_COLUMNS = """(
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    source TEXT NOT NULL DEFAULT 'fes' CHECK (source IN ('fes', 'cal', 'api')),
+    ts_utc TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
+    height_m REAL NOT NULL,
+    coefficient REAL,               -- rempli uniquement pour les PM
+    PRIMARY KEY (port_id, source, ts_utc)
+)"""
+
 # Colonnes de slot_selections, partagées par le schéma et les migrations qui reconstruisent la table
 # (_migrate_custom_selections, migrations._m004_several_picks_per_tide). Une structure peut choisir plusieurs
 # fois la même étale (plusieurs bateaux, une sortie et une formation…) : pas de contrainte d'unicité.
@@ -82,20 +101,21 @@ CREATE TABLE IF NOT EXISTS tide_calibration (
     computed_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS tide_heights (
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    ts_utc TEXT NOT NULL,          -- horodatage ISO8601 UTC
-    height_m REAL NOT NULL,
-    PRIMARY KEY (port_id, ts_utc)
-);
+-- Séries de marée d'un port, par source (voir db_tides.SOURCES) : « fes » calcul FES brut, « cal » calcul
+-- corrigé par le recalage du port, « api » horaires d'api-maree.fr (mois glissant). Chaque structure compose
+-- les séries selon ses réglages (structures.use_api_maree / use_calibration).
+CREATE TABLE IF NOT EXISTS tide_heights """ + TIDE_HEIGHTS_COLUMNS + """;
 
-CREATE TABLE IF NOT EXISTS tide_extrema (
+CREATE TABLE IF NOT EXISTS tide_extrema """ + TIDE_EXTREMA_COLUMNS + """;
+
+-- Périodes [début, fin[ (ISO UTC) couvertes par chaque source d'un port : précalcul d'une année (fes, cal),
+-- fenêtres du mois glissant (api). Une source « couvre » une période même sans étale (ce n'est pas un trou).
+CREATE TABLE IF NOT EXISTS tide_coverage (
     port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    ts_utc TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('PM', 'BM')),
-    height_m REAL NOT NULL,
-    coefficient REAL,               -- rempli uniquement pour les PM
-    PRIMARY KEY (port_id, ts_utc)
+    source TEXT NOT NULL CHECK (source IN ('fes', 'cal', 'api')),
+    start_utc TEXT NOT NULL,
+    end_utc TEXT NOT NULL,
+    PRIMARY KEY (port_id, source, start_utc)
 );
 
 -- Fenêtre glissante où les hauteurs et étales viennent d'api-maree.fr
@@ -149,7 +169,10 @@ CREATE TABLE IF NOT EXISTS structures (
     default_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL,
     -- nombre de places proposé aux NOUVEAUX créneaux (modifier cette valeur ne touche pas les créneaux existants) ;
     -- NULL : illimité
-    default_max_registrations INTEGER CHECK (default_max_registrations IS NULL OR default_max_registrations BETWEEN 1 AND 500)
+    default_max_registrations INTEGER CHECK (default_max_registrations IS NULL OR default_max_registrations BETWEEN 1 AND 500),
+    -- horaires de marée vus par la structure : mois glissant api-maree.fr, correction du calcul FES (1 : oui)
+    use_api_maree INTEGER NOT NULL DEFAULT 1,
+    use_calibration INTEGER NOT NULL DEFAULT 1
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).

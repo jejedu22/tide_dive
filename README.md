@@ -215,11 +215,11 @@ Le coefficient (échelle 20–120) est une notion française définie à Brest. 
 
 ### Mois glissant (court terme)
 
-Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) remplace en base, de J−1 à J+29, les hauteurs (pas de 10 min), les pleines / basses mers et les coefficients du calcul FES par ceux d'api-maree.fr (`/water-levels` et `/tide-extrema` : 6 requêtes par port). Les étales sont déduites de la série api-maree.fr et affinées par interpolation parabolique ; elles coïncident à la minute avec celles d'api-maree.fr. Les jours passés gardent les valeurs api-maree.fr.
+Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) enregistre, de J−1 à J+29, les hauteurs (pas de 10 min), les pleines / basses mers et les coefficients d'api-maree.fr, **à côté** du calcul FES (qui reste en base) (`/water-levels` et `/tide-extrema` : 6 requêtes par port). Les étales sont déduites de la série api-maree.fr et affinées par interpolation parabolique ; elles coïncident à la minute avec celles d'api-maree.fr. Les jours passés gardent les valeurs api-maree.fr.
 
 - **Coefficients** : ceux d'api-maree.fr (`/tide-extrema`), pris sur la PM api-maree.fr la plus proche (à 30 min près). À défaut, la PM garde le coefficient du calcul FES qu'elle remplace, et le journal le signale.
 - **Créneaux déjà choisis** : recalés sur la nouvelle heure de l'étale, comme lors d'un recalcul.
-- **Années** : seules les années déjà précalculées sont touchées ; un précalcul d'une année qui touche le mois glissant est aussitôt suivi d'un rafraîchissement, sinon il l'écraserait avec FES.
+- **Années** : seules les années déjà précalculées sont concernées ; un nouveau précalcul ne touche pas aux horaires api-maree.fr.
 - **Contrôle du référentiel** : les hauteurs api-maree.fr et les hauteurs stockées (FES + `offset_zh_m`) sont au-dessus du zéro des cartes. Si leurs moyennes diffèrent de plus de 50 cm (niveau moyen du port erroné, ou site d'un autre port), rien n'est écrit ; au-delà de 15 cm, un avertissement est journalisé.
 - Dans l'onglet Ports, l'étiquette **30 j → date** indique la fin de la fenêtre reprise (signalée si elle n'a pas été rafraîchie depuis 2 jours), et le bouton **30 jours** la rafraîchit tout de suite.
 
@@ -242,9 +242,25 @@ Mise en place :
 - renseigner `API_MAREE_KEY` dans `.env` (clé gratuite sur api-maree.fr) ;
 - dans l'administration (onglet **Ports**, **Modifier**), saisir l'**identifiant du site api-maree.fr** du port (ex. `saint-quay-portrieux`, voir la liste des sites sur api-maree.fr), puis cliquer sur **Recaler**.
 
-Le recalage est refait le 2 de chaque mois. S'il change sensiblement (correction modifiée d'au moins 3 cm), les années déjà calculées, à partir de l'année en cours, sont remises en file. Un recalage établi pour FES2014 n'est pas appliqué aux calculs FES2022 (et inversement) : relancer le recalage après un changement de modèle. Un résultat invraisemblable (correction de plus d'1 m sur une onde, écart résiduel de plus de 25 cm, moins de 15 jours de données) est refusé et l'ancien recalage est conservé. Dans l'onglet Ports, la colonne **Recalage** affiche l'écart moyen des heures de PM/BM avant → après, avec la correction de chaque onde en info-bulle. **Modifier → Abandonner le recalage** revient à FES brut pour les prochains calculs.
+Le recalage est refait le 2 de chaque mois. S'il change sensiblement (correction modifiée d'au moins 3 cm), les années déjà calculées, à partir de l'année en cours, sont remises en file. Un recalage établi pour FES2014 n'est pas appliqué aux calculs FES2022 (et inversement) : relancer le recalage après un changement de modèle. Un résultat invraisemblable (correction de plus d'1 m sur une onde, écart résiduel de plus de 25 cm, moins de 15 jours de données) est refusé et l'ancien recalage est conservé. Dans l'onglet Ports, la colonne **Recalage** affiche l'écart moyen des heures de PM/BM avant → après, avec la correction de chaque onde en info-bulle. **Modifier → Abandonner le recalage** : les prochains calculs du port n'ont plus de version corrigée (tout le monde voit le calcul brut).
 
 **Recalages faits avec la version précédente** (décalage et amplitude uniques) : ils restent appliqués et sont signalés dans l'administration. Cliquer sur **Recaler** (ou attendre le recalage mensuel) les remplace et relance le précalcul des années à venir.
+
+### Horaires de marée par structure
+
+Chaque structure choisit les horaires qu'elle voit, dans `/admin.html` → **Créneaux** → *Horaires de marée* (ses administrateurs) :
+
+- **Mois glissant api-maree.fr** (coché par défaut) : sur J−1 / J+29, les horaires d'api-maree.fr ;
+- **Correction du calcul FES** (cochée par défaut) : ailleurs, le calcul FES recalé sur api-maree.fr ;
+- tout décocher : le **calcul FES brut** partout.
+
+Pour cela, la base garde jusqu'à trois séries par port (colonne `source` de `tide_extrema` et `tide_heights`) : `fes` (calcul brut), `cal` (calcul corrigé, pour un port recalé, ou dont Brest l'est : coefficients corrigés) et `api` (mois glissant). La table `tide_coverage` dit quelle période chaque série couvre. La lecture compose les séries dans l'ordre de préférence de la structure (`db.tide_sources`), les autres servant en dernier recours pour ne jamais laisser de trou. Le précalcul d'un port recalé écrit les deux calculs (un seul calcul FES : la correction s'ajoute) ; le mois glissant n'écrase plus le calcul FES.
+
+- Les **visiteurs** et les comptes sans structure voient les réglages par défaut.
+- Une structure ne **choisit** que des étales de ses horaires ; la recherche rappelle les réglages s'ils ne sont pas ceux par défaut.
+- **Changer de réglage** recale les créneaux choisis **à venir** de la structure sur l'étale correspondante de ses nouveaux horaires (même marée, à 2 h près) : heure, hauteur, coefficient et RDV sont mis à jour. Les autres structures ne sont pas touchées.
+- Un recalcul (précalcul, mois glissant) recale les créneaux de chaque structure dans **ses** horaires.
+- **Mise à jour d'une base existante** (migration n° 5) : la série unique devient `cal` pour un port recalé, `fes` sinon, et `api` sur la dernière fenêtre du mois glissant. Le calcul brut d'un port recalé n'existe pas encore : les années à venir concernées sont **remises en file de précalcul** automatiquement (onglet *Données et tâches*). D'ici là, une structure qui désactive la correction voit encore le calcul corrigé, et une structure qui désactive api-maree.fr voit encore ses horaires sur la dernière fenêtre.
 
 ## Administration des données
 

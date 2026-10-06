@@ -230,6 +230,10 @@
             <select id="default-port" name="default_port_id"></select>
           </div>
           <p class="hint">Port proposé d'office aux membres de la structure dans la recherche. Les préférences enregistrées par un membre restent prioritaires.</p>
+          <h2>Horaires de marée</h2>
+          <label class="check"><input type="checkbox" id="use-api-maree" name="use_api_maree"> Mois glissant api-maree.fr</label>
+          <label class="check"><input type="checkbox" id="use-calibration" name="use_calibration"> Correction du calcul FES (recalage)</label>
+          <p class="hint">Horaires vus par <strong>votre structure</strong> dans la recherche et pour ses créneaux ; les autres structures gardent les leurs. <strong>Mois glissant</strong> : sur les 30 prochains jours, horaires repris chaque jour d'api-maree.fr (atlas Ifremer, plus précis près des côtes). <strong>Correction</strong> : au-delà, calcul FES recalé sur api-maree.fr, port par port. Tout décocher : calcul FES brut. Changer ces réglages recale les créneaux déjà choisis à venir sur les nouveaux horaires (même marée, heure et RDV mis à jour).</p>
           <h2>Places</h2>
           <div class="field">
             <label for="default-max-registrations">Nombre de places par défaut</label>
