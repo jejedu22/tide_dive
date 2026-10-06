@@ -1276,7 +1276,7 @@ main.narrow-main { max-width: 32rem; }
     background: var(--blue-deep);
   }
   .windows thead tr:first-child { display: none; }          /* titres de colonnes */
-  .windows tr.filters { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .windows tr.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
   .windows tr.filters th {
     display: flex;
     flex-direction: column;
@@ -1289,8 +1289,13 @@ main.narrow-main { max-width: 32rem; }
   }
   .windows tr.filters th[data-label]::before { content: attr(data-label); }
   .windows tr.filters th[colspan] { grid-column: 1 / -1; }
+  .windows tr.filters th { min-width: 0; }
+  /* largeur fixe des champs heure et nombre (grand écran) : ici ils se partagent la colonne */
   .windows .filters select,
-  .windows .filters input { width: 100%; min-width: 0; min-height: 2.5rem; font-size: 16px; }
+  .windows .filters input,
+  .windows .filters input[type="number"],
+  .windows .filters input[type="time"] { width: 100%; min-width: 0; min-height: 2.5rem; font-size: 16px; }
+  .windows .filters .range > input { flex: 1 1 0; }
   .windows .filters select[data-f="day"] { max-width: none; }
   .windows .filters .range,
   .windows .filters .range.stack { flex-direction: row; }
@@ -1350,6 +1355,11 @@ main.narrow-main { max-width: 32rem; }
     background: none;
   }
   .windows td.c-pick::before { content: none; }
+  /* plusieurs créneaux sur l'étale : un par ligne, puis la liste « + Autre… » sur toute la largeur */
+  .windows td.c-pick { flex-wrap: wrap; align-items: center; }
+  .windows td.c-pick .pick-item { flex: 1 1 100%; margin-bottom: 0; white-space: normal; }
+  .windows td.c-pick .pick-item .unpick { margin-left: auto; }
+  .windows td.c-pick .unavailable-tag { flex: 1 1 100%; }
   .windows td.c-pick select { flex: 1; max-width: none; min-height: 2.75rem; font-size: 16px; }
   .windows td.c-pick .unpick { min-width: 2.75rem; min-height: 2.75rem; }
 }
