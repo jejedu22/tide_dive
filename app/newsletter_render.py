@@ -90,6 +90,10 @@ def _slot_detail(s: dict) -> str:
         parts.append(f"étale {'pleine' if s['kind'] == 'PM' else 'basse'} mer {s['time']}")
         if s.get("coefficient") is not None:
             parts.append(f"coef {round(s['coefficient'])}")
+    if s.get("water"):
+        label, height, direction, start, end = s["water"]
+        sign = "≥" if direction == "above" else "≤"
+        parts.append(f"{label} (eau {sign} {height:.2f} m".replace(".", ",") + f") de {start} à {end}")
     if s.get("type"):
         parts.append(s["type"])
     out = " · ".join(parts)
@@ -241,7 +245,7 @@ def render(subject: str, preheader: str | None, body: str, *, structure: str,
     """
     (sujet, html, texte) pour un destinataire ; unsubscribe_url None : aperçu.
     slots(début, fin) : créneaux choisis de la période (dicts : date, end_date,
-    rdv_date, rdv_time, place, note, type, type_color, kind, time, coefficient) ;
+    rdv_date, rdv_time, place, note, type, type_color, kind, time, coefficient, water) ;
     sans lui, un bloc « créneaux » reste du texte. today : origine de « N jours ».
     """
     values = {"prenom": first_name or "", "nom": last_name or "", "structure": structure}

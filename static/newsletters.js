@@ -766,6 +766,6 @@ async function onSessionChange(user) {
   route();
 }
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.admin]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.admin]);
 Session.onChange(onSessionChange);
 Session.init();

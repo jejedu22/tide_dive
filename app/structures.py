@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, status
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from . import db
@@ -50,6 +52,8 @@ class StructureSettingsIn(BaseModel):
     # Horaires de marée vus par la structure : mois glissant api-maree.fr, correction du calcul FES par le recalage
     use_api_maree: bool | None = None
     use_calibration: bool | None = None
+    # Recherche proposée aux membres : par étale, par hauteur d'eau, les deux (super administrateurs seulement)
+    search_modes: Literal["tides", "heights", "both"] | None = None
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -68,6 +72,7 @@ def _out(row: sqlite3.Row) -> dict:
         "default_max_registrations": row["default_max_registrations"],
         "use_api_maree": bool(row["use_api_maree"]),
         "use_calibration": bool(row["use_calibration"]),
+        "search_modes": row["search_modes"],
     }
 
 
@@ -118,6 +123,12 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Port inconnu")
     if "default_max_registrations" in fields:
         fields["default_max_registrations"] = fields["default_max_registrations"] or None   # 0 : illimité
+    if "search_modes" in fields:
+        if fields["search_modes"] is None:
+            del fields["search_modes"]
+        elif not actor["is_admin"] and fields["search_modes"] != before["search_modes"]:
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "La recherche proposée à la structure est réglée par les super administrateurs")
     for flag in ("use_api_maree", "use_calibration"):
         if flag in fields:
             if fields[flag] is None:
@@ -166,6 +177,10 @@ def rebind_upcoming(structure_id: int) -> int:
         ex = next(e for e in around if e["ts_utc"] == target)
         db.update_selection_tide(row["id"], target, describe_extremum(port, ex, offset, sources))
         moved += target != row["ts_utc"]
+    # créneaux de hauteur d'eau : leur plage, recalculée dans les nouveaux horaires
+    start = datetime.now(timezone.utc) - timedelta(days=1)
+    for port_id in {r["port_id"] for r in db.list_selections(structure_id, today) if r["window_start_utc"]}:
+        moved += db.rebind_water_for_structure(structure_id, port_id, start.isoformat())
     return moved
 
 

@@ -55,6 +55,17 @@ SLOT_SELECTIONS_COLUMNS = """(
     coefficient REAL,
     note TEXT,                              -- intitulé (facultatif) : distingue les créneaux d'une même étale
     created_at TEXT NOT NULL,
+    -- créneau de hauteur d'eau : plage où l'eau est au-dessus (ou au-dessous) d'une hauteur du port ; ts_utc,
+    -- kind, local_time et height_m sont alors NULL (pas d'étale). Le seuil est recopié : il peut être supprimé.
+    threshold_id INTEGER REFERENCES water_thresholds(id) ON DELETE SET NULL,
+    threshold_label TEXT,
+    threshold_height REAL,
+    threshold_direction TEXT CHECK (threshold_direction IS NULL OR threshold_direction IN ('above', 'below')),
+    window_start_utc TEXT,                  -- début et fin de la plage (ISO UTC)
+    window_end_utc TEXT,
+    window_start_time TEXT,                 -- début local (HH:MM) ; le jour est local_date
+    window_end_date TEXT,                   -- fin locale (jour, heure) : la plage peut passer minuit
+    window_end_time TEXT,
     -- places : au-delà, les inscriptions passent en file d'attente (par ordre d'inscription). NULL : illimité.
     -- Copiée de structures.default_max_registrations à la création du créneau, puis modifiable.
     max_registrations INTEGER CHECK (max_registrations IS NULL OR max_registrations BETWEEN 1 AND 500),
@@ -64,7 +75,10 @@ SLOT_SELECTIONS_COLUMNS = """(
     -- un port ou un lieu libre, jamais les deux ; une étale a toujours son port
     CHECK ((port_id IS NULL) <> (location IS NULL) AND (ts_utc IS NULL OR port_id IS NOT NULL)),
     -- plusieurs jours : créneau personnalisé uniquement, fin après le premier jour
-    CHECK (end_date IS NULL OR (ts_utc IS NULL AND end_date > local_date))
+    CHECK (end_date IS NULL OR (ts_utc IS NULL AND end_date > local_date)),
+    -- créneau de hauteur d'eau : pas d'étale, toujours un port, début et fin
+    CHECK (window_start_utc IS NULL OR (ts_utc IS NULL AND port_id IS NOT NULL AND window_end_utc IS NOT NULL
+                                        AND end_date IS NULL))
 )"""
 
 
@@ -172,7 +186,9 @@ CREATE TABLE IF NOT EXISTS structures (
     default_max_registrations INTEGER CHECK (default_max_registrations IS NULL OR default_max_registrations BETWEEN 1 AND 500),
     -- horaires de marée vus par la structure : mois glissant api-maree.fr, correction du calcul FES (1 : oui)
     use_api_maree INTEGER NOT NULL DEFAULT 1,
-    use_calibration INTEGER NOT NULL DEFAULT 1
+    use_calibration INTEGER NOT NULL DEFAULT 1,
+    -- recherche proposée aux membres (réglée par les super administrateurs) : par étale, par hauteur d'eau, les deux
+    search_modes TEXT NOT NULL DEFAULT 'tides' CHECK (search_modes IN ('tides', 'heights', 'both'))
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
@@ -461,6 +477,18 @@ CREATE TABLE IF NOT EXISTS slot_types (
 -- proposées) : ts_utc, kind, local_time et height_m sont NULL ; on saisit le
 -- jour, l'heure de RDV et un intitulé facultatif (note). SQLite tient les NULL
 -- pour distincts : la contrainte UNIQUE ne s'applique pas à ces créneaux.
+-- Hauteurs d'eau d'un port (saisies par les super administrateurs) : la recherche par hauteur d'eau donne les
+-- plages où l'eau est au-dessus (« above ») ou au-dessous (« below ») de cette hauteur, au-dessus du zéro des cartes.
+CREATE TABLE IF NOT EXISTS water_thresholds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    height_m REAL NOT NULL CHECK (height_m BETWEEN -5 AND 20),
+    direction TEXT NOT NULL DEFAULT 'above' CHECK (direction IN ('above', 'below')),
+    created_at TEXT NOT NULL,
+    UNIQUE (port_id, label)
+);
+
 CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
 
 -- Plages d'indisponibilité d'une structure (tous lieux) : aucun créneau ne peut y être choisi ou créé.

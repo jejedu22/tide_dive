@@ -21,6 +21,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_jobs.py        file de tâches, worker
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
   db_unavailabilities.py plages d'indisponibilité des structures
+  db_water.py       hauteurs d'eau des ports, créneaux de hauteur d'eau
   db_requests.py    demandes de création de structure
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
 Les évolutions nouvelles du schéma : migrations.py.
@@ -88,6 +89,9 @@ from .db_tides import (  # noqa: F401
     structure_sources,
     _rebind_selections,
     rebind_moves,
+    update_window,
+    rebind_water_selections,
+    rebind_water_for_structure,
     replace_range,
     get_heights_range,
     save_short_term_window,
@@ -222,6 +226,15 @@ from .db_unavailabilities import (  # noqa: F401
     update_unavailability,
     delete_unavailability,
     selections_in_unavailability,
+)
+from .db_water import (  # noqa: F401
+    list_thresholds,
+    get_threshold,
+    create_threshold,
+    update_threshold,
+    delete_threshold,
+    create_water_selection,
+    water_selections_between,
 )
 from .db_requests import (  # noqa: F401
     create_structure_request,

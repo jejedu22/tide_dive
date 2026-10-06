@@ -317,6 +317,7 @@ def replace_year(
             cover(conn, port_id, source, start, end)
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in sun_rows])
         _rebind_selections(conn, port_id, start, end)
+        rebind_water_selections(conn, port_id, start, end)
         if model:
             conn.execute(
                 "INSERT OR REPLACE INTO computed_years (port_id, year, model, computed_at) VALUES (?, ?, ?, ?)",
@@ -362,6 +363,60 @@ def _rebind_selections(conn, port_id: int, start: str, end: str) -> None:
             conn.execute("UPDATE slot_selections SET ts_utc = ? WHERE id = ?", (ts, selection_id))
 
 
+def update_window(conn, selection_id: int, start_utc: str, end_utc: str, local: dict) -> None:
+    """Nouvelle plage d'un créneau de hauteur d'eau (recalcul, autres horaires) : bornes, jour et RDV."""
+    conn.execute(
+        "UPDATE slot_selections SET window_start_utc = ?, window_end_utc = ?, local_date = ?, rdv_date = ?, "
+        "rdv_time = ?, window_start_time = ?, window_end_date = ?, window_end_time = ? "
+        "WHERE id = ? AND window_start_utc IS NOT NULL",
+        (start_utc, end_utc, local["date"], local["rdv_date"], local["rdv_time"], local["start"], local["end_date"],
+         local["end"], selection_id),
+    )
+
+
+def rebind_water_selections(conn, port_id: int, start: str, end: str, structure_id: int | None = None) -> int:
+    """Recale les créneaux de hauteur d'eau du port dont la plage commence dans [start, end[ sur les plages
+    recalculées dans les horaires de leur structure (water_windows.match) ; une plage disparue : le créneau
+    garde la sienne. structure_id : cette structure seulement. Renvoie le nombre de créneaux déplacés."""
+    from zoneinfo import ZoneInfo
+
+    from .water_windows import describe, find_windows, match
+
+    start, end = _iso(start), _iso(end)
+    sql = ("SELECT id, structure_id, window_start_utc, window_end_utc, threshold_height, threshold_direction "
+           "FROM slot_selections WHERE port_id = ? AND window_start_utc >= ? AND window_start_utc < ?")
+    params: list = [port_id, start, end]
+    if structure_id is not None:
+        sql += " AND structure_id = ?"
+        params.append(structure_id)
+    rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return 0
+    port = conn.execute("SELECT timezone FROM ports WHERE id = ?", (port_id,)).fetchone()
+    tz = ZoneInfo(port["timezone"] if port else "Europe/Paris")
+    moved = 0
+    margin = timedelta(hours=12)   # une plage peut durer : on prend large autour
+    for r in rows:
+        s, e = datetime.fromisoformat(r["window_start_utc"]), datetime.fromisoformat(r["window_end_utc"])
+        heights = _compose(conn, "tide_heights", port_id, (s - margin).isoformat(), (e + margin).isoformat(),
+                           structure_sources(conn, r["structure_id"]))
+        found = match(s, e, find_windows([(h["ts_utc"], h["height_m"]) for h in heights],
+                                         r["threshold_height"], r["threshold_direction"]))
+        if found is None:
+            continue
+        new_start, new_end = found.start.isoformat(), found.end.isoformat()
+        if (new_start, new_end) != (r["window_start_utc"], r["window_end_utc"]):
+            update_window(conn, r["id"], new_start, new_end, describe(found.start, found.end, tz))
+            moved += 1
+    return moved
+
+
+def rebind_water_for_structure(structure_id: int, port_id: int, from_iso: str) -> int:
+    """Créneaux de hauteur d'eau à venir d'une structure, sur un port, recalés dans ses horaires actuels."""
+    with get_conn() as conn:
+        return rebind_water_selections(conn, port_id, from_iso, "9999-12-31", structure_id)
+
+
 def rebind_moves(selections, extrema, tolerance: timedelta) -> list[tuple[int, str]]:
     """[(id du créneau, nouvel horodatage)] : étale de même nature la plus proche, dans la tolérance, pour
     chaque créneau dont l'étale n'existe plus. Une étale disparue sans remplaçante : le créneau reste."""
@@ -403,6 +458,7 @@ def replace_range(
         conn.executemany(_SQL_INSERT_EXTREMA, [(port_id, source, ts, kind, h, coef) for ts, kind, h, coef in extrema])
         cover(conn, port_id, source, start, end)
         _rebind_selections(conn, port_id, start, end)
+        rebind_water_selections(conn, port_id, start, end)
 
 
 def get_heights_range(port_id: int, start_iso: str, end_iso: str, sources=None) -> list[sqlite3.Row]:

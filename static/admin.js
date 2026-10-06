@@ -403,6 +403,12 @@ function renderStructures() {
         <td class="num" data-label="Visualisation">${st.viewers}</td>
         <td class="num" data-label="Types">${st.types}</td>
         <td class="num" data-label="Créneaux choisis">${st.selections}</td>
+        <td data-label="Recherche">
+          <select data-act="search-modes" aria-label="Recherche proposée à ${esc(st.name)}">
+            ${Object.entries(SEARCH_MODES).map(([v, label]) =>
+              `<option value="${v}"${(st.search_modes || "tides") === v ? " selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </td>
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="members">Membres</button>
           <button type="button" class="btn-quiet" data-act="types">Types</button>
@@ -411,7 +417,7 @@ function renderStructures() {
         </td>
       </tr>`;
   }).join("")
-    : `<tr><td colspan="6" class="empty">Aucune structure. Créez-en une, puis ajoutez-lui des comptes dans « Utilisateurs ».</td></tr>`;
+    : `<tr><td colspan="7" class="empty">Aucune structure. Créez-en une, puis ajoutez-lui des comptes dans « Utilisateurs ».</td></tr>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -585,6 +591,25 @@ structureForm.addEventListener("submit", async e => {
   }
 });
 
+// Recherche proposée aux membres de chaque structure (super administrateurs)
+const SEARCH_MODES = { tides: "Par étale", heights: "Par hauteur d'eau", both: "Les deux" };
+
+structuresBody.addEventListener("change", async e => {
+  if (e.target.dataset.act !== "search-modes") return;
+  const st = structures.find(x => x.id === Number(e.target.closest("tr").dataset.id));
+  try {
+    const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, {
+      method: "PATCH", body: { search_modes: e.target.value },
+    });
+    st.search_modes = saved.search_modes;
+    flash(`« ${esc(st.name)} » : recherche ${esc(SEARCH_MODES[saved.search_modes].toLowerCase())}.`);
+    if (st.id === Session.user.structure?.id) Session.init();   // liens de l'en-tête
+  } catch (err) {
+    e.target.value = st.search_modes || "tides";
+    flash(esc(err.message));
+  }
+});
+
 structuresBody.addEventListener("click", async e => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
@@ -636,11 +661,14 @@ const catalogSelect = $("port-catalog");
 const defaultYear = new Date().getMonth() >= 10 ? new Date().getFullYear() + 1 : new Date().getFullYear();
 $("annual-year").value = defaultYear;
 
+let waterThresholds = [];   // hauteurs d'eau de tous les ports (recherche par hauteur d'eau)
+
 async function loadPorts() {
   try {
-    [ports, catalog] = await Promise.all([
+    [ports, catalog, waterThresholds] = await Promise.all([
       Session.api("/api/admin/ports"),
       Session.api("/api/admin/ports/catalog"),
+      Session.api("/api/admin/water-thresholds"),
     ]);
   } catch (e) {
     flash(esc(e.message));
@@ -731,6 +759,7 @@ function renderPorts() {
           <button type="button" class="btn-secondary" data-act="compute" ${p.offset_zh_m == null ? "disabled title=\"Renseignez d'abord le niveau moyen\"" : ""}>Calculer</button>
           <button type="button" class="btn-quiet" data-act="short_term" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Reprendre maintenant les horaires de J−1 à J+29 depuis api-maree.fr (fait chaque jour à 5 h)"`}>30 jours</button>
           <button type="button" class="btn-quiet" data-act="calibrate" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Recaler le calcul FES (long terme) sur api-maree.fr"`}>Recaler</button>
+          <button type="button" class="btn-quiet" data-act="water" title="Hauteurs d'eau de la recherche par hauteur d'eau">Hauteurs d'eau${waterCount(p) ? ` (${waterCount(p)})` : ""}</button>
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
@@ -804,6 +833,9 @@ portsBody.addEventListener("click", async e => {
     case "short_term":
       enqueue(btn.dataset.act, { port_id: port.id });
       break;
+    case "water":
+      openWaterThresholds(port);
+      break;
     case "edit":
       editPort(port);
       break;
@@ -819,6 +851,87 @@ portsBody.addEventListener("click", async e => {
       break;
   }
 });
+
+// ---- Hauteurs d'eau d'un port : la recherche par hauteur d'eau donne les plages au-dessus (ou au-dessous) ----
+
+const waterCount = p => waterThresholds.filter(t => t.port_id === p.id).length;
+const fmtHeightM = h => `${fmtNum(h, 2)} m`;
+const DIRECTIONS = { above: "au moins (eau au-dessus)", below: "au plus (eau au-dessous)" };
+
+function openWaterThresholds(port) {
+  const d = document.createElement("dialog");
+  d.className = "account-dialog water-dialog";
+  document.body.append(d);
+  d.addEventListener("close", () => d.remove());
+  let editing = null;   // hauteur en cours de modification
+
+  const render = () => {
+    const list = waterThresholds.filter(t => t.port_id === port.id);
+    const t = editing;
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>Hauteurs d'eau — ${esc(port.name)}</h2>
+        <p class="dialog-hint">Hauteurs au-dessus du zéro des cartes, comme dans l'annuaire des marées. La recherche par hauteur d'eau donne les plages où l'eau est au-dessus (« au moins ») ou au-dessous (« au plus ») de chacune. Les créneaux déjà choisis gardent la hauteur du moment du choix.</p>
+        <ul class="water-list">${list.length ? list.map(x => `
+          <li data-id="${x.id}">
+            <span><strong>${esc(x.label)}</strong> · ${x.direction === "above" ? "≥" : "≤"} ${fmtHeightM(x.height_m)}${x.uses ? ` <span class="muted">(${x.uses} créneau(x))</span>` : ""}</span>
+            <span><button type="button" class="btn-quiet btn-small" data-water="edit">Modifier</button>
+            <button type="button" class="btn-danger btn-small" data-water="delete">Supprimer</button></span>
+          </li>`).join("") : `<li class="muted">Aucune hauteur d'eau pour ce port.</li>`}
+        </ul>
+        <fieldset class="water-form">
+          <legend>${t ? `Modifier « ${esc(t.label)} »` : "Ajouter une hauteur d'eau"}</legend>
+          <label>Libellé <input name="label" maxlength="60" placeholder="ex. Mise à l'eau à la cale" value="${esc(t?.label ?? "")}"></label>
+          <label>Hauteur (m) <input name="height_m" type="number" step="0.01" min="-5" max="20" value="${t?.height_m ?? ""}"></label>
+          <label>Sens <select name="direction">${Object.entries(DIRECTIONS).map(([v, l]) =>
+            `<option value="${v}"${(t?.direction || "above") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        </fieldset>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn-quiet" value="close">Fermer</button>
+          ${t ? `<button type="button" class="btn-quiet" value="cancel-edit">Annuler la modification</button>` : ""}
+          <button type="submit" class="btn-primary">${t ? "Enregistrer" : "Ajouter"}</button>
+        </div>
+      </form>`;
+    const form = d.querySelector("form");
+    const err = d.querySelector(".dialog-error");
+    d.querySelector("[value=close]").addEventListener("click", () => d.close());
+    d.querySelector("[value=cancel-edit]")?.addEventListener("click", () => { editing = null; render(); });
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      const body = { label: form.label.value.trim(), height_m: Number(form.height_m.value), direction: form.direction.value };
+      if (!body.label || form.height_m.value === "") { err.textContent = "Libellé et hauteur obligatoires."; return; }
+      try {
+        await Session.api(t ? `/api/admin/water-thresholds/${t.id}` : `/api/admin/ports/${port.id}/water-thresholds`,
+          { method: t ? "PUT" : "POST", body });
+        waterThresholds = await Session.api("/api/admin/water-thresholds");
+        editing = null;
+        render();
+        renderPorts();
+      } catch (e2) {
+        err.textContent = e2.message;
+      }
+    });
+    d.querySelector(".water-list").addEventListener("click", async e => {
+      const btn = e.target.closest("[data-water]");
+      if (!btn) return;
+      const x = waterThresholds.find(w => w.id === Number(btn.closest("li").dataset.id));
+      if (btn.dataset.water === "edit") { editing = x; render(); d.querySelector("[name=label]").focus(); return; }
+      if (!confirm(`Supprimer la hauteur d'eau « ${x.label} » ?${x.uses ? ` Ses ${x.uses} créneau(x) choisi(s) restent.` : ""}`)) return;
+      try {
+        await Session.api(`/api/admin/water-thresholds/${x.id}`, { method: "DELETE" });
+        waterThresholds = await Session.api("/api/admin/water-thresholds");
+        if (editing?.id === x.id) editing = null;
+        render();
+        renderPorts();
+      } catch (e2) {
+        err.textContent = e2.message;
+      }
+    });
+  };
+  render();
+  d.showModal();
+}
 
 function editPort(port) {
   const d = document.createElement("dialog");
@@ -2097,6 +2210,6 @@ async function onSessionChange(user) {
   showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters]);
 Session.onChange(onSessionChange);
 Session.init();

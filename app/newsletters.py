@@ -223,6 +223,8 @@ def slot_lister(structure_id: int) -> newsletter_render.SlotLister:
                 "rdv_time": s["rdv_time"], "place": s["port_name"], "note": s["note"],
                 "type": s["type_label"], "type_color": s["type_color"], "kind": s["kind"],
                 "time": s["local_time"], "coefficient": s["coefficient"],
+                "water": ((s["threshold_label"], s["threshold_height"], s["threshold_direction"],
+                           s["window_start_time"], s["window_end_time"]) if s["window_start_utc"] else None),
             } for s in db.list_selections(structure_id, start.isoformat()) if s["local_date"] <= end.isoformat()]
         return cache[(start, end)]
     return list_slots

@@ -136,6 +136,7 @@ function registrationsCell(p) {
 // Créneau personnalisé : heure saisie telle quelle.
 function rdvTitle(p) {
   if (p?.custom) return "Heure de rendez-vous (créneau personnalisé)";
+  if (p?.water) return "Heure de rendez-vous (début de la plage de hauteur d'eau, arrondi aux 5 min inférieures)";
   const offset = Session.user?.structure?.rdv_offset_minutes ?? 120;
   const h = Math.floor(offset / 60), m = offset % 60;
   const delay = m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
@@ -156,8 +157,12 @@ const spanLine = p => (p.end_date
   ? `<span class="slot-span" title="Séjour sur plusieurs jours">Du ${formatDay(p.date)} au ${formatDay(p.end_date)} · ${spanDays(p)} jours</span>`
   : "");
 
-// Étale (PM/BM et son heure), ou pastille « Perso » pour un créneau personnalisé
-const tideMark = p => (p.custom
+// Plage de hauteur d'eau : « ≥ 7,00 m » puis début → fin
+const waterSign = w => (w.direction === "above" ? "≥" : "≤");
+const waterMark = p => `<span class="kind water" title="${esc(`${p.water.label} : eau ${p.water.direction === "above" ? "au-dessus" : "au-dessous"} de ${fmtHeight(p.water.height_m)} m`)}">${waterSign(p.water)} ${fmtHeight(p.water.height_m)} m</span>${p.water.start} → ${p.water.end}${p.water.end_date !== p.date ? " (J+1)" : ""}`;
+
+// Étale (PM/BM et son heure), plage de hauteur d'eau, ou pastille « Perso » pour un créneau personnalisé
+const tideMark = p => (p.water ? waterMark(p) : p.custom
   ? `<span class="kind custom" title="Créneau personnalisé, en dehors des étales proposées">Perso</span>`
   : `<span class="kind ${p.kind}" title="Étale de ${p.kind === "PM" ? "pleine" : "basse"} mer">${p.kind}</span>${p.time}`);
 
@@ -172,9 +177,10 @@ function slotCard(p) {
       </div>
       ${p.note ? `<p>${noteLine(p)}</p>` : ""}
       ${p.end_date ? `<p>${spanLine(p)}</p>` : ""}
+      ${p.water ? `<p class="slot-water">${esc(p.water.label)}</p>` : ""}
       <p class="slot-tide">
         <span>${tideMark(p)}</span>
-        ${p.custom ? "" : `<span title="Hauteur d'eau à l'étale">${fmtHeight(p.height_m)} m</span>
+        ${!p.kind ? "" : `<span title="Hauteur d'eau à l'étale">${fmtHeight(p.height_m)} m</span>
         <span title="Coefficient de marée (indicatif)">coef <span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></span>`}
       </p>
       <div class="slot-row c-type">${typeCell(p)}</div>
@@ -838,13 +844,19 @@ picksEl.addEventListener("click", e => {
 
 // Intitulé d'un créneau d'étale : distingue plusieurs créneaux choisis sur la même étale (« Bateau 2 »…)
 function openNoteDialog(p) {
-  const twins = picks.filter(x => x.id !== p.id && !x.custom && x.port_id === p.port_id && x.ts_utc === p.ts_utc);
+  const twins = picks.filter(x => x.id !== p.id && !x.custom && (p.water
+    ? x.water && x.water.threshold_id === p.water.threshold_id && x.water.start_utc === p.water.start_utc
+    : x.port_id === p.port_id && x.ts_utc === p.ts_utc));
+  const what = p.water
+    ? `Plage « ${esc(p.water.label)} » de ${esc(p.water.start)} à ${esc(p.water.end)}`
+    : `Étale ${esc(p.kind)} de ${esc(p.time)}`;
+  const same = p.water ? "cette plage" : "cette étale";
   openDialog({
     title: "Intitulé du créneau",
     submitLabel: "Enregistrer",
     body: `
-      <p class="dialog-hint">Étale ${esc(p.kind)} de ${esc(p.time)} le ${esc(formatLong(p.date))}, ${esc(p.port)}.${twins.length
-        ? ` Autres créneaux sur cette étale : ${twins.map(x => esc(x.type.label + (x.note ? ` (${x.note})` : ""))).join(", ")}.` : ""}</p>
+      <p class="dialog-hint">${what} le ${esc(formatLong(p.date))}, ${esc(p.port)}.${twins.length
+        ? ` Autres créneaux sur ${same} : ${twins.map(x => esc(x.type.label + (x.note ? ` (${x.note})` : ""))).join(", ")}.` : ""}</p>
       <label>Intitulé <span class="field-hint">(facultatif)</span>
         <input type="text" name="note" maxlength="80" placeholder="ex. Bateau 2, Baptêmes" value="${esc(p.note || "")}"></label>`,
     onSubmit: async form => {
@@ -916,8 +928,11 @@ const EXPORT_COLUMNS = [
   { header: "Date RDV", type: "date", width: 11, value: p => p.rdv.date },
   { header: "Heure RDV", type: "time", width: 10, value: p => p.rdv.time },
   { header: "Port", width: 18, value: p => p.port },
-  { header: "Étale", width: 7, value: p => p.kind || "Perso" },
+  { header: "Étale", width: 7, value: p => p.kind || (p.water ? "Hauteur" : "Perso") },
   { header: "Heure étale", type: "time", width: 11, value: p => p.time },
+  { header: "Hauteur d'eau", width: 22, value: p => (p.water ? `${p.water.label} (${waterSign(p.water)} ${fmtHeight(p.water.height_m)} m)` : "") },
+  { header: "Début plage", type: "time", width: 11, value: p => p.water?.start ?? null },
+  { header: "Fin plage", type: "time", width: 11, value: p => p.water?.end ?? null },
   { header: "Hauteur (m)", type: "decimal", width: 11, value: p => p.height_m },
   { header: "Coefficient", type: "int", width: 11, value: p => (p.coefficient != null ? Math.round(p.coefficient) : null) },
   { header: "Type", width: 16, value: p => p.type.label },
@@ -990,7 +1005,7 @@ typeFilter.addEventListener("change", () => { closePop(); render(); });
 showPast.addEventListener("change", () => { closePop(); render(); });
 onlyMine.addEventListener("change", () => { closePop(); render(); });
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.newsletters, Session.LINKS.admin]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin]);
 Session.onChange(user => {
   const member = !!user?.can.view_selections;
   picksEl.hidden = !member;

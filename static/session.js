@@ -531,16 +531,26 @@ const Session = (() => {
     return parts.join(" · ");
   }
 
+  // Recherche proposée au compte : « tides » (étales), « heights » (hauteur d'eau) ou « both ». Réglée par structure
+  // par les super administrateurs ; un super administrateur a les deux, un visiteur la recherche par étale.
+  function searchModes(u) {
+    if (!u) return "tides";
+    if (u.is_admin) return "both";
+    return u.structure?.search_modes || "tides";
+  }
+
   // Liens d'en-tête communs aux pages
   const LINKS = {
-    search: { href: "index.html", label: "Recherche" },  // "./" renvoie les membres vers leurs créneaux
+    // "./" renvoie les membres vers leurs créneaux
+    search: { href: "index.html", label: "Recherche", show: u => searchModes(u) !== "heights" },
+    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", show: u => searchModes(u) !== "tides" },
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", show: u => u.can.newsletters },
   };
 
   return {
-    ROLE_LABELS, LINKS, roleLabel,
+    ROLE_LABELS, LINKS, roleLabel, searchModes,
     get user() { return user; },
     get config() { return config; },
     onChange: fn => listeners.push(fn),

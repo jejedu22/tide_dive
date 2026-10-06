@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendive — recherche par hauteur d'eau</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Recherche par hauteur d'eau</h1>
+        <p class="subtitle">Les plages où l'eau est à la bonne hauteur.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main>
+    <p id="gate" class="gate" hidden></p>
+
+    <section class="controls" id="controls" hidden>
+      <div class="field">
+        <label for="port">Port</label>
+        <select id="port"></select>
+      </div>
+      <div class="field">
+        <label for="threshold">Hauteur d'eau</label>
+        <select id="threshold"></select>
+      </div>
+      <div class="field">
+        <label for="start">Du</label>
+        <input type="date" id="start">
+      </div>
+      <div class="field">
+        <label for="end">Au</label>
+        <input type="date" id="end">
+      </div>
+      <div class="field">
+        <label for="daylight">Lumière du jour requise</label>
+        <select id="daylight">
+          <option value="nautical">Crépuscule nautique (marge sécurité)</option>
+          <option value="civil">Lever/coucher civil (plus strict)</option>
+          <option value="none">Aucune contrainte</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="min_minutes">Durée minimale</label>
+        <select id="min_minutes">
+          <option value="0">Toutes les plages</option>
+          <option value="30">30 min</option>
+          <option value="60" selected>1 h</option>
+          <option value="90">1 h 30</option>
+          <option value="120">2 h</option>
+          <option value="180">3 h</option>
+        </select>
+      </div>
+      <button id="search">Chercher les plages</button>
+    </section>
+
+    <section class="results water-results show-rdv" id="results" hidden>
+      <div class="results-bar">
+        <p id="status"></p>
+      </div>
+      <div class="table-wrap">
+        <table class="windows water">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col"><abbr title="Heure de rendez-vous : début de la plage, arrondi aux 5 minutes inférieures">RDV</abbr></th>
+              <th scope="col">Plage</th>
+              <th scope="col" class="num">Durée</th>
+              <th scope="col" class="num" id="extreme-head">Hauteur max</th>
+              <th scope="col">De jour</th>
+              <th scope="col" class="c-pick-head">Choix</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p class="legend">
+        <span><span class="swatch swatch-weekend"></span>samedi/dimanche</span>
+        <span><span class="swatch swatch-ferie"></span>jour férié</span>
+        <span><span class="swatch swatch-vacances"></span>vacances scolaires</span>
+        <span><span class="tag tight-tag">limite</span> l'eau dépasse à peine la hauteur : heures incertaines</span>
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Hauteurs d'eau au-dessus du zéro des cartes, calculées comme les étales (api-maree.fr sur le mois à venir, calcul FES au-delà, selon les réglages de votre structure) : début et fin de plage interpolés entre deux points de 10 minutes. Indicatif — se référer à l'annuaire SHOM avant une sortie.</p>
+    <p><a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="hauteurs.js"></script>
+</body>
+</html>
