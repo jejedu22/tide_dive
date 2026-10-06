@@ -314,6 +314,28 @@ function defaultDay(m, list) {
   return monthOf(today) === m ? today : m;
 }
 
+// Jours fériés et vacances scolaires du mois affiché (et des jours voisins de la grille), chargés à la demande :
+// {mois: {jour: {holiday, school_holiday}}}
+const calDays = new Map();
+const calDaysPending = new Set();
+let schoolAcademy = "";
+
+function calendarDays(m) {
+  if (calDays.has(m)) return calDays.get(m);
+  if (!calDaysPending.has(m)) {
+    calDaysPending.add(m);
+    // la grille commence au plus 6 jours avant le 1er et compte au plus 42 cases
+    Session.api(`/api/calendar-days?start=${addDays(m, -6)}&end=${addDays(m, 41)}`)
+      .then(r => { calDays.set(m, r.days); schoolAcademy = r.academy; })
+      .catch(() => calDays.set(m, {}))   // non bloquant : le calendrier s'affiche sans
+      .finally(() => {
+        calDaysPending.delete(m);
+        if (view === "cal" && month === m) render();
+      });
+  }
+  return {};
+}
+
 // Plages d'indisponibilité qui touchent ce jour (même en partie)
 const unavailableOn = day => unavailabilities.filter(u => u.start_date <= day && day <= u.end_date);
 const unavText = u => `${u.label}${u.reason ? ` (${u.reason})` : ""}`;
@@ -335,6 +357,7 @@ function renderCalendar(list) {
   const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
   const start = addDays(month, -lead);
   const nInMonth = list.filter(p => monthOf(p.date) <= month && monthOf(lastDay(p)) >= month).length;
+  const special = calendarDays(month);
 
   calTitle.textContent = cap(fmtMonth.format(first));
   calCount.textContent = nInMonth ? plural(nInMonth, "créneau", "créneaux") : "aucun créneau";
@@ -345,13 +368,18 @@ function renderCalendar(list) {
     const items = byDay.get(day) || [];
     const mine = items.filter(p => p.registered).length;
     const off = unavailableOn(day).length > 0;
+    const { holiday, school_holiday: vacation } = special[day] || {};
     const cls = ["cal-cell",
       monthOf(day) !== month && "out",
       i % 7 >= 5 && "weekend",
       day < today && "is-past",
       off && "is-unavailable",
+      holiday && "is-holiday",
+      vacation && "is-vacances",
       items.length && "has"].filter(Boolean).join(" ");
     const label = cap(fmtLongYear.format(asDate(day))) +
+      (holiday ? `, férié (${holiday})` : "") +
+      (vacation ? `, ${vacation}` : "") +
       (off ? ", indisponible" : "") +
       (items.length ? `, ${plural(items.length, "créneau", "créneaux")}` : "") +
       (mine ? `, inscrit sur ${mine}` : "");
@@ -363,6 +391,7 @@ function renderCalendar(list) {
       aria-pressed="${day === selectedDay}" tabindex="${day === selectedDay ? 0 : -1}"
       ${day === today ? `aria-current="date"` : ""} aria-label="${esc(label)}">
       <span class="cal-num" aria-hidden="true">${Number(day.slice(8))}</span>
+      ${holiday ? `<span class="cal-holiday" aria-hidden="true" title="${esc(holiday)}">${esc(holiday)}</span>` : ""}
       <span class="cal-slots" aria-hidden="true">${chips}</span>
     </button>`);
   }
@@ -370,6 +399,11 @@ function renderCalendar(list) {
 
   const items = byDay.get(selectedDay) || [];
   let html = `<h3 class="day-title">${cap(formatLong(selectedDay))}</h3>`;
+  const sel = special[selectedDay] || {};
+  if (sel.holiday) html += `<p class="day-holiday">Jour férié : ${esc(sel.holiday)}</p>`;
+  if (sel.school_holiday) {
+    html += `<p class="day-vacances">${esc(sel.school_holiday)}${schoolAcademy ? ` (académie de ${esc(schoolAcademy)})` : ""}</p>`;
+  }
   html += unavailableOn(selectedDay).map(u =>
     `<p class="day-unavailable">Structure indisponible ${esc(unavText(u))} : aucun créneau ne peut y être ajouté.</p>`).join("");
   if (items.length) {
