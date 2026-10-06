@@ -1616,3 +1616,6 @@ main.unsub-main { max-width: 40rem; }
 .unav-note { margin: 0 0 0.75rem; padding: 0.5rem 0.8rem; border-left: 4px solid #e9a23b; background: #fff7e8; border-radius: 6px; font-size: 0.9rem; }
 .cal-cell.is-unavailable { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(233, 162, 59, 0.18) 6px 12px); }
 .day-unavailable { margin: 0 0 0.5rem; color: #8a5a00; font-weight: 600; font-size: 0.9rem; }
+
+/* Réglages de la structure : cases « Horaires de marée » sur toute la largeur */
+.settings-form > .check { grid-column: 1 / -1; }

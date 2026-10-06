@@ -39,8 +39,9 @@ def rdv_time(local_dt: datetime, offset_minutes: int) -> datetime:
     return dt.replace(minute=dt.minute - dt.minute % RDV_STEP_MINUTES, second=0, microsecond=0)
 
 
-def describe_extremum(port, ex, rdv_offset_minutes: int) -> dict:
-    """Champs affichés d'une étale, recalculés côté serveur à partir de la base."""
+def describe_extremum(port, ex, rdv_offset_minutes: int, sources=None) -> dict:
+    """Champs affichés d'une étale, recalculés côté serveur à partir de la base. sources : horaires vus par la
+    structure (db.tide_sources), pour le coefficient d'une BM pris sur la PM voisine."""
     tz = ZoneInfo(port["timezone"])
     local_dt = local_time(ex["ts_utc"], tz)
     if ex["kind"] == "PM":
@@ -50,7 +51,7 @@ def describe_extremum(port, ex, rdv_offset_minutes: int) -> dict:
         pm_list = [
             (local_time(e["ts_utc"], tz), e["coefficient"])
             for e in db.get_extrema_range(
-                port["id"], (utc - PM_SEARCH_PAD).isoformat(), (utc + PM_SEARCH_PAD).isoformat()
+                port["id"], (utc - PM_SEARCH_PAD).isoformat(), (utc + PM_SEARCH_PAD).isoformat(), sources
             )
             if e["kind"] == "PM" and e["coefficient"] is not None
         ]

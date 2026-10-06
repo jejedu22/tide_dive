@@ -10,7 +10,7 @@ ricochet.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, status
@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import db
 from .auth import CurrentManager, CurrentSuperAdmin, can_manage_structure
-from .slots import rdv_time
+from .slots import describe_extremum, rdv_time
 
 router = APIRouter(prefix="/api/admin/structures")
 
@@ -47,6 +47,9 @@ class StructureSettingsIn(BaseModel):
     # Nombre de places proposé aux NOUVEAUX créneaux (copié sur chacun à sa création : le modifier ne touche pas
     # les créneaux existants). null ou 0 : illimité
     default_max_registrations: int | None = Field(None, ge=0, le=500)
+    # Horaires de marée vus par la structure : mois glissant api-maree.fr, correction du calcul FES par le recalage
+    use_api_maree: bool | None = None
+    use_calibration: bool | None = None
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -63,6 +66,8 @@ def _out(row: sqlite3.Row) -> dict:
         "rdv_offset_minutes": row["rdv_offset_minutes"],
         "default_port_id": row["default_port_id"],
         "default_max_registrations": row["default_max_registrations"],
+        "use_api_maree": bool(row["use_api_maree"]),
+        "use_calibration": bool(row["use_calibration"]),
     }
 
 
@@ -113,11 +118,55 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Port inconnu")
     if "default_max_registrations" in fields:
         fields["default_max_registrations"] = fields["default_max_registrations"] or None   # 0 : illimité
+    for flag in ("use_api_maree", "use_calibration"):
+        if flag in fields:
+            if fields[flag] is None:
+                del fields[flag]          # null : inchangé
+            else:
+                fields[flag] = int(fields[flag])
     db.update_structure_settings(structure_id, **fields)
     offset = fields.get("rdv_offset_minutes")
     if offset is not None and offset != before["rdv_offset_minutes"]:
         _shift_upcoming_rdvs(structure_id, offset)
-    return _out(db.get_structure(structure_id))
+    moved = None
+    if any(flag in fields and fields[flag] != before[flag] for flag in ("use_api_maree", "use_calibration")):
+        moved = rebind_upcoming(structure_id)
+    out = _out(db.get_structure(structure_id))
+    if moved is not None:
+        out["selections_moved"] = moved
+    return out
+
+
+# Créneaux à venir rattachés aux nouveaux horaires quand la structure change de sources : la même marée, vue par
+# un autre calcul, est décalée de quelques minutes à une demi-heure ; deux étales de même nature sont à 12 h 25
+# l'une de l'autre, une tolérance de 2 h ne peut pas en prendre une autre.
+SOURCES_REBIND_TOLERANCE = timedelta(hours=2)
+
+
+def rebind_upcoming(structure_id: int) -> int:
+    """Rattache les créneaux d'étale à venir de la structure aux étales de ses horaires actuels (même marée,
+    autre calcul) et met à jour leur heure, hauteur, coefficient et RDV. Renvoie le nombre de créneaux dont
+    l'étale a changé ; un créneau sans étale correspondante garde la sienne."""
+    sources = db.get_structure_sources(structure_id)
+    offset = db.get_rdv_offset(structure_id)
+    today = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
+    moved = 0
+    ports: dict[int, sqlite3.Row] = {}
+    for row in db.list_selections(structure_id, today):
+        if row["ts_utc"] is None:
+            continue    # créneau personnalisé : pas d'étale
+        port = ports.setdefault(row["port_id"], db.get_port(row["port_id"]))
+        t = datetime.fromisoformat(row["ts_utc"])
+        around = db.get_extrema_range(row["port_id"], (t - SOURCES_REBIND_TOLERANCE).isoformat(),
+                                      (t + SOURCES_REBIND_TOLERANCE).isoformat(), sources)
+        target = next((ts for sid, ts in db.rebind_moves([row], around, SOURCES_REBIND_TOLERANCE) if sid == row["id"]),
+                      row["ts_utc"] if any(e["ts_utc"] == row["ts_utc"] for e in around) else None)
+        if target is None:
+            continue    # aucune étale de même nature dans ces horaires : le créneau reste tel quel
+        ex = next(e for e in around if e["ts_utc"] == target)
+        db.update_selection_tide(row["id"], target, describe_extremum(port, ex, offset, sources))
+        moved += target != row["ts_utc"]
+    return moved
 
 
 def _shift_upcoming_rdvs(structure_id: int, offset_minutes: int) -> None:

@@ -1,12 +1,13 @@
 """
 Horaires du mois glissant pris directement chez api-maree.fr.
 
-Long terme : le précalcul annuel (FES, recalé onde par onde, voir
+Long terme : le précalcul annuel (FES brut, et recalé onde par onde, voir
 calibration.py). Court terme : sur la fenêtre où api-maree.fr publie ses
-hauteurs (J−30 / J+30), ses valeurs, plus précises, REMPLACENT celles du
-calcul FES en base, de J−1 à J+29. Tâche quotidienne : la fenêtre avance
-d'un jour à chaque passage, et les jours passés gardent les valeurs
-api-maree.fr.
+hauteurs (J−30 / J+30), ses valeurs, plus précises, sont stockées de J−1 à
+J+29 comme une source à part (« api ») : elles priment sur le calcul FES pour
+les structures qui utilisent api-maree.fr (réglage de la structure), les autres
+gardent le calcul FES. Tâche quotidienne : la fenêtre avance d'un jour à chaque
+passage, et les jours passés gardent les valeurs api-maree.fr.
 
 Pour chaque port doté d'un identifiant api-maree.fr :
   1. hauteurs api-maree.fr au pas de 10 min (même grille que tide_heights),
@@ -15,9 +16,10 @@ Pour chaque port doté d'un identifiant api-maree.fr :
      affinées par interpolation parabolique) ; la marge évite de manquer
      une étale aux bords ;
   3. coefficient de chaque PM : celui d'api-maree.fr (/tide-extrema), pris
-     sur sa PM la plus proche ; à défaut, celui de la PM FES remplacée ;
-  4. remplacement en une transaction (db.replace_range) ; les créneaux déjà
-     choisis sont recalés sur les nouvelles heures, comme lors d'un recalcul.
+     sur sa PM la plus proche ; à défaut, celui de la PM FES correspondante ;
+  4. remplacement de la source « api » en une transaction (db.replace_range) ;
+     les créneaux déjà choisis des structures qui l'utilisent sont recalés sur
+     les nouvelles heures, comme lors d'un recalcul.
 
 Seules les années déjà précalculées sont touchées : on ne crée pas d'année
 partielle. Les hauteurs api-maree.fr sont au-dessus du zéro des cartes,
@@ -48,6 +50,7 @@ MARGIN = timedelta(hours=6)             # étales des bords détectées sans bor
 COEF_MATCH = timedelta(hours=3)         # PM FES remplacée, pour reprendre son coefficient
 API_PM_MATCH = timedelta(minutes=30)    # PM /tide-extrema correspondant à une PM de la série
 MAX_LEVEL_DIFF_M = 0.5
+FES_SOURCES = ("cal", "fes")            # calcul FES (corrigé de préférence), pour comparer et compléter
 WARN_LEVEL_DIFF_M = 0.15
 
 
@@ -141,7 +144,7 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
         raise ValueError(f"série api-maree.fr incomplète ({int(np.sum(steps != STEP_MINUTES * 60))} trous)")
 
     # Contrôle du référentiel : api-maree.fr et FES + offset_zh_m au-dessus du zéro des cartes
-    stored = {r["ts_utc"]: r["height_m"] for r in db.get_heights_range(port["id"], _iso(start), _iso(end))}
+    stored = {r["ts_utc"]: r["height_m"] for r in db.get_heights_range(port["id"], _iso(start), _iso(end), FES_SOURCES)}
     pairs = [(h, stored[_iso(t)]) for t, h in ref if _iso(t) in stored]
     level_diff = float(np.mean([a - b for a, b in pairs])) if pairs else None
     if level_diff is not None:
@@ -160,7 +163,7 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
     total, shifts, from_api, n_pm = 0, [], 0, 0
     for seg_start, seg_end in segments:
         new = [e for e in extrema if seg_start <= e[0] < seg_end]
-        old = db.get_extrema_range(port["id"], _iso(seg_start), _iso(seg_end))
+        old = db.get_extrema_range(port["id"], _iso(seg_start), _iso(seg_end), FES_SOURCES)
         heights = [(_iso(t), float(h)) for t, h in ref if seg_start <= t < seg_end]
         rows, n_api = assign_coefficients(new, api_extrema, old)
         db.replace_range(port["id"], _iso(seg_start), _iso(seg_end), heights, rows)
@@ -174,7 +177,7 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
     if from_api < n_pm:
         log(f"[{name}] ATTENTION : {n_pm - from_api} PM sans coefficient api-maree.fr, coefficient du calcul FES conservé.")
     biggest = max(shifts) if shifts else None
-    log(f"[{name}] {total} pleines / basses mers remplacées"
+    log(f"[{name}] {total} pleines / basses mers api-maree.fr enregistrées"
         + (f" ; plus grand écart avec le calcul précédent : {biggest:.0f} min." if biggest is not None else "."))
     result = {
         "site": site, "window_start": _iso(start), "window_end": _iso(end), "n_extrema": total,
@@ -182,12 +185,6 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
     }
     db.save_short_term_window(port["id"], **result)
     return result
-
-
-def overlaps_window(year: int, now: datetime | None = None) -> bool:
-    """L'année touche-t-elle la fenêtre glissante ? (précalcul à faire suivre d'un rafraîchissement)"""
-    start, end = window(now or datetime.now(timezone.utc))
-    return start.year <= year <= (end - timedelta(seconds=1)).year
 
 
 def main(argv: list[str] | None = None) -> int:

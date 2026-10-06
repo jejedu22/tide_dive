@@ -377,14 +377,15 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
     port = db.get_port(body.port_id)
     if port is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
-    ex = db.get_extremum(body.port_id, body.ts_utc)
+    sources = db.get_structure_sources(sid)
+    ex = db.get_extremum(body.port_id, body.ts_utc, sources)
     if ex is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             "Ce créneau n'existe plus (l'année a peut-être été recalculée) : relancez la recherche.",
         )
     _active_type_or_422(body.type_id, sid)
-    snapshot = describe_extremum(port, ex, db.get_rdv_offset(sid))
+    snapshot = describe_extremum(port, ex, db.get_rdv_offset(sid), sources)
     ensure_available(sid, *tide_span(snapshot["rdv_date"], snapshot["rdv_time"], snapshot["date"], snapshot["time"]))
     # plusieurs créneaux possibles sur la même étale : pas de refus « déjà choisi »
     sel_id = db.create_selection(
@@ -401,6 +402,7 @@ def create_selections_bulk(body: BulkSelectionIn, user: CurrentPicker):
     sid = user["structure_id"]
     _active_type_or_422(body.type_id, sid)
     rdv_offset = db.get_rdv_offset(sid)
+    sources = db.get_structure_sources(sid)
     capacity = _initial_capacity(body, sid)
     taken = {(r["port_id"], r["ts_utc"]) for r in db.list_selections(sid) if r["ts_utc"] is not None}
     unavailable = db.list_unavailabilities(sid)
@@ -414,11 +416,11 @@ def create_selections_bulk(body: BulkSelectionIn, user: CurrentPicker):
         if item.port_id not in ports:
             ports[item.port_id] = db.get_port(item.port_id)
         port = ports[item.port_id]
-        ex = db.get_extremum(item.port_id, item.ts_utc) if port is not None else None
+        ex = db.get_extremum(item.port_id, item.ts_utc, sources) if port is not None else None
         if ex is None:
             skipped.append({"port_id": item.port_id, "ts_utc": item.ts_utc, "reason": "étale introuvable"})
             continue
-        snapshot = describe_extremum(port, ex, rdv_offset)
+        snapshot = describe_extremum(port, ex, rdv_offset, sources)
         if blocking(unavailable, *tide_span(snapshot["rdv_date"], snapshot["rdv_time"], snapshot["date"], snapshot["time"])):
             skipped.append({"port_id": item.port_id, "ts_utc": item.ts_utc, "reason": "indisponible"})
             continue

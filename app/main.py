@@ -140,6 +140,9 @@ def api_dive_windows(
     # Heure de RDV réservée aux comptes connectés, selon le délai de leur
     # structure (2 h sans structure) ; None : visiteur anonyme, pas de RDV.
     rdv_offset = db.get_rdv_offset(user["structure_id"]) if user is not None else None
+    # Horaires vus par la structure du compte (api-maree.fr, correction) ; visiteur : tout activé
+    structure_id = user["structure_id"] if user is not None else None
+    sources = db.get_structure_sources(structure_id)
     # Plages d'indisponibilité de la structure du compte : étales qu'elle ne peut pas choisir
     unavailable = (db.list_unavailabilities(user["structure_id"], (start - timedelta(days=1)).isoformat())   # RDV la veille
                    if user is not None and user["structure_id"] is not None else [])
@@ -147,7 +150,7 @@ def api_dive_windows(
     start_utc = datetime.combine(start, datetime.min.time(), tzinfo=tz).astimezone(ZoneInfo("UTC"))
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
 
-    extrema = db.get_extrema_range(port_id, start_utc.isoformat(), end_utc.isoformat())
+    extrema = db.get_extrema_range(port_id, start_utc.isoformat(), end_utc.isoformat(), sources)
     sun_rows = {
         r["date"]: r
         for r in db.get_sun_times_range(port_id, start.isoformat(), end.isoformat())
@@ -158,7 +161,7 @@ def api_dive_windows(
     pad = PM_SEARCH_PAD
     pm_list = [
         (_local_time(e["ts_utc"], tz), e["coefficient"])
-        for e in db.get_extrema_range(port_id, (start_utc - pad).isoformat(), (end_utc + pad).isoformat())
+        for e in db.get_extrema_range(port_id, (start_utc - pad).isoformat(), (end_utc + pad).isoformat(), sources)
         if e["kind"] == "PM" and e["coefficient"] is not None
     ]
 
@@ -248,7 +251,9 @@ def api_dive_windows(
         "covered": bool(n_periods) and last_end is not None and last_end > end.isoformat(),
     }
 
-    return {"port": port["name"], "rdv_offset_minutes": rdv_offset, "school_holidays": school_holidays_status, "criteria": {
+    return {"port": port["name"], "rdv_offset_minutes": rdv_offset, "school_holidays": school_holidays_status,
+            "tide_sources": {"api_maree": sources[0] == "api", "calibration": sources.index("cal") < sources.index("fes")},
+            "criteria": {
         "max_coefficient": max_coefficient, "tide_phase": tide_phase,
         "daylight": daylight, "margin_minutes": margin_minutes,
     }, "results": results}

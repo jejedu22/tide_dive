@@ -15,8 +15,8 @@ Exemples
 
 Ce script :
   1. calcule la hauteur d'eau toute l'année au pas de 10 min via pyTMD
-     (modèle FES2014/2022, cf. tide_model.py), corrigée par le recalage
-     du port sur api-maree.fr s'il existe pour ce modèle (calibration.py) ;
+     (modèle FES2014/2022, cf. tide_model.py), brute et, si le port a un
+     recalage sur api-maree.fr pour ce modèle, corrigée (calibration.py) ;
   2. en déduit les pleines mers / basses mers (extrema locaux), affinées
      par interpolation parabolique entre deux pas de temps ;
   3. attribue à chaque pleine mer le coefficient de marée de la pleine mer
@@ -28,10 +28,10 @@ Ce script :
      jour via astral (aucune dépendance réseau) ;
   5. remplace en base les données de CETTE année uniquement, en une seule
      transaction : les autres années du port sont conservées, et si un
-     calcul échoue, la base reste inchangée ;
-  6. si l'année touche le mois glissant et que le port a un site
-     api-maree.fr, remet en file la reprise de ce mois depuis api-maree.fr
-     (short_term.py), que le recalcul vient d'écraser.
+     calcul échoue, la base reste inchangée. Deux séries sont écrites quand
+     le port (ou Brest) est recalé : le calcul FES brut et le calcul corrigé,
+     chaque structure choisissant la sienne. Les horaires api-maree.fr du
+     mois glissant sont stockés à part (short_term.py) et restent.
 
 Hauteurs d'eau
 --------------
@@ -52,7 +52,7 @@ import sys
 
 import pandas as pd
 
-from . import calendar_fr, calibration as calib, checks, db, jobs, short_term, tide_model, twilight
+from . import calendar_fr, calibration as calib, checks, db, jobs, tide_model, twilight
 from .ports_catalog import PORTS
 
 BREST_NAME = "Brest"
@@ -149,27 +149,22 @@ def compute_series(lat: float, lon: float, year: int, step_minutes: int, model: 
         raise SystemExit(1) from exc
 
 
-def brest_pm_coefficients(
-    port_name: str, port_extrema, year: int, step_minutes: int, model: str | None
-) -> tuple[list[pd.Timestamp], list[float]]:
-    """
-    Renvoie (instants des PM de Brest triés, coefficients correspondants).
-    Si le port traité EST Brest, on réutilise ses extrema ; sinon on calcule
-    la série de Brest en mémoire.
-    """
-    if port_name.lower() == BREST_NAME.lower():
-        extrema = port_extrema
+def series_variants(lat: float, lon: float, year: int, step_minutes: int, model: str | None,
+                    calibration: tuple[float, float, list[dict]]):
+    """(instants, hauteurs brutes, hauteurs corrigées ou None si pas de recalage). Un seul calcul FES quand le
+    recalage est onde par onde (la correction s'ajoute) ; deux avec un ancien recalage à décalage horaire."""
+    timestamps, raw = compute_series(lat, lon, year, step_minutes, model)
+    if calibration == NO_CALIBRATION:
+        return timestamps, raw, None
+    shift, amplitude, waves = calibration
+    if shift:
+        _, corrected = compute_series(lat, lon, year, step_minutes, model, calibration)
     else:
-        p = find_catalog_port(BREST_NAME)
-        lat, lon = (p["latitude"], p["longitude"]) if p else BREST_FALLBACK_COORDS
-        print(f"[{port_name}] calcul de la série de référence de Brest pour les coefficients…")
-        # Recalage de Brest s'il est en base : améliore les coefficients (amplitude)
-        brest = next((r for r in db.list_ports() if r["name"].lower() == BREST_NAME.lower()), None)
-        calibration = port_calibration(brest["id"] if brest else None, model, BREST_NAME)
-        timestamps, heights = compute_series(lat, lon, year, step_minutes, model, calibration)
-        extrema = tide_model.find_extrema(timestamps, heights)
-        del timestamps, heights  # libère la mémoire avant la suite
+        corrected = raw * amplitude + calib.correction(timestamps, waves)
+    return timestamps, raw, corrected
 
+
+def _pm_coefficients(extrema) -> tuple[list[pd.Timestamp], list[float]]:
     pairs = sorted(
         (pd.Timestamp(t), float(tide_model.estimate_coefficient(h)))
         for t, kind, h in extrema
@@ -179,6 +174,34 @@ def brest_pm_coefficients(
         raise SystemExit("Aucune pleine mer détectée à Brest : impossible de calculer les coefficients.")
     times, coefs = zip(*pairs)
     return list(times), list(coefs)
+
+
+def brest_coefficients(
+    port_name: str, port_extrema: dict, year: int, step_minutes: int, model: str | None,
+) -> dict[str, tuple[list[pd.Timestamp], list[float]]]:
+    """
+    {variante: (instants des PM de Brest triés, coefficients)} pour « fes » (Brest brut) et « cal » (Brest
+    corrigé par son recalage s'il est en base : améliore l'amplitude, donc les coefficients ; sinon brut).
+    Si le port traité EST Brest, on réutilise ses extrema ; sinon on calcule la série de Brest en mémoire.
+    """
+    if port_name.lower() == BREST_NAME.lower():
+        return {variant: _pm_coefficients(port_extrema.get(variant) or port_extrema["fes"]) for variant in ("fes", "cal")}
+    p = find_catalog_port(BREST_NAME)
+    lat, lon = (p["latitude"], p["longitude"]) if p else BREST_FALLBACK_COORDS
+    print(f"[{port_name}] calcul de la série de référence de Brest pour les coefficients…")
+    brest = next((r for r in db.list_ports() if r["name"].lower() == BREST_NAME.lower()), None)
+    calibration = port_calibration(brest["id"] if brest else None, model, BREST_NAME)
+    timestamps, raw, corrected = series_variants(lat, lon, year, step_minutes, model, calibration)
+    out = {"fes": _pm_coefficients(tide_model.find_extrema(timestamps, raw))}
+    out["cal"] = _pm_coefficients(tide_model.find_extrema(timestamps, corrected)) if corrected is not None else out["fes"]
+    return out
+
+
+def brest_corrected(model: str | None) -> bool:
+    """Brest a-t-il un recalage pour ce modèle ? (ses coefficients corrigés diffèrent alors des bruts)"""
+    brest = next((r for r in db.list_ports() if r["name"].lower() == BREST_NAME.lower()), None)
+    cal = db.get_calibration(brest["id"]) if brest else None
+    return cal is not None and cal["model"] == model
 
 
 def nearest_coefficient(t, brest_times: list[pd.Timestamp], brest_coefs: list[float]) -> float | None:
@@ -217,33 +240,48 @@ def main() -> None:
     port_id = args.port_id or db.upsert_port(name, lat, lon, args.timezone, offset_zh)
     print(f"[{name}] port_id={port_id} lat={lat} lon={lon} offset_zh={offset_zh:+.2f} m")
 
-    # 1. Tous les calculs se font en mémoire ; rien n'est écrit avant la fin.
+    # 1. Tous les calculs se font en mémoire ; rien n'est écrit avant la fin. Deux variantes : le calcul FES
+    #    brut (« fes ») et, si le port ou Brest est recalé, le calcul corrigé (« cal ») ; chaque structure
+    #    choisit la sienne (correction activée ou non).
     print(f"[{name}] modèle de marée : {args.model}")
     print(f"[{name}] calcul de la hauteur d'eau {args.year} (pas {args.step_minutes} min) via pyTMD…")
     calibration = port_calibration(port_id, args.model, name)
-    timestamps, heights = compute_series(lat, lon, args.year, args.step_minutes, args.model, calibration)
-    # Hauteurs stockées au-dessus du zéro des cartes
-    height_rows = [(t.isoformat(), float(h) + offset_zh) for t, h in zip(timestamps, heights)]
-    print(f"[{name}] {len(height_rows)} points calculés.")
+    timestamps, raw, corrected = series_variants(lat, lon, args.year, args.step_minutes, args.model, calibration)
+    variants = {"fes": raw}
+    if corrected is not None:
+        variants["cal"] = corrected
+    elif brest_corrected(args.model) and name.lower() != BREST_NAME.lower():
+        variants["cal"] = raw   # mêmes horaires, coefficients de Brest corrigé
+    print(f"[{name}] {len(timestamps)} points calculés"
+          + (" (calcul brut et calcul corrigé)." if "cal" in variants else "."))
 
     print(f"[{name}] détection des pleines mers / basses mers…")
-    extrema = tide_model.find_extrema(timestamps, heights)
-    if not any(k == "PM" for _, k, _ in extrema):
-        raise SystemExit(f"[{name}] aucune pleine mer détectée : série de hauteurs suspecte, base inchangée.")
+    extrema = {v: tide_model.find_extrema(timestamps, h) for v, h in variants.items()}
+    for v, ex in extrema.items():
+        if not any(k == "PM" for _, k, _ in ex):
+            raise SystemExit(f"[{name}] aucune pleine mer détectée : série de hauteurs suspecte, base inchangée.")
 
     # 2. Coefficients : toujours issus des PM de Brest (hauteurs brutes, niveau moyen).
-    brest_times, brest_coefs = brest_pm_coefficients(name, extrema, args.year, args.step_minutes, args.model)
+    brest = brest_coefficients(name, extrema, args.year, args.step_minutes, args.model)
+    brest_coefs = brest["cal" if "cal" in variants else "fes"][1]
     print(f"[{name}] coefficients Brest {args.year} : min {min(brest_coefs):.0f}, max {max(brest_coefs):.0f}")
 
-    extrema_rows = [
-        (
-            t.isoformat(),
-            kind,
-            float(h) + offset_zh,  # hauteur au-dessus du zéro des cartes
-            nearest_coefficient(t, brest_times, brest_coefs) if kind == "PM" else None,
-        )
-        for t, kind, h in extrema
-    ]
+    rows = {}
+    for v, heights in variants.items():
+        brest_times, coefs = brest[v]
+        height_rows = [(t.isoformat(), float(h) + offset_zh) for t, h in zip(timestamps, heights)]  # zéro des cartes
+        extrema_rows = [
+            (
+                t.isoformat(),
+                kind,
+                float(h) + offset_zh,  # hauteur au-dessus du zéro des cartes
+                nearest_coefficient(t, brest_times, coefs) if kind == "PM" else None,
+            )
+            for t, kind, h in extrema[v]
+        ]
+        rows[v] = (height_rows, extrema_rows)
+    del timestamps, raw, corrected, variants
+    extrema_rows = rows.get("cal", rows["fes"])[1]
     missing = sum(1 for _, k, _, c in extrema_rows if k == "PM" and c is None)
     print(f"[{name}] {len(extrema_rows)} extrema détectés.")
     if missing:
@@ -263,12 +301,16 @@ def main() -> None:
 
     # 3. Contrôles de cohérence AVANT d'écraser l'année précédente : un résultat faux (modèle mal
     #    chargé, trou dans la série, erreur d'unité…) laisse la base inchangée et fait échouer la tâche.
-    report = checks.validate_year(extrema_rows, sun_rows, args.year, args.timezone)
-    for warning in report.warnings:
-        print(f"[{name}] avertissement : {warning}", file=sys.stderr)
-    if not report.ok:
+    failed = False
+    for v, (_, v_extrema) in rows.items():
+        label = "calcul corrigé" if v == "cal" else "calcul brut"
+        report = checks.validate_year(v_extrema, sun_rows, args.year, args.timezone)
+        for warning in report.warnings:
+            print(f"[{name}] avertissement ({label}) : {warning}", file=sys.stderr)
         for error in report.errors:
-            print(f"[{name}] CONTRÔLE ÉCHOUÉ : {error}", file=sys.stderr)
+            print(f"[{name}] CONTRÔLE ÉCHOUÉ ({label}) : {error}", file=sys.stderr)
+        failed = failed or not report.ok
+    if failed:
         if args.no_checks:
             print(f"[{name}] --no-checks : écriture malgré les erreurs ci-dessus.", file=sys.stderr)
         else:
@@ -276,19 +318,12 @@ def main() -> None:
     else:
         print(f"[{name}] contrôles de cohérence {args.year} : OK.")
 
-    # 4. Remplacement atomique de l'année demandée, les autres sont conservées.
+    # 4. Remplacement atomique de l'année demandée, les autres sont conservées. Les horaires api-maree.fr du
+    #    mois glissant sont stockés à part : le recalcul ne les touche pas.
     print(f"[{name}] remplacement des données {args.year} en base…")
-    db.replace_year(port_id, args.year, height_rows, extrema_rows, sun_rows, model=args.model)
+    db.replace_year(port_id, args.year, *rows["fes"], sun_rows, model=args.model, calibrated=rows.get("cal"))
 
-    # 5. Le mois glissant vient d'api-maree.fr : le recalcul vient de l'écraser
-    #    avec FES, on le fait rafraîchir juste après.
-    port_row = db.get_port(port_id)
-    if port_row["api_maree_site"] and short_term.overlaps_window(args.year):
-        job_id = jobs.enqueue("short_term", {"port_id": port_id}, "précalcul")
-        print(f"[{name}] horaires du mois glissant à reprendre d'api-maree.fr : "
-              + (f"tâche #{job_id} en file." if job_id else "tâche déjà en file."))
-
-    # 6. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
+    # 5. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
     try:
         n = calendar_fr.sync_school_holidays()
         print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {calendar_fr.SCHOOL_ACADEMY}).")

@@ -1006,6 +1006,8 @@ function loadSettings() {
   if (!st) return;
   for (const [k, input] of Object.entries(lockInputs)) input.value = st[k] ?? "";
   $("default-max-registrations").value = st.default_max_registrations ?? "";
+  $("use-api-maree").checked = st.use_api_maree ?? true;
+  $("use-calibration").checked = st.use_calibration ?? true;
   const offset = st.rdv_offset_minutes ?? 120;
   rdvInputs.hours.value = Math.floor(offset / 60);
   rdvInputs.minutes.value = offset % 60;
@@ -1048,12 +1050,19 @@ settingsForm.addEventListener("submit", async e => {
   body.default_max_registrations = maxRegistrations;
   body.rdv_offset_minutes = offset;
   body.default_port_id = defaultPortSelect.value ? Number(defaultPortSelect.value) : null;
+  body.use_api_maree = $("use-api-maree").checked;
+  body.use_calibration = $("use-calibration").checked;
   status.textContent = "";
   try {
     const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
+    const moved = saved.selections_moved;
+    delete saved.selections_moved;
     Object.assign(st, saved);
     loadSettings();
-    $("settings-form-status").textContent = "Réglages enregistrés.";
+    $("settings-form-status").textContent = "Réglages enregistrés."
+      + (moved === undefined ? "" : moved
+        ? ` Horaires de marée changés : ${moved} créneau(x) à venir recalé(s) sur les nouveaux horaires.`
+        : " Horaires de marée changés ; aucun créneau à venir n'a changé d'étale.");
     // sa propre structure : l'heure de RDV affichée ailleurs suit le nouveau délai
     if (Session.user?.structure?.id === st.id) {
       Session.user.structure.rdv_offset_minutes = saved.rdv_offset_minutes;

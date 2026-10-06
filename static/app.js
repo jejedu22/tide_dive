@@ -287,6 +287,14 @@ function buildRows(results) {
   return rows.join("");
 }
 
+// Horaires réglés par la structure sans api-maree.fr et / ou sans correction : on le rappelle
+function tideSourcesNote(data) {
+  const ts = data.tide_sources;
+  if (!ts || (ts.api_maree && ts.calibration)) return "";
+  const off = [!ts.api_maree && "sans le mois glissant api-maree.fr", !ts.calibration && "sans correction"].filter(Boolean);
+  return ` Horaires ${off.join(" et ")} (réglage de votre structure).`;
+}
+
 // Vacances absentes de la base ou ne couvrant pas la période : on le dit
 function schoolHolidaysWarning(data) {
   const sh = data.school_holidays;
@@ -315,6 +323,7 @@ function renderRows() {
     ? `${shown.length} créneau(x) sur ${all.length} pour ${lastData.port} avec les filtres.`
     : `${all.length} créneau(x) pour ${lastData.port}.`)
     + (nPicked ? ` ${Session.user.structure.name} en a choisi ${nPicked}.` : "")
+    + tideSourcesNote(lastData)
     + schoolHolidaysWarning(lastData);
 
   tableEl.tBodies[0].innerHTML = shown.length
