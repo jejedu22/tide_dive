@@ -547,6 +547,7 @@ const Session = (() => {
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", show: u => u.can.newsletters },
+    help: { href: "aide.html", label: "Aide" },
   };
 
   return {

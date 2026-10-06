@@ -395,6 +395,10 @@ Un club qui n'a pas encore de structure peut la demander depuis la page publique
 
 **Mise à jour d'une base existante** : au premier démarrage, les comptes, types et créneaux existants sont rattachés à une structure « Structure principale » ; les super administrateurs y sont en administration, **les autres comptes en visualisation** (à promouvoir si besoin). Si plusieurs comptes avaient choisi le même créneau, seul le premier choix est conservé.
 
+### Aide en ligne
+
+Des pages d'aide, publiques, expliquent l'application selon le rôle : **`/aide.html`** (lien « Aide » dans l'en-tête et en bas de la recherche) mène aux guides **Membre** (`aide-membre.html`), **Administrateur de structure** (`aide-administrateur.html`), **Profil Gestionnaire** (`aide-gestionnaire.html`) et **Profil Inscriptions** (`aide-inscriptions.html`). Les guides qui concernent le compte connecté sont signalés « Pour vous ». Pages statiques, à tenir à jour avec les fonctions ; un test vérifie que chaque profil du catalogue (`PROFILES`) a son guide et que les liens internes sont valides.
+
 ### Profil
 
 Chaque compte a un **identifiant**, un **prénom**, un **nom**, une **adresse e-mail** (unique) et un **téléphone** facultatif (numéros français mis en forme : `06 12 34 56 78`, `+33 6 12 34 56 78`). On se connecte avec l'identifiant **ou** l'adresse e-mail. Laissé vide à la création, l'identifiant est proposé sous la forme `prenom.nom` (suffixe 2, 3… s'il est pris).

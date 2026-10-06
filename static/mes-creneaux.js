@@ -1005,7 +1005,7 @@ typeFilter.addEventListener("change", () => { closePop(); render(); });
 showPast.addEventListener("change", () => { closePop(); render(); });
 onlyMine.addEventListener("change", () => { closePop(); render(); });
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.help]);
 Session.onChange(user => {
   const member = !!user?.can.view_selections;
   picksEl.hidden = !member;

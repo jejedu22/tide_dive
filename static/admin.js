@@ -2210,6 +2210,6 @@ async function onSessionChange(user) {
   showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.help]);
 Session.onChange(onSessionChange);
 Session.init();

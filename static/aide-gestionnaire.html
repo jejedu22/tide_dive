@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide — profil Gestionnaire — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body class="help-page" data-guide="gestionnaire">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Aide : profil Gestionnaire</h1>
+        <p class="subtitle">Rédiger, envoyer et suivre les newsletters de la structure.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="help-main">
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" aria-current="page" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a></nav>
+
+    <article class="help-article">
+      <nav class="help-toc panel" aria-label="Sommaire"></nav>
+
+      <section class="panel" id="prealables">
+        <h2>Avant de commencer</h2>
+        <ul>
+          <li>Le profil <strong>Gestionnaire</strong> ouvre la page <strong>Newsletters</strong> (lien dans l'en-tête), pour votre structure seulement. Il est attribué par un administrateur de la structure.</li>
+          <li>Les envois passent par le compte <strong>Mailjet</strong> de la structure, connecté par un administrateur (Administration → Mailjet). Sans lui, vous pouvez rédiger mais pas envoyer.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="rediger">
+        <h2>Rédiger</h2>
+        <ul>
+          <li><strong>Nouvelle newsletter</strong> : objet, pré-en-tête facultatif (texte d'aperçu dans la messagerie), destinataires, contenu.</li>
+          <li>Mise en forme simple, avec une barre de boutons : titres <code>## Titre</code>, <code>**gras**</code>, <code>*italique*</code>, liens <code>[texte](https://…)</code>, listes <code>- élément</code>, bouton <code>[[Texte|https://…]]</code>, image <code>![description](https://…)</code>, séparateur <code>---</code>.</li>
+          <li>Personnalisation : <code>{{prenom}}</code>, <code>{{nom}}</code>, <code>{{structure}}</code> sont remplacés pour chaque destinataire.</li>
+          <li><strong>Créneaux…</strong> insère la liste des créneaux choisis par la structure, sur les N prochains jours ou entre deux dates, avec un lien « Voir les créneaux et s'inscrire ». Elle est calculée <strong>au moment de l'envoi</strong> : toujours à jour.</li>
+          <li>L'<strong>aperçu</strong> montre l'e-mail tel qu'il partira (HTML et texte).</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="destinataires">
+        <h2>Destinataires et groupes</h2>
+        <ul>
+          <li>Tous les membres, les administrateurs, les membres en visualisation, un <strong>groupe d'envoi</strong>, ou les inscrits (confirmés) d'un créneau à venir. Seuls les comptes avec une adresse e-mail, moins les désinscrits ; le nombre s'affiche.</li>
+          <li><strong>Groupes d'envoi</strong> : listes nommées de membres (« Encadrants », « Préparants N1 »…), créées depuis la page Newsletters. Un membre peut être dans plusieurs groupes.</li>
+          <li>La liste des destinataires est <strong>figée au moment de l'envoi</strong>.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="envoyer">
+        <h2>Tester, envoyer, programmer</h2>
+        <ul>
+          <li><strong>M'envoyer un test</strong> : à votre adresse, objet préfixé « [TEST] ». Faites-le avant chaque envoi.</li>
+          <li><strong>Envoyer…</strong> : confirmation avec le nombre de destinataires. <strong>Programmer…</strong> : à une date et une heure (à 5 minutes près), annulable tant que l'heure n'est pas venue.</li>
+          <li>Seul un brouillon se modifie : <strong>Dupliquer</strong> une newsletter envoyée pour en repartir.</li>
+          <li>Si Mailjet tombe en panne pendant l'envoi, la newsletter passe en « Échec » : <strong>Reprendre l'envoi</strong> vise seulement les destinataires restants. Une newsletter ne part jamais deux fois.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="rapport">
+        <h2>Suivre un envoi</h2>
+        <ul>
+          <li><strong>Rapport</strong> : envoyés, délivrés, ouverts, cliqués (avec les taux), rebonds, bloqués, indésirables, désinscrits ; liens cliqués ; détail par destinataire avec recherche ; export Excel.</li>
+          <li>Ouvertures, clics et rebonds demandent le <strong>suivi</strong> activé par un administrateur (Administration → Mailjet). Les ouvertures sont sous-estimées : certaines messageries bloquent les images.</li>
+          <li><strong>Désinscriptions</strong> : chaque e-mail a un lien de désinscription, valable pour toutes les newsletters de la structure. La liste des désinscrits est visible dans la page. Un membre se réinscrit lui-même dans Mon compte.</li>
+        </ul>
+      </section>
+    </article>
+
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="aide.js"></script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide — membre — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body class="help-page" data-guide="membre">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Aide : membre</h1>
+        <p class="subtitle">Chercher des créneaux, s'inscrire, gérer son compte.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="help-main">
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" aria-current="page" data-for="membre">Membre</a><a href="aide-administrateur.html" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a></nav>
+
+    <article class="help-article">
+      <nav class="help-toc panel" aria-label="Sommaire"></nav>
+
+      <section class="panel" id="connexion">
+        <h2>Se connecter</h2>
+        <ul>
+          <li>Bouton <strong>Se connecter</strong> en haut à droite : votre <strong>identifiant</strong> (souvent <code>prenom.nom</code>) ou votre <strong>adresse e-mail</strong>, et votre mot de passe.</li>
+          <li>Il n'y a pas d'inscription libre : votre compte est créé par un administrateur de votre structure. Vous recevez soit un <strong>e-mail d'invitation</strong> pour choisir votre mot de passe (lien valable 7 jours), soit un <strong>mot de passe provisoire</strong> à changer à la première connexion.</li>
+          <li><strong>Mot de passe oublié</strong> : lien dans la fenêtre de connexion. Vous recevez un mot de passe provisoire valable une heure ; votre ancien mot de passe reste valable tant que vous ne l'utilisez pas.</li>
+          <li>Un mot de passe compte au moins 12 caractères, avec une minuscule, une majuscule, un chiffre et un caractère spécial ; les règles se cochent pendant la saisie.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="compte">
+        <h2>Mon compte</h2>
+        <ul>
+          <li><strong>Mon compte</strong> (en-tête) : prénom, nom, adresse e-mail, téléphone, mot de passe. Changer d'adresse demande le mot de passe actuel. Une pastille signale un profil incomplet.</li>
+          <li><strong>Newsletters</strong> : case « Recevoir les newsletters de ma structure ». Chaque newsletter contient aussi un lien de désinscription.</li>
+          <li><strong>Plusieurs structures</strong> : si votre compte appartient à plusieurs structures, un sélecteur dans l'en-tête permet de changer de structure. Vous y avez un rôle propre à chacune.</li>
+          <li><strong>Invitations</strong> : un administrateur d'une autre structure peut vous inviter. Le bouton <strong>Invitations</strong> apparaît dans l'en-tête : vous rejoignez la structure seulement si vous acceptez.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="recherche">
+        <h2>Chercher des créneaux</h2>
+        <h3>Recherche par étale</h3>
+        <ul>
+          <li>Page <strong>Recherche</strong> : port, période, phase (pleine mer, basse mer ou les deux), coefficient maximum, marge autour de l'étale, lumière du jour requise. <strong>Chercher les créneaux</strong> affiche les étales qui conviennent.</li>
+          <li>Chaque ligne donne l'heure de <strong>rendez-vous</strong> (l'étale moins le délai fixé par votre structure), l'étale, la hauteur d'eau, le coefficient, la fenêtre autour de l'étale et les heures de soleil. Week-ends, jours fériés et vacances scolaires sont signalés.</li>
+          <li>La ligne de titre du tableau permet de <strong>filtrer</strong> (jour, heure de RDV, PM/BM, hauteur, coefficient, créneaux choisis ou non). <strong>Enregistrer mes préférences</strong> retient ces réglages pour votre prochaine visite.</li>
+          <li><strong>Exporter en Excel</strong> télécharge les créneaux affichés.</li>
+          <li>Les créneaux déjà choisis par votre structure apparaissent grisés, avec leur type.</li>
+        </ul>
+        <h3>Recherche par hauteur d'eau</h3>
+        <p>Si votre structure y a accès (lien <strong>Hauteurs d'eau</strong> dans l'en-tête) : choisissez un port et une hauteur d'eau (par exemple « Mise à l'eau à la cale »). La page liste les <strong>plages horaires</strong> où l'eau est au-dessus (ou au-dessous) de cette hauteur, avec leur durée et la partie de jour. Une plage marquée <strong>limite</strong> dépasse à peine la hauteur : ses heures sont incertaines.</p>
+      </section>
+
+      <section class="panel" id="creneaux">
+        <h2>Les créneaux de votre structure</h2>
+        <ul>
+          <li>Page <strong>Créneaux choisis</strong> : les créneaux retenus par votre structure, en <strong>calendrier</strong> ou en <strong>liste</strong>. Filtres par type, « Seulement mes inscriptions », « Afficher les créneaux passés ».</li>
+          <li>Le calendrier montre les jours fériés (en corail), les vacances scolaires (filet violet) et les périodes où la structure est indisponible (hachures). Cliquez sur un jour pour voir ses créneaux.</li>
+          <li>Un créneau peut être une <strong>étale</strong> (PM / BM), une <strong>plage de hauteur d'eau</strong> (« ≥ 7,00 m · 09:56 → 14:54 ») ou un <strong>créneau personnalisé</strong> (« Perso » : sortie à heure fixe, séjour sur plusieurs jours…). L'<strong>intitulé</strong> distingue plusieurs créneaux le même jour (« Bateau 1 », « Bateau 2 »).</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="inscription">
+        <h2>S'inscrire</h2>
+        <ul>
+          <li><strong>S'inscrire</strong> sur un créneau à venir ; <strong>Se désinscrire</strong> pour annuler. Le nombre d'inscrits s'affiche ; cliquez dessus pour voir qui est inscrit.</li>
+          <li><strong>Places limitées</strong> : « 3/8 » indique 3 inscrits confirmés sur 8 places. Un créneau <strong>complet</strong> propose <strong>Rejoindre la file d'attente</strong> : votre rang s'affiche. Quand une place se libère, le premier de la file est confirmé et prévenu par e-mail.</li>
+          <li><strong>Délais</strong> : votre structure peut fermer les inscriptions et les désinscriptions quelques jours avant le créneau (un cadenas l'indique). Passé ce délai, contactez un administrateur. On peut toujours quitter une file d'attente.</li>
+          <li>Un administrateur ou un encadrant peut aussi vous inscrire : vous recevez alors un e-mail.</li>
+        </ul>
+      </section>
+    </article>
+
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="aide.js"></script>
+</body>
+</html>

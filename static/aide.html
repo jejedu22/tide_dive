@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body class="help-page" data-guide="index">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Aide</h1>
+        <p class="subtitle">Guides d'utilisation de Calendive, selon votre rôle.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="help-main">
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html" aria-current="page">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a></nav>
+
+    <p class="help-intro">Calendive aide votre structure (club, groupe) à trouver les créneaux de plongée au rythme des marées, à les proposer à ses membres et à gérer les inscriptions. Chaque compte a un <strong>rôle</strong> dans sa structure (visualisation ou administration) et, éventuellement, des <strong>profils</strong> qui ouvrent des fonctions particulières. Choisissez le guide qui vous correspond : <span class="help-mine-hint" hidden>ceux qui concernent votre compte sont signalés « Pour vous ».</span></p>
+
+    <div class="help-cards">
+      <a class="help-card panel" href="aide-membre.html" data-for="membre">
+        <span class="help-badge" hidden>Pour vous</span>
+        <h2>Membre</h2>
+        <p>Se connecter, chercher des créneaux, voir ceux de sa structure, s'inscrire, gérer son compte.</p>
+        <span class="help-who">Tous les comptes</span>
+      </a>
+      <a class="help-card panel" href="aide-administrateur.html" data-for="administrateur">
+        <span class="help-badge" hidden>Pour vous</span>
+        <h2>Administrateur de structure</h2>
+        <p>Régler la structure, choisir les créneaux, gérer les membres, les places, les indisponibilités.</p>
+        <span class="help-who">Rôle « Administration »</span>
+      </a>
+      <a class="help-card panel" href="aide-gestionnaire.html" data-for="gestionnaire">
+        <span class="help-badge" hidden>Pour vous</span>
+        <h2>Profil Gestionnaire</h2>
+        <p>Rédiger, envoyer et suivre les newsletters de la structure.</p>
+        <span class="help-who">Profil « Gestionnaire »</span>
+      </a>
+      <a class="help-card panel" href="aide-inscriptions.html" data-for="inscriptions">
+        <span class="help-badge" hidden>Pour vous</span>
+        <h2>Profil Inscriptions</h2>
+        <p>Inscrire d'autres membres sur les créneaux, retirer leur inscription.</p>
+        <span class="help-who">Profil « Inscriptions » (et administrateurs)</span>
+      </a>
+    </div>
+
+    <section class="panel">
+      <h2>Rôles et profils en bref</h2>
+      <div class="table-wrap">
+        <table class="users">
+          <thead><tr><th scope="col">Rôle ou profil</th><th scope="col">Peut</th><th scope="col">Attribué par</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Visualisation</th><td>voir les créneaux choisis par la structure, s'y inscrire et s'en désinscrire</td><td>administrateur de la structure</td></tr>
+            <tr><th scope="row">Administration</th><td>en plus : régler la structure, choisir les créneaux, gérer les membres ; inscrire d'autres membres</td><td>administrateur de la structure</td></tr>
+            <tr><th scope="row">Gestionnaire</th><td>newsletters de la structure (même un administrateur doit se l'attribuer)</td><td>administrateur de la structure</td></tr>
+            <tr><th scope="row">Inscriptions</th><td>inscrire d'autres membres et retirer leur inscription</td><td>administrateur de la structure</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Un compte peut appartenir à <strong>plusieurs structures</strong>, avec un rôle et des profils propres à chacune : le sélecteur de l'en-tête permet de passer de l'une à l'autre. Les <strong>super administrateurs</strong> gèrent l'application elle-même (ports, calculs des marées, structures) ; ils ne sont pas concernés par ces guides.</p>
+    </section>
+
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="aide.js"></script>
+</body>
+</html>
