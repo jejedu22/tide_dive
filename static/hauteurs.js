@@ -221,7 +221,7 @@ const today = new Date();
 $("start").value = toISO(today);
 $("end").value = toISO(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 13));
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.help]);
 Session.onChange(async user => {
   const allowed = Session.searchModes(user) !== "tides";
   controlsEl.hidden = resultsEl.hidden = !allowed;

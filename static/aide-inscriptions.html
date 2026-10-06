@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide — profil Inscriptions — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body class="help-page" data-guide="inscriptions">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Aide : profil Inscriptions</h1>
+        <p class="subtitle">Inscrire d'autres membres sur les créneaux.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="help-main">
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" aria-current="page" data-for="inscriptions">Profil Inscriptions</a></nav>
+
+    <article class="help-article">
+      <nav class="help-toc panel" aria-label="Sommaire"></nav>
+
+      <section class="panel" id="role">
+        <h2>Votre profil</h2>
+        <p>Le profil <strong>Inscriptions</strong> (un encadrant qui inscrit ses élèves, par exemple) permet d'<strong>inscrire d'autres membres</strong> de la structure sur ses créneaux et de <strong>retirer leur inscription</strong>. Les administrateurs de la structure ont ce droit d'office. Il est attribué par un administrateur, pour cette structure seulement.</p>
+      </section>
+
+      <section class="panel" id="inscrire">
+        <h2>Inscrire des membres</h2>
+        <ol>
+          <li>Page <strong>Créneaux choisis</strong> : sur un créneau à venir, bouton <strong>+ Inscrire…</strong>.</li>
+          <li>La liste des membres pas encore inscrits s'ouvre : recherchez par nom, cochez une ou plusieurs personnes.</li>
+          <li>Validez : chacun reçoit un <strong>e-mail</strong> (créneau, RDV, lien vers ses créneaux), s'il a une adresse.</li>
+        </ol>
+        <ul>
+          <li>Les <strong>délais</strong> d'inscription de la structure ne s'appliquent pas à vous.</li>
+          <li><strong>Places limitées</strong> : au-delà des places, les membres sont mis en <strong>file d'attente</strong> ; leur e-mail le dit, avec leur rang.</li>
+          <li>La liste des inscrits et l'export Excel indiquent « inscrit par … » quand ce n'est pas le membre lui-même.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="retirer">
+        <h2>Retirer une inscription</h2>
+        <ul>
+          <li>Cliquez sur le <strong>nombre d'inscrits</strong> d'un créneau : la liste s'ouvre, avec une croix pour chaque inscription.</li>
+          <li>Retirer un inscrit confirmé libère sa place : le premier de la file d'attente est confirmé et prévenu par e-mail.</li>
+          <li>Le membre inscrit peut lui-même se désinscrire, dans les délais habituels.</li>
+        </ul>
+      </section>
+    </article>
+
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="aide.js"></script>
+</body>
+</html>

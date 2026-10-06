@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide — administrateur de structure — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+</head>
+<body class="help-page" data-guide="administrateur">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Aide : administrateur de structure</h1>
+        <p class="subtitle">Régler la structure, choisir les créneaux, gérer les membres.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="help-main">
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" aria-current="page" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a></nav>
+
+    <article class="help-article">
+      <nav class="help-toc panel" aria-label="Sommaire"></nav>
+
+      <section class="panel" id="role">
+        <h2>Votre rôle</h2>
+        <p>Le rôle <strong>Administration</strong> donne, dans votre structure : le choix des créneaux, les réglages, la gestion des membres et de leurs profils, et l'inscription d'autres membres. Tout se trouve dans <strong>Administration</strong> (en-tête) et sur les pages de recherche et de créneaux choisis. Vous avez aussi tout ce que voit un <a href="aide-membre.html">membre</a>.</p>
+        <p>Les <strong>newsletters</strong> demandent le profil <strong>Gestionnaire</strong>, même pour un administrateur : attribuez-le-vous si besoin (voir <a href="#membres">Membres</a>).</p>
+      </section>
+
+      <section class="panel" id="demarrage">
+        <h2>Premiers pas</h2>
+        <ol>
+          <li><strong>Administration → Créneaux</strong> : créez vos <strong>types de créneaux</strong> (« Sortie bateau », « Formation N2 »…) ; sans type, impossible de choisir un créneau.</li>
+          <li>Réglez le <strong>délai de rendez-vous</strong>, le <strong>port par défaut</strong>, les <strong>places</strong> et les <strong>délais d'inscription</strong>.</li>
+          <li><strong>Administration → Utilisateurs</strong> : ajoutez vos membres (un par un, ou par import CSV).</li>
+          <li>Dans la <strong>Recherche</strong>, choisissez vos premiers créneaux.</li>
+          <li>Pour les newsletters : connectez votre compte <strong>Mailjet</strong> et donnez le profil Gestionnaire à qui les rédige.</li>
+        </ol>
+      </section>
+
+      <section class="panel" id="reglages">
+        <h2>Réglages de la structure (Administration → Créneaux)</h2>
+        <ul>
+          <li><strong>Heure de rendez-vous</strong> : l'étale moins ce délai, arrondi aux 5 minutes inférieures (étale 9h37, délai 2h15 → RDV 7h20). Un changement s'applique aussi aux créneaux à venir déjà choisis.</li>
+          <li><strong>Port par défaut</strong> : proposé d'office aux membres dans la recherche.</li>
+          <li><strong>Horaires de marée</strong> : par défaut, les horaires d'api-maree.fr sur le mois à venir et le calcul FES corrigé au-delà. Vous pouvez désactiver l'un ou l'autre pour votre structure seule ; les créneaux à venir sont alors recalés sur les nouveaux horaires.</li>
+          <li><strong>Places par défaut</strong> : copiées sur chaque <em>nouveau</em> créneau ; vide : illimité.</li>
+          <li><strong>Délais d'inscription et de désinscription</strong> : fermés à partir de N jours avant le créneau ; vide : pas de limite. Un exemple s'affiche sous les champs.</li>
+          <li><strong>Types de créneaux</strong> : libellé, couleur, ordre de la liste. Un type utilisé ne se supprime pas : décochez « Proposé » pour le retirer de la liste.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="indisponibilites">
+        <h2>Indisponibilités</h2>
+        <p><strong>Administration → Créneaux → Indisponibilités</strong> : déclarez les périodes où la structure ne peut pas sortir (bateau au carénage, congés du club…), pour tous les lieux, avec des heures facultatives et un motif.</p>
+        <ul>
+          <li>Pendant une plage, aucun créneau ne peut être choisi, créé ou déplacé ; la recherche marque les étales concernées « Indisponible ».</li>
+          <li>Les créneaux déjà choisis dans la plage restent : ils vous sont listés à l'enregistrement, à vous de les retirer si besoin.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="choisir">
+        <h2>Choisir les créneaux</h2>
+        <ul>
+          <li><strong>Recherche</strong>, colonne <strong>Choix</strong> : choisissez un type pour retenir l'étale. Elle apparaît aussitôt dans les créneaux choisis ; la croix l'annule.</li>
+          <li><strong>Plusieurs créneaux sur la même étale</strong> (deux bateaux) : liste « + Autre… », avec un intitulé pour les distinguer.</li>
+          <li><strong>Choisir les créneaux affichés…</strong> : tous les créneaux affichés (filtres compris) d'un coup, avec le même type ; « Annuler ce choix groupé » les retire aussitôt. Filtrez d'abord (ex. étales PM, coefficient ≤ 80).</li>
+          <li><strong>Recherche par hauteur d'eau</strong> (si votre structure y a accès) : une plage se choisit de la même façon ; son RDV est le début de la plage.</li>
+          <li><strong>Créneau personnalisé</strong> (page Créneaux choisis) : en dehors des étales proposées — lieu (port ou autre lieu), jour ou séjour sur plusieurs jours, heure de RDV, type, intitulé, places.</li>
+          <li><strong>Modifier</strong> : type et intitulé de tout créneau ; lieu, jour et heure d'un créneau personnalisé. <strong>Places…</strong> : nombre de places du créneau. <strong>Retirer</strong> : supprime le créneau et ses inscriptions.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="places">
+        <h2>Places et file d'attente</h2>
+        <ul>
+          <li>Les N premiers inscrits sont confirmés, les suivants en file d'attente, dans l'ordre d'inscription.</li>
+          <li>Ajouter des places (ou une désinscription) confirme les premiers de la file, prévenus par e-mail ; en retirer remet les derniers inscrits en file d'attente (la fenêtre l'annonce avant d'enregistrer).</li>
+          <li>L'export Excel des créneaux choisis donne les inscrits et la file d'attente.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="membres">
+        <h2>Membres (Administration → Utilisateurs)</h2>
+        <ul>
+          <li><strong>Ajouter un utilisateur</strong> : prénom, nom, e-mail, rôle (visualisation ou administration), profils. Mot de passe : <strong>invitation par e-mail</strong> (la personne le choisit) ou <strong>mot de passe provisoire</strong> à lui transmettre.</li>
+          <li><strong>Importer</strong> un fichier CSV (modèle téléchargeable) : analyse ligne par ligne, puis confirmation. 500 comptes au plus par fichier.</li>
+          <li><strong>Inviter un compte existant</strong> (qui appartient déjà à une autre structure) par son adresse e-mail : il rejoint la vôtre s'il accepte. Invitation valable 30 jours, annulable.</li>
+          <li><strong>Modifier</strong> : rôle et <strong>profils</strong> (Gestionnaire, Inscriptions). <strong>Mot de passe…</strong> : renvoyer l'invitation, envoyer un lien de réinitialisation ou définir un mot de passe provisoire.</li>
+          <li>Un compte partagé avec une autre structure : vous gérez son rôle et ses profils chez vous ; son profil et son mot de passe restent à son titulaire. Le <strong>retirer</strong> ne supprime pas le compte.</li>
+          <li>Vous ne pouvez pas changer votre propre rôle ni supprimer votre propre compte.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="inscrire">
+        <h2>Inscrire d'autres membres</h2>
+        <p>Comme le profil Inscriptions : bouton <strong>+ Inscrire…</strong> d'un créneau à venir, et retrait d'une inscription depuis la liste des inscrits. Les délais ne s'appliquent pas. Voir le <a href="aide-inscriptions.html">guide Inscriptions</a>.</p>
+      </section>
+
+      <section class="panel" id="mailjet">
+        <h2>Mailjet (newsletters)</h2>
+        <p><strong>Administration → Mailjet</strong> : clé API et clé secrète du compte Mailjet de la structure, adresse d'expéditeur <strong>validée chez Mailjet</strong>. <strong>Enregistrer et tester</strong> vérifie le tout ; <strong>Activer le suivi</strong> donne les ouvertures, clics et rebonds dans les rapports. Les clés sont chiffrées et ne sont plus jamais affichées.</p>
+      </section>
+    </article>
+
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="aide.js"></script>
+</body>
+</html>
