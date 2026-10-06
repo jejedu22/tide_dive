@@ -212,6 +212,16 @@ def _m006_water_heights(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE slot_selections ADD COLUMN {col} {ddl}")
 
 
+def _m007_preview(conn: sqlite3.Connection) -> None:
+    """Aperçu d'un super administrateur : rôle et profils simulés, par session."""
+    existing = _columns(conn, "sessions")
+    if "preview_role" not in existing:
+        conn.execute("ALTER TABLE sessions ADD COLUMN preview_role TEXT "
+                     "CHECK (preview_role IN ('manager', 'viewer', 'none'))")
+    if "preview_profiles" not in existing:
+        conn.execute("ALTER TABLE sessions ADD COLUMN preview_profiles TEXT")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -219,6 +229,7 @@ MIGRATIONS: list[Migration] = [
     Migration(4, "plusieurs créneaux choisis sur la même étale", _m004_several_picks_per_tide),
     Migration(5, "horaires de marée par source (calcul brut, corrigé, api-maree.fr)", _m005_tide_sources),
     Migration(6, "recherche par hauteur d'eau", _m006_water_heights),
+    Migration(7, "aperçu des rôles par un super administrateur", _m007_preview),
 ]
 
 

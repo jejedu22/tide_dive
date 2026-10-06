@@ -241,7 +241,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL,       -- ISO8601 UTC
-    structure_id INTEGER REFERENCES structures(id) ON DELETE SET NULL
+    structure_id INTEGER REFERENCES structures(id) ON DELETE SET NULL,
+    -- aperçu d'un super administrateur (voir l'application avec un autre rôle) ; NULL : pas d'aperçu
+    preview_role TEXT CHECK (preview_role IN ('manager', 'viewer', 'none')),
+    preview_profiles TEXT           -- profils de l'aperçu, séparés par des virgules
 );
 
 -- Appartenance d'un compte à une structure, avec son rôle DANS cette structure : un compte peut appartenir

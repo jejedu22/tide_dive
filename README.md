@@ -352,6 +352,16 @@ En plus de son rôle (visualisation ou administration), un compte peut recevoir 
 
 Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles` (par structure).
 
+### Voir comme un autre rôle (super administrateur)
+
+Un super administrateur peut afficher l'application **comme un autre rôle**, pour vérifier ce que chacun voit : bouton **Voir comme…** de l'en-tête, puis le rôle (**administrateur de structure**, **membre en visualisation** ou **compte sans structure**), la structure et, éventuellement, des profils (Gestionnaire, Inscriptions). Un bandeau rappelle l'aperçu sur toutes les pages, avec **Changer** et **Quitter l'aperçu**.
+
+- **Fidèle** : l'API applique les droits du rôle choisi (pages, menus, données visibles), comme pour un vrai compte de ce rôle ; le compte n'est plus super administrateur pendant l'aperçu.
+- **Lecture seule** : toute modification est refusée (403) pendant l'aperçu, sauf le changer, le quitter ou se déconnecter. Rien n'est créé ni modifié dans la structure.
+- **Propre à la session** : seul ce navigateur est en aperçu ; une nouvelle connexion repart sans aperçu.
+
+`PUT /api/me/preview` (`{"role": "manager" | "viewer" | "none", "structure_id": …, "profiles": […]}`) le démarre, `DELETE /api/me/preview` le quitte ; colonnes `sessions.preview_role` et `preview_profiles` (migration n° 7). Pour voir l'application **sans être connecté**, une fenêtre de navigation privée suffit.
+
 ### Connexion Mailjet
 
 Les newsletters partent par [Mailjet](https://www.mailjet.com), avec le compte Mailjet **de chaque structure**. Un administrateur de la structure (ou un super administrateur) le connecte dans **`/admin.html` → Mailjet** :

@@ -209,16 +209,55 @@ def create_session(token_hash: str, user_id: int, expires_at: str, now: str) -> 
         conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user_id))
 
 
-def get_session_user(token_hash: str, now: str) -> sqlite3.Row | None:
+def get_session_user(token_hash: str, now: str) -> sqlite3.Row | dict | None:
     with get_conn() as conn:
         # structure ACTIVE de cette session (changée par le sélecteur), à défaut la structure par défaut du compte
-        return conn.execute(
+        row = conn.execute(
             _user_query(
                 "COALESCE(s.structure_id, u.structure_id)", joins="JOIN sessions s ON s.user_id = u.id",
                 where="WHERE s.token_hash = ? AND s.expires_at > ?",
             ),
             (token_hash, now),
         ).fetchone()
+        if row is None or not row["is_admin"]:
+            return row
+        preview = conn.execute("SELECT preview_role, preview_profiles FROM sessions WHERE token_hash = ?",
+                               (token_hash,)).fetchone()
+    if preview is None or preview["preview_role"] is None:
+        return row
+    return _previewed(row, preview["preview_role"], preview["preview_profiles"])
+
+
+# Aperçu d'un super administrateur : il voit l'application avec un autre rôle (voir auth.py, PUT /api/me/preview)
+PREVIEW_ROLES = ("manager", "viewer", "none")
+_STRUCTURE_FIELDS = ("structure_id", "structure_role", "structure_name", "structure_rdv_offset_minutes",
+                     "structure_default_port_id", "structure_default_max_registrations", "structure_search_modes",
+                     "profiles")
+
+
+def _previewed(row: sqlite3.Row, role: str, profiles: str | None) -> dict:
+    """Le compte d'un super administrateur tel qu'il apparaît en aperçu : plus super administrateur, rôle et
+    profils choisis dans la structure active de la session (« none » : compte sans structure). Toutes les
+    vérifications de droits (accounts.permissions, scope_structure…) s'appliquent donc comme pour ce rôle."""
+    u = dict(row)
+    u.update(is_admin=0, preview_role=role, structures_count=1)
+    if role == "none" or u["structure_id"] is None:
+        u.update(dict.fromkeys(_STRUCTURE_FIELDS))
+    else:
+        u.update(structure_role=role, profiles=profiles or None)
+    return u
+
+
+def set_session_preview(token_hash: str, user_id: int, role: str | None, profiles: list[str] | None = None,
+                        structure_id: int | None = None) -> None:
+    """Démarre (role) ou arrête (None) l'aperçu de CETTE session ; structure_id : structure de l'aperçu."""
+    with get_conn() as conn:
+        if role is not None and role != "none":
+            conn.execute("UPDATE sessions SET structure_id = ? WHERE token_hash = ? AND user_id = ?",
+                         (structure_id, token_hash, user_id))
+        stored_profiles = ",".join(profiles or []) if role else ""
+        conn.execute("UPDATE sessions SET preview_role = ?, preview_profiles = ? WHERE token_hash = ? AND user_id = ?",
+                     (role, stored_profiles or None, token_hash, user_id))
 
 
 def delete_session(token_hash: str) -> None:
