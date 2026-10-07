@@ -374,7 +374,21 @@ $("start").value = toISO(today);
 $("end").value = toISO(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 13));
 
 Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.help]);
+// Note de source du pied de page : selon les réglages de la structure du compte
+function tideSourceNote(user) {
+  const ts = Session.tideSources(user);
+  const mine = ts.api_maree && ts.calibration ? "" : " ; réglage de votre structure";
+  const api = '<a href="https://api-maree.fr" rel="noopener">api-maree.fr</a>';
+  if (ts.api_maree) {
+    return `${api} sur le mois à venir, calcul FES ${ts.calibration ? "recalé sur cette même source" : "brut, sans correction,"} au-delà${mine}`;
+  }
+  return ts.calibration
+    ? `calcul FES recalé sur ${api}, y compris pour le mois à venir${mine}`
+    : `calcul FES brut, sans api-maree.fr ni correction${mine}`;
+}
+
 Session.onChange(async user => {
+  $("tide-source-note").innerHTML = tideSourceNote(user);
   const allowed = Session.searchModes(user) !== "tides";
   controlsEl.hidden = resultsEl.hidden = !allowed;
   gateEl.hidden = allowed;

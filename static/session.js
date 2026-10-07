@@ -713,6 +713,12 @@ const Session = (() => {
     return u.structure?.search_modes || "tides";
   }
 
+  // Horaires de marée vus par la structure du compte (réglages de ses administrateurs : mois glissant
+  // api-maree.fr, correction du calcul FES) ; visiteur ou compte sans structure : tout activé
+  function tideSources(u) {
+    return u?.structure?.tide_sources || { api_maree: true, calibration: true };
+  }
+
   // Liens d'en-tête communs aux pages
   const LINKS = {
     // "./" renvoie les membres vers leurs créneaux
@@ -751,7 +757,7 @@ const Session = (() => {
   const installed = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
 
   return {
-    ROLE_LABELS, LINKS, roleLabel, searchModes,
+    ROLE_LABELS, LINKS, roleLabel, searchModes, tideSources,
     get user() { return user; },
     get config() { return config; },
     onChange: fn => listeners.push(fn),
