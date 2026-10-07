@@ -602,6 +602,148 @@ const Session = (() => {
   const icon = (name, size = 18) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
+  // « Mon agenda » : abonnements calendrier (Android, iPhone), un par structure du compte. Le lien n'est montré
+  // qu'à sa création (le serveur n'en garde que l'empreinte) ; un fichier .ics de la structure en dépannage.
+  const fmtStamp = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" });
+
+  function feedChoice(f, types) {
+    const t = types.find(x => x.id === f.type_id);
+    return (f.mine ? "vos inscriptions" : "tous les créneaux") + (t ? `, type « ${t.label} »` : "");
+  }
+
+  function feedStatus(f, types) {
+    if (!f.active) return "Pas d'abonnement.";
+    return `Abonnement actif (${feedChoice(f, types)}), créé le ${fmtStamp.format(new Date(f.created_at))}`
+      + (f.last_used_at ? `, lu par votre calendrier le ${fmtStamp.format(new Date(f.last_used_at))}.` : ", pas encore lu par un calendrier.");
+  }
+
+  function createdHtml(created) {
+    return `
+      <p class="calendar-ok">Lien créé. Il n'est affiché qu'une fois : ajoutez-le maintenant.</p>
+      <p><a class="btn-primary btn-small" href="${esc(created.webcal_url)}">Ouvrir dans le calendrier</a>
+        <span class="muted">iPhone, iPad, Mac, Outlook</span></p>
+      <div class="calendar-link">
+        <input type="text" readonly value="${esc(created.url)}" aria-label="Lien d'abonnement">
+        <button type="button" class="btn-secondary btn-small" data-copy>Copier</button>
+      </div>
+      <ul class="calendar-help">
+        <li><strong>iPhone</strong> : « Ouvrir dans le calendrier », puis « S'abonner ».</li>
+        <li><strong>Android</strong> (Google Agenda) : copiez le lien ; sur un ordinateur, ouvrez calendar.google.com →
+          « Autres agendas » <strong>+</strong> → « À partir de l'URL » et collez-le. L'agenda apparaît ensuite sur le téléphone.</li>
+      </ul>
+      <p class="dialog-hint">Lien personnel : ne le partagez pas.</p>`;
+  }
+
+  async function openAgenda() {
+    const d = document.createElement("dialog");
+    d.className = "account-dialog calendar-dialog";
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>Mon agenda</h2>
+        <p class="dialog-hint">Les créneaux de vos structures dans le calendrier de votre téléphone (Android, iPhone) ou de
+          votre ordinateur. Un <strong>abonnement</strong> se met à jour tout seul : créneaux ajoutés, déplacés ou retirés.
+          Pour un seul créneau : bouton « Agenda » sur le créneau.</p>
+        <div class="agenda-list"><p class="muted">Chargement…</p></div>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button type="submit" class="btn-quiet">Fermer</button></div>
+      </form>`;
+    document.body.append(d);
+    d.addEventListener("close", () => d.remove());
+    d.addEventListener("click", e => { if (e.target === d) d.close(); });
+    const listEl = d.querySelector(".agenda-list");
+    const errEl = d.querySelector(".dialog-error");
+    d.showModal();
+    let entries;
+    try {
+      entries = await api("/api/me/calendar-feeds");
+    } catch (err) {
+      listEl.innerHTML = "";
+      errEl.textContent = err.message;
+      return;
+    }
+    if (!entries.length) {
+      listEl.innerHTML = `<p>Votre compte n'est rattaché à aucune structure : il n'a pas de créneaux à suivre.</p>`;
+      return;
+    }
+    const byId = new Map(entries.map(e => [e.structure.id, e]));
+    const choiceOf = sec => ({
+      mine: sec.querySelector("input[name^=mine]:checked")?.value === "1",
+      type_id: sec.querySelector("select[name=type_id]").value ? Number(sec.querySelector("select[name=type_id]").value) : null,
+    });
+    const downloadHref = (sid, c) =>
+      `/api/selections.ics?structure_id=${sid}&mine=${c.mine}${c.type_id != null ? `&type_id=${c.type_id}` : ""}`;
+    const renderEntry = (e, created = null) => {
+      const f = e.feed, sid = e.structure.id;
+      const mine = f.active ? f.mine : true;
+      return `
+        <section class="calendar-part agenda-structure" data-sid="${sid}">
+          <h3>${esc(e.structure.name)}</h3>
+          <p class="agenda-status">${esc(feedStatus(f, e.types))}</p>
+          <div class="agenda-choice">
+            <label class="check"><input type="radio" name="mine-${sid}" value="1"${mine ? " checked" : ""}> Mes inscriptions</label>
+            <label class="check"><input type="radio" name="mine-${sid}" value="0"${mine ? "" : " checked"}> Tous les créneaux</label>
+            <select name="type_id" aria-label="Type de créneau">
+              <option value="">Tous les types</option>
+              ${e.types.map(t => `<option value="${t.id}"${f.active && f.type_id === t.id ? " selected" : ""}>${esc(t.label)}</option>`).join("")}
+            </select>
+          </div>
+          ${created ? createdHtml(created) : ""}
+          <p class="calendar-actions">
+            <button type="button" class="btn-${f.active ? "secondary" : "primary"} btn-small" data-feed="create">${f.active ? "Nouveau lien" : "S'abonner"}</button>
+            ${f.active ? `<button type="button" class="btn-quiet btn-small" data-feed="delete">Désactiver</button>` : ""}
+            <a class="btn-quiet btn-small" data-download download href="#" title="Les créneaux d'aujourd'hui, à importer ; à refaire après un changement">Fichier .ics</a>
+          </p>
+          ${f.active && !created ? `<p class="dialog-hint">Le lien n'est affiché qu'à sa création : pour un autre appareil, créez un nouveau lien (l'ancien cesse de marcher).</p>` : ""}
+        </section>`;
+    };
+    const syncDownload = sec => { sec.querySelector("[data-download]").href = downloadHref(Number(sec.dataset.sid), choiceOf(sec)); };
+    const replace = (sec, html) => {
+      sec.insertAdjacentHTML("afterend", html);
+      const next = sec.nextElementSibling;
+      sec.remove();
+      syncDownload(next);
+      return next;
+    };
+    listEl.innerHTML = entries.map(e => renderEntry(e)).join("");
+    listEl.querySelectorAll(".agenda-structure").forEach(syncDownload);
+    listEl.addEventListener("change", e => {
+      const sec = e.target.closest(".agenda-structure");
+      if (sec) syncDownload(sec);
+    });
+    listEl.addEventListener("click", async e => {
+      const copy = e.target.closest("[data-copy]");
+      if (copy) {
+        const input = copy.parentElement.querySelector("input");
+        input.select();
+        try { await navigator.clipboard.writeText(input.value); copy.textContent = "Copié"; } catch { document.execCommand?.("copy"); }
+        return;
+      }
+      const btn = e.target.closest("[data-feed]");
+      if (!btn) return;
+      const sec = btn.closest(".agenda-structure");
+      const sid = Number(sec.dataset.sid);
+      const entry = byId.get(sid);
+      errEl.textContent = "";
+      btn.disabled = true;
+      try {
+        if (btn.dataset.feed === "create") {
+          const c = choiceOf(sec);
+          const created = await api(`/api/me/calendar-feeds/${sid}`, { method: "POST", body: c });
+          entry.feed = { active: true, mine: created.mine, type_id: created.type_id,
+                         created_at: created.created_at, last_used_at: created.last_used_at };
+          replace(sec, renderEntry(entry, created));
+        } else {
+          await api(`/api/me/calendar-feeds/${sid}`, { method: "DELETE" });
+          entry.feed = { active: false };
+          replace(sec, renderEntry(entry));
+        }
+      } catch (err) {
+        errEl.textContent = err.message;
+        btn.disabled = false;
+      }
+    });
+  }
+
   // Initiales du compte (pastille du menu)
   function initials(u) {
     const words = String(u.display_name || u.username).split(/[\s.@_-]+/).filter(Boolean);
@@ -648,6 +790,8 @@ const Session = (() => {
             <span>Invitations <span class="account-dot">${u.invitations}</span></span></button>` : ""}
           ${u.is_admin ? `<button type="button" class="account-item" data-act="preview"
             title="Voir l'application comme un autre rôle (lecture seule)">${icon("eye")}<span>Voir comme…</span></button>` : ""}
+          ${u.structures?.length || u.structure ? `<button type="button" class="account-item" data-act="agenda"
+            title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
             : ` <span class="account-dot" title="Profil à compléter">!</span>`}</span></button>
           <button type="button" class="account-item" data-act="logout">${icon("logout")}<span>Se déconnecter</span></button>
@@ -671,6 +815,7 @@ const Session = (() => {
       if (act === "logout") logout();
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
+      if (act === "agenda") openAgenda();
     });
     document.addEventListener("click", e => { if (!el.contains(e.target)) closeMenu(); });
     document.addEventListener("keydown", e => {
@@ -764,6 +909,6 @@ const Session = (() => {
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
-    openPreview, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
+    openPreview, openAgenda, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };
 })();

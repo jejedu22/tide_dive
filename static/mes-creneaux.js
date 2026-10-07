@@ -145,6 +145,9 @@ function rdvTitle(p) {
 
 const veilleMark = p => (p.rdv.date !== p.date ? `<span class="veille" title="RDV la veille">J-1</span> ` : "");
 const pickedBy = p => (p.picked_by ? esc(p.picked_by) : `<span class="muted">compte supprimé</span>`);
+// Ajouter ce créneau au calendrier du téléphone ou de l'ordinateur (fichier .ics d'un seul créneau)
+const agendaLink = p => `<a class="btn-quiet btn-small slot-agenda" href="/api/selections/${p.id}.ics" download
+  title="Ajouter ce créneau à mon agenda (calendrier du téléphone ou de l'ordinateur)">${Session.icon("calendar", 15)}<span>Agenda</span></a>`;
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
 // Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
 const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
@@ -187,7 +190,7 @@ function slotCard(p) {
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
         <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
-        <span class="slot-acts">${editButton(p)}${removeButton()}</span>
+        <span class="slot-acts">${agendaLink(p)}${editButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -464,7 +467,7 @@ function renderTable(list) {
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${editButton(p)}${removeButton()}</td>
+          <td class="c-actions">${agendaLink(p)}${editButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -1002,130 +1005,6 @@ calGrid.addEventListener("keydown", e => {
 });
 
 typeFilter.addEventListener("change", () => { closePop(); render(); });
-// ---- Ajouter à mon agenda : fichier .ics ou abonnement (lien personnel mis à jour automatiquement) ----
-
-const fmtStamp = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" });
-
-function feedChoice(f) {
-  const t = types.find(x => x.id === f.type_id) || picks.find(p => p.type.id === f.type_id)?.type;
-  return (f.mine ? "mes inscriptions" : "tous les créneaux de la structure") + (t ? `, type « ${t.label} »` : "");
-}
-
-async function openCalendarDialog() {
-  const d = document.createElement("dialog");
-  d.className = "account-dialog calendar-dialog";
-  const typeOptions = [...typeFilter.options].map(o =>
-    `<option value="${esc(o.value)}"${o.value === typeFilter.value ? " selected" : ""}>${esc(o.textContent)}</option>`).join("");
-  d.innerHTML = `
-    <form method="dialog">
-      <h2>Ajouter à mon agenda</h2>
-      <p class="dialog-hint">Les créneaux dans le calendrier de votre téléphone (Android, iPhone) ou de votre ordinateur.</p>
-      <fieldset class="calendar-choice">
-        <legend>Créneaux</legend>
-        <label class="check"><input type="radio" name="mine" value="1"${onlyMine.checked ? " checked" : ""}> Seulement mes inscriptions</label>
-        <label class="check"><input type="radio" name="mine" value="0"${onlyMine.checked ? "" : " checked"}> Tous les créneaux de la structure</label>
-        <label>Type <select name="type_id">${typeOptions}</select></label>
-      </fieldset>
-      <section class="calendar-part">
-        <h3>S'abonner <span class="muted">(mis à jour automatiquement)</span></h3>
-        <div class="calendar-feed"><p class="muted">Chargement…</p></div>
-      </section>
-      <section class="calendar-part">
-        <h3>Télécharger un fichier .ics</h3>
-        <p class="dialog-hint">Les créneaux d'aujourd'hui, à importer dans le calendrier ; à refaire après un changement.
-          Les créneaux passés depuis deux mois et tous ceux à venir.</p>
-        <a class="btn-secondary btn-small" data-download download="calendive.ics" href="#">Télécharger le fichier .ics</a>
-      </section>
-      <p class="dialog-error" role="alert"></p>
-      <div class="dialog-actions"><button type="submit" class="btn-quiet">Fermer</button></div>
-    </form>`;
-  document.body.append(d);
-  d.addEventListener("close", () => d.remove());
-  const form = d.querySelector("form");
-  const feedEl = d.querySelector(".calendar-feed");
-  const errEl = d.querySelector(".dialog-error");
-  const choice = () => ({
-    mine: form.mine.value === "1",
-    type_id: form.type_id.value ? Number(form.type_id.value) : null,
-  });
-  const syncDownload = () => {
-    const c = choice();
-    d.querySelector("[data-download]").href =
-      `/api/selections.ics?mine=${c.mine}${c.type_id != null ? `&type_id=${c.type_id}` : ""}`;
-  };
-  form.addEventListener("change", syncDownload);
-  syncDownload();
-
-  const renderFeed = (feed, created = null) => {
-    if (created) {
-      feedEl.innerHTML = `
-        <p class="calendar-ok">Lien créé : ${esc(feedChoice(created))}.</p>
-        <p><a class="btn-primary btn-small" href="${esc(created.webcal_url)}">Ouvrir dans le calendrier</a>
-          <span class="muted">iPhone, iPad, Mac, Outlook</span></p>
-        <div class="calendar-link">
-          <input type="text" readonly value="${esc(created.url)}" aria-label="Lien d'abonnement">
-          <button type="button" class="btn-secondary btn-small" data-copy>Copier</button>
-        </div>
-        <ul class="calendar-help">
-          <li><strong>iPhone</strong> : « Ouvrir dans le calendrier », puis « S'abonner ».</li>
-          <li><strong>Android</strong> (Google Agenda) : copiez le lien ; sur un ordinateur, ouvrez calendar.google.com →
-            « Autres agendas » <strong>+</strong> → « À partir de l'URL » et collez-le. L'agenda apparaît ensuite sur le téléphone.</li>
-        </ul>
-        <p class="dialog-hint">Lien personnel : ne le partagez pas. Il n'est affiché qu'une fois ; « Nouveau lien » le remplace.</p>`;
-      feedEl.querySelector("[data-copy]").addEventListener("click", async e => {
-        const input = feedEl.querySelector(".calendar-link input");
-        input.select();
-        try {
-          await navigator.clipboard.writeText(input.value);
-          e.target.textContent = "Copié";
-        } catch {
-          document.execCommand?.("copy");
-        }
-      });
-      feedEl.insertAdjacentHTML("beforeend", feedButtons(true));
-      return;
-    }
-    feedEl.innerHTML = feed.active
-      ? `<p>Abonnement actif : ${esc(feedChoice(feed))}. Créé le ${esc(fmtStamp.format(new Date(feed.created_at)))}${
-          feed.last_used_at ? `, lu par votre calendrier le ${esc(fmtStamp.format(new Date(feed.last_used_at)))}` : ", pas encore lu par un calendrier"}.</p>
-         <p class="dialog-hint">Le lien n'est affiché qu'à sa création : pour l'ajouter à un autre appareil, créez un nouveau lien (l'ancien cesse de marcher).</p>
-         ${feedButtons(true)}`
-      : `<p class="dialog-hint">Un lien personnel que votre calendrier relit tout seul : les créneaux ajoutés, déplacés ou retirés y apparaissent sans rien refaire.</p>
-         ${feedButtons(false)}`;
-  };
-  const feedButtons = active => `<p class="calendar-actions">
-      <button type="button" class="btn-${active ? "secondary" : "primary"} btn-small" data-feed="create">${active ? "Nouveau lien" : "Créer mon lien d'abonnement"}</button>
-      ${active ? `<button type="button" class="btn-quiet btn-small" data-feed="delete">Désactiver</button>` : ""}</p>`;
-
-  feedEl.addEventListener("click", async e => {
-    const act = e.target.closest("[data-feed]")?.dataset.feed;
-    if (!act) return;
-    errEl.textContent = "";
-    e.target.disabled = true;
-    try {
-      if (act === "create") {
-        renderFeed(null, await Session.api("/api/me/calendar-feed", { method: "POST", body: choice() }));
-      } else {
-        await Session.api("/api/me/calendar-feed", { method: "DELETE" });
-        renderFeed({ active: false });
-      }
-    } catch (err) {
-      errEl.textContent = err.message;
-      e.target.disabled = false;
-    }
-  });
-
-  d.showModal();
-  try {
-    renderFeed(await Session.api("/api/me/calendar-feed"));
-  } catch (err) {
-    feedEl.innerHTML = "";
-    errEl.textContent = err.message;
-  }
-}
-
-$("calendar-export").addEventListener("click", openCalendarDialog);
-
 showPast.addEventListener("change", () => { closePop(); render(); });
 onlyMine.addEventListener("change", () => { closePop(); render(); });
 
