@@ -637,6 +637,10 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `PATCH /api/me/profile` | connecté | `{first_name?, last_name?, email?, phone?, current_password?}` (mot de passe requis pour changer d'e-mail) |
 | `POST /api/me/password` | connecté | `{current_password, new_password}` |
 | `GET` / `PUT` / `DELETE /api/me/preferences` | connecté | `{form, filters}` |
+| `GET` / `PUT /api/me/water-preferences` | connecté | préférences de la recherche par hauteur d'eau `{form, filters}` |
+| `PUT` / `DELETE /api/me/preview` | super admin | aperçu d'un autre rôle `{role, structure_id?, profiles?}` (lecture seule) / fin de l'aperçu |
+| `GET /api/me/calendar-feeds` | connecté | « Mon agenda » : pour chaque structure du compte, son abonnement calendrier et ses types |
+| `POST` / `DELETE /api/me/calendar-feeds/{structure_id}` | membre de la structure | crée (ou remplace) le lien d'abonnement `{mine, type_id?}` : réponse `url` et `webcal_url`, montrés une seule fois / désactive |
 | `GET` / `POST /api/admin/users` | admin. structure / super admin | liste (`?structure_id=` pour le super admin) / création `{first_name, last_name, email, phone?, username?, send_invite, password?, must_change_password?, role, structure_id?, is_admin?}` |
 | `PATCH` / `DELETE /api/admin/users/{id}` | admin. structure / super admin | `{first_name?, last_name?, email?, phone?, password?, must_change_password?, role?, structure_id?, is_admin?}` / suppression |
 | `POST /api/admin/users/{id}/send-link` | admin. structure / super admin | renvoie l'invitation, ou envoie un lien de réinitialisation |
@@ -678,6 +682,9 @@ Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes 
 | `POST /api/selections/custom` | admin. structure | créneau personnalisé `{port_id \| location, date, end_date?, time, type_id, note?}` : un port **ou** un lieu libre (`location`, 80 caractères), jamais les deux ; `end_date` : dernier jour d'un séjour (après `date`, 60 jours au plus) ; `time` : heure de RDV `HH:MM` du premier jour |
 | `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id?, port_id?, location?, date?, end_date?, time?, note?}` (`end_date: null` : un seul jour) (lieu, jour, heure et intitulé : créneau personnalisé uniquement, 422 sinon ; un `port_id` remplace le lieu libre et inversement) / retrait |
 | `POST` / `DELETE /api/selections/{id}/registration` | membre d'une structure | s'inscrire / se désinscrire, dans les délais de la structure (409 sinon) |
+| `GET /api/selections/{id}.ics` | membre d'une structure | un créneau au format iCalendar (bouton « Agenda ») |
+| `GET /api/selections.ics` | membre de la structure | créneaux d'une structure du compte `?structure_id=&mine=&type_id=` au format iCalendar |
+| `GET /api/calendar/{jeton}.ics` | lien d'abonnement | créneaux suivis par l'abonnement, lus sans session (404 si le lien est remplacé, désactivé, ou si le compte a quitté la structure) |
 | `GET /api/selections/members` | admin. structure ou profil Inscriptions | membres de la structure `{id, username, display_name, role}` |
 | `POST /api/selections/{id}/registrations` | admin. structure ou profil Inscriptions | inscrire des membres `{user_ids}` sur un créneau à venir, délais non compris (déjà inscrits ignorés ; 422 hors structure) ; réponse : le créneau, plus `added` |
 | `DELETE /api/selections/{id}/registrations/{user_id}` | admin. structure ou profil Inscriptions | retirer l'inscription d'un membre, même sur un créneau passé |
@@ -796,6 +803,8 @@ app/
   db_memberships.py appartenances à plusieurs structures, structure active, invitations
   db_jobs.py        file de tâches, worker
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
+  db_unavailabilities.py  plages d'indisponibilité des structures
+  db_water.py       hauteurs d'eau des ports (seuils)
   db_requests.py    demandes de création de structure
   db_newsletters.py connexion Mailjet, newsletters, groupes d'envoi
   auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
@@ -803,6 +812,8 @@ app/
   passwords.py      politique de mots de passe et génération
   recovery.py       mot de passe oublié (provisoire par e-mail), invitations (liens à usage unique)
   user_import.py    import CSV de comptes
+  calendar_feed.py  créneaux dans l'agenda du téléphone : fichier .ics d'un créneau ou d'une structure, abonnements « Mon agenda »
+  ical.py           mise en forme iCalendar (RFC 5545) des créneaux
   mailer.py         envoi d'e-mails (SMTP ou console)
   structures.py     API des structures (super administrateur)
   memberships.py    invitations à rejoindre une structure (administrateurs et titulaire du compte)
@@ -815,6 +826,9 @@ app/
   secrets_store.py  chiffrement des secrets en base (SECRETS_KEY) (+ CLI generate)
   admin.py          API d'administration : ports, tâches, état des données
   selections.py     types de créneaux et créneaux choisis, par structure
+  unavailability.py plages d'indisponibilité : API d'administration, contrôle au choix des créneaux
+  water.py          recherche par hauteur d'eau : seuils (administration), plages, choix
+  water_windows.py  calcul des plages de hauteur d'eau (fonctions pures)
   slots.py          description d'une étale (coefficient, RDV), partagée
   jobs.py           file de tâches et worker (+ CLI enqueue)
   calendar_fr.py    jours fériés et vacances scolaires
