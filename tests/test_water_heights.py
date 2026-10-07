@@ -274,3 +274,16 @@ def test_changer_de_sources_recale_les_creneaux_de_hauteur(new_client, setup):
     assert timedelta(minutes=9) <= shift <= timedelta(minutes=11)
     # et la recherche les montre dans les horaires bruts
     assert _search(hugo, t["id"]).json()["results"][0]["start_utc"] == after["start_utc"]
+
+
+def test_filtres_en_tete_du_tableau():
+    """Comme la recherche par étale : une ligne de filtres dans l'en-tête du tableau des plages."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "static"
+    html = (static / "hauteurs.html").read_text()
+    thead = html[html.index("<thead>"):html.index("</thead>")]
+    assert '<tr class="filters">' in thead and 'class="reset-filters"' in thead
+    for f in ("day", "rdvMin", "rdvMax", "tight", "durMin", "hMin", "hMax", "pick"):
+        assert f'data-f="{f}"' in thead, f
+    js = (static / "hauteurs.js").read_text()
+    assert "applyFilters(data.results, f)" in js

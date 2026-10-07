@@ -85,6 +85,57 @@
               <th scope="col">De jour</th>
               <th scope="col" class="c-pick-head">Choix</th>
             </tr>
+            <!-- filtres (côté client, sur les plages déjà chargées), comme la recherche par étale -->
+            <tr class="filters">
+              <th data-label="Jour">
+                <select data-f="day" aria-label="Filtrer par type de jour">
+                  <option value="">Tous</option>
+                  <option value="off">Week-end ou férié</option>
+                  <option value="weekend">Week-end</option>
+                  <option value="ferie">Férié</option>
+                  <option value="vacances">Vacances</option>
+                  <option value="semaine">En semaine</option>
+                </select>
+              </th>
+              <th data-label="RDV">
+                <div class="range stack">
+                  <input type="time" data-f="rdvMin" aria-label="RDV à partir de" title="RDV à partir de">
+                  <input type="time" data-f="rdvMax" aria-label="RDV jusqu'à" title="RDV jusqu'à">
+                </div>
+              </th>
+              <th data-label="Plage">
+                <select data-f="tight" aria-label="Filtrer les plages limites">
+                  <option value="">Toutes</option>
+                  <option value="sure">Sans « limite »</option>
+                </select>
+              </th>
+              <th class="num" data-label="Durée">
+                <select data-f="durMin" aria-label="Durée minimale">
+                  <option value="">Toutes</option>
+                  <option value="60">≥ 1 h</option>
+                  <option value="90">≥ 1 h 30</option>
+                  <option value="120">≥ 2 h</option>
+                  <option value="180">≥ 3 h</option>
+                  <option value="240">≥ 4 h</option>
+                </select>
+              </th>
+              <th class="num" data-label="Hauteur (m)">
+                <div class="range">
+                  <input type="number" data-f="hMin" step="0.1" placeholder="min" aria-label="Hauteur minimale (m)">
+                  <input type="number" data-f="hMax" step="0.1" placeholder="max" aria-label="Hauteur maximale (m)">
+                </div>
+              </th>
+              <th class="c-reset">
+                <button type="button" class="reset-filters" disabled>Effacer les filtres</button>
+              </th>
+              <th class="c-pick-head" data-label="Choix">
+                <select data-f="pick" aria-label="Filtrer par choix">
+                  <option value="">Tous</option>
+                  <option value="free">Non choisies</option>
+                  <option value="picked">Choisies</option>
+                </select>
+              </th>
+            </tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>

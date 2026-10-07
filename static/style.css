@@ -1730,9 +1730,9 @@ main.unsub-main { max-width: 40rem; }
 .water-form legend { font-weight: 600; padding: 0 0.3rem; }
 /* créneau de hauteur d'eau dans les créneaux choisis */
 .kind.water { width: auto; padding: 0.05rem 0.35rem; background: #e3f1fb; color: var(--blue-deep); white-space: nowrap; }
-/* petit écran : la recherche par hauteur d'eau n'a pas de ligne de filtres, l'en-tête du tableau disparaît */
+/* petit écran : le bouton « Effacer les filtres » occupe toute la largeur, en bas du bloc de filtres */
 @media (max-width: 700px) {
-  .windows.water thead { display: none; }
+  .windows tr.filters th.c-reset { grid-column: 1 / -1; order: 1; }
 }
 .slot-water { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--blue-deep); }
 
