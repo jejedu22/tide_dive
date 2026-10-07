@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_fr, contact, db, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
+from . import admin, auth, calendar_feed, calendar_fr, contact, db, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -62,6 +62,8 @@ app.include_router(structures.router)
 app.include_router(selections.router)
 app.include_router(unavailability.router)
 app.include_router(water.router)
+# Créneaux choisis dans le calendrier du téléphone : fichier .ics et abonnement (/api/selections.ics, /api/calendar)
+app.include_router(calendar_feed.router)
 # Demandes de création de structure : formulaire public et administration (/api/structure-requests)
 app.include_router(contact.router)
 # Connexion Mailjet d'une structure (/api/admin/mailjet)

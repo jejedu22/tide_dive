@@ -295,6 +295,21 @@ CREATE TABLE IF NOT EXISTS user_water_preferences (
     updated_at TEXT NOT NULL
 );
 
+-- Abonnements calendrier (Android, iPhone) : un lien personnel et secret par compte et par structure.
+-- Seul le SHA-256 du jeton est stocké. mine : seulement les créneaux où le compte est inscrit ;
+-- type_id : un seul type de créneau (NULL : tous). Table créée sur toute base (CREATE IF NOT EXISTS).
+CREATE TABLE IF NOT EXISTS calendar_feeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    mine INTEGER NOT NULL DEFAULT 0,
+    type_id INTEGER REFERENCES slot_types(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    UNIQUE (user_id, structure_id)
+);
+
 -- File de tâches longues (précalcul, téléchargement FES…), exécutées une par
 -- une par le worker (python -m app.jobs worker). Voir jobs.py.
 CREATE TABLE IF NOT EXISTS jobs (

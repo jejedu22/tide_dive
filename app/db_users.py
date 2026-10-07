@@ -375,3 +375,45 @@ def save_water_preferences(user_id: int, prefs_json: str, updated_at: str) -> No
             """,
             (user_id, prefs_json, updated_at),
         )
+
+
+# ---------------------------------------------------------------------------
+# Abonnements calendrier (voir calendar_feed.py)
+# ---------------------------------------------------------------------------
+
+def save_calendar_feed(user_id: int, structure_id: int, token_hash: str, mine: bool, type_id: int | None,
+                       now: str) -> None:
+    """Crée le lien d'abonnement du compte pour cette structure, ou le remplace (l'ancien lien cesse de marcher)."""
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO calendar_feeds (user_id, structure_id, token_hash, mine, type_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, structure_id) DO UPDATE SET
+                token_hash = excluded.token_hash, mine = excluded.mine, type_id = excluded.type_id,
+                created_at = excluded.created_at, last_used_at = NULL
+            """,
+            (user_id, structure_id, token_hash, int(mine), type_id, now),
+        )
+
+
+def get_calendar_feed(user_id: int, structure_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM calendar_feeds WHERE user_id = ? AND structure_id = ?",
+                            (user_id, structure_id)).fetchone()
+
+
+def get_calendar_feed_by_token(token_hash: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM calendar_feeds WHERE token_hash = ?", (token_hash,)).fetchone()
+
+
+def touch_calendar_feed(feed_id: int, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE calendar_feeds SET last_used_at = ? WHERE id = ?", (now, feed_id))
+
+
+def delete_calendar_feed(user_id: int, structure_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM calendar_feeds WHERE user_id = ? AND structure_id = ?",
+                            (user_id, structure_id)).rowcount > 0

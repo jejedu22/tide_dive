@@ -1795,3 +1795,18 @@ section[id] { scroll-margin-top: 1rem; }
 @media (max-width: 700px) {
   .preview-banner { padding: 0.6rem 1rem; }
 }
+
+/* --- Ajouter à mon agenda (créneaux choisis) ------------------------- */
+.calendar-dialog { width: min(32rem, calc(100vw - 2rem)); }
+.calendar-dialog fieldset { border: 1px solid #cfe3ea; border-radius: 8px; padding: 0.5rem 0.75rem 0.25rem; margin: 0 0 0.75rem; }
+.calendar-dialog legend { font-weight: 600; font-size: 0.9rem; padding: 0 0.3rem; color: var(--blue-deep); }
+.calendar-part { border-top: 1px solid #e3eef2; padding-top: 0.6rem; margin-top: 0.6rem; }
+.calendar-part h3 { margin: 0 0 0.4rem; font-size: 0.95rem; color: var(--blue-deep); }
+.calendar-part p { margin: 0.35rem 0; font-size: 0.88rem; }
+.calendar-part a.btn-primary, .calendar-part a.btn-secondary { display: inline-block; text-decoration: none; }
+.calendar-link { display: flex; gap: 0.4rem; margin: 0.5rem 0; }
+.calendar-link input { flex: 1; min-width: 0; font: inherit; font-size: 0.8rem; padding: 0.35rem 0.5rem; border: 1px solid #cfe3ea; border-radius: 6px; }
+.calendar-help { margin: 0.4rem 0; padding-left: 1.1rem; font-size: 0.85rem; line-height: 1.45; }
+.calendar-ok { color: #0b7a5b; font-weight: 600; }
+.calendar-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.calendar-part p > a + .muted { display: block; margin-top: 0.3rem; }

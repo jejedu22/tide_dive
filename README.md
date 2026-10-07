@@ -581,6 +581,15 @@ Le créneau apparaît avec les autres, marqué **Perso**, sans étale, hauteur n
 
 La recherche et la page des créneaux choisis ont un bouton **« Exporter en Excel »** : il télécharge un fichier `.xlsx` des créneaux **affichés**, filtres compris (filtres de colonnes dans la recherche ; type, « mes inscriptions » et créneaux passés dans les créneaux choisis). Dates, heures, hauteurs et coefficients y sont de vraies valeurs Excel, triables et filtrables ; l'en-tête est figé et porte un filtre automatique. Le fichier est généré dans le navigateur (`static/xlsx-export.js`, sans dépendance ni appel serveur).
 
+### Ajouter à mon agenda (Android, iPhone)
+
+Le bouton **« Ajouter à mon agenda »** des créneaux choisis met les créneaux dans le calendrier du téléphone ou de l'ordinateur, au choix du membre : **ses inscriptions** (confirmées ou en file d'attente) ou **tous les créneaux de la structure**, éventuellement d'un seul type. Les créneaux passés depuis deux mois et tous ceux à venir.
+
+- **Fichier `.ics`** (`GET /api/selections.ics?mine=…&type_id=…`) : à importer, une photo du moment.
+- **Abonnement** : un **lien personnel et secret** (`/api/calendar/<jeton>.ics`, lu sans session) que le calendrier relit tout seul ; les créneaux ajoutés, déplacés ou retirés suivent. iPhone / Mac : bouton « Ouvrir dans le calendrier » (`webcal://`) ; Android : Google Agenda → « Autres agendas » → « À partir de l'URL ». Un lien par compte et par structure (`POST`, `GET`, `DELETE /api/me/calendar-feed`) ; le recréer remplace l'ancien, qui cesse de marcher ; le lien ne marche plus si le compte quitte la structure. Seul le SHA-256 du jeton est stocké (table `calendar_feeds`) : le lien n'est affiché qu'à sa création.
+- Événements : du RDV à une heure après l'étale ; du RDV à la fin de la plage (hauteur d'eau) ; RDV + 3 h (créneau personnalisé), journées entières pour un séjour. Heures en UTC, titre « type — intitulé · lieu », description avec l'étale ou la plage, les places et l'inscription du membre.
+- Les liens utilisent **`APP_BASE_URL`** (à renseigner en production, en `https://`) ; à défaut, l'adresse de la requête.
+
 Règles :
 
 - les choix sont **propres à chaque structure** et communs à ses membres : deux structures peuvent choisir le même créneau, mais une structure ne peut pas le choisir deux fois (contrainte `UNIQUE (structure_id, port_id, ts_utc)` en base) ; supprimer un compte ne supprime pas les créneaux qu'il a choisis ;
@@ -842,7 +851,6 @@ Les fichiers FES sont soumis à la licence AVISO+ (indépendante de la licence d
 - Intégrer l'atlas régional Ifremer/PREVIMER ([accès sur demande](https://marc.ifremer.fr/produits/atlas_de_composantes_harmoniques)) : format non lu nativement par pyTMD, seul `tide_model.py` serait à adapter.
 - Ajouter les courants de marée pour qualifier chaque site au-delà du coefficient.
 - Mode « deux plongées dans la journée ».
-- Export iCal des créneaux retenus.
 - Notifications push (place libérée, nouveau créneau) pour l'application installée.
 
 ## Contribuer
