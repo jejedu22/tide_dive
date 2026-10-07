@@ -97,18 +97,78 @@ function pickCell(r, picked) {
     </select>`;
 }
 
+// ---- Filtres de la ligne de titre (côté client, sur les plages déjà chargées) ----
+
+const filtersRow = document.querySelector("table.water tr.filters");
+const resetBtn = filtersRow.querySelector(".reset-filters");
+
+function readFilters() {
+  const f = {};
+  for (const el of filtersRow.querySelectorAll("[data-f]")) {
+    f[el.dataset.f] = el.value;
+    el.classList.toggle("is-active", el.value !== "");
+  }
+  return f;
+}
+
+const toNum = v => (v === "" || v == null ? null : Number(v));
+
+// Comparaison "HH:MM" en chaîne ; si min > max, la plage passe minuit (ex. 20:00 → 02:00)
+function inTimeRange(t, min, max) {
+  if (!min && !max) return true;
+  if (min && max && min > max) return t >= min || t <= max;
+  return (!min || t >= min) && (!max || t <= max);
+}
+
+function matchDay(day, mode) {
+  const d = day || {};
+  switch (mode) {
+    case "weekend":  return !!d.weekend;
+    case "ferie":    return !!d.holiday;
+    case "off":      return !!(d.weekend || d.holiday);
+    case "vacances": return !!d.school_holiday;
+    case "semaine":  return !d.weekend && !d.holiday;
+    default:         return true;
+  }
+}
+
+const isPicked = r => (picks.get(pickKey(r.threshold_id, r.start_utc)) || []).length > 0;
+
+function applyFilters(results, f) {
+  const hMin = toNum(f.hMin), hMax = toNum(f.hMax), durMin = toNum(f.durMin);
+  return results.filter(r =>
+    matchDay(r.day, f.day) &&
+    inTimeRange(r.rdv_time, f.rdvMin, f.rdvMax) &&
+    (f.tight !== "sure" || !r.tight) &&
+    (durMin == null || r.minutes >= durMin) &&
+    (hMin == null || r.extreme_m >= hMin) && (hMax == null || r.extreme_m <= hMax) &&
+    (!f.pick || !Session.user?.can.view_selections || (f.pick === "picked") === isPicked(r))
+  );
+}
+
+filtersRow.addEventListener("input", () => { if (last) render(); else readFilters(); });
+resetBtn.addEventListener("click", () => {
+  for (const el of filtersRow.querySelectorAll("[data-f]")) el.value = "";
+  if (last) render(); else readFilters();
+});
+
 function render() {
   const data = last;
   const t = data.threshold;
   $("extreme-head").textContent = t.direction === "above" ? "Hauteur max" : "Hauteur min";
-  const nPicked = data.results.filter(r => (picks.get(pickKey(r.threshold_id, r.start_utc)) || []).length).length;
+  const f = readFilters();
+  const active = Object.values(f).some(v => v !== "");
+  const shown = active ? applyFilters(data.results, f) : data.results;
+  resetBtn.disabled = !active;
+  const nPicked = data.results.filter(isPicked).length;
   const off = data.tide_sources && !(data.tide_sources.api_maree && data.tide_sources.calibration)
     ? " Horaires selon les réglages de votre structure (sans api-maree.fr ou sans correction)." : "";
-  statusEl.textContent = `${data.results.length} plage(s) à ${data.port} où l'eau est `
-    + `${t.direction === "above" ? "au-dessus" : "au-dessous"} de ${fmtM(t.height_m)} (${t.label}).`
+  statusEl.textContent = (active ? `${shown.length} plage(s) sur ${data.results.length}` : `${data.results.length} plage(s)`)
+    + ` à ${data.port} où l'eau est ${t.direction === "above" ? "au-dessus" : "au-dessous"} de ${fmtM(t.height_m)} (${t.label})`
+    + (active ? " avec les filtres." : ".")
     + (nPicked ? ` ${Session.user.structure.name} en a choisi ${nPicked}.` : "") + off;
   resultsEl.classList.toggle("can-pick", !!Session.user?.can.view_selections);
-  rowsEl.innerHTML = data.results.length ? data.results.map(r => {
+  rowsEl.innerHTML = shown.length ? shown.map(r => {
     const deco = dayDecorations(r.day);
     const picked = picks.get(pickKey(r.threshold_id, r.start_utc)) || [];
     const nextDay = r.end_date !== r.date ? ` <span class="veille" title="Le lendemain">J+1</span>` : "";
@@ -129,7 +189,9 @@ function render() {
         <td class="c-pick" data-label="Choix">${pickCell(r, picked)}</td>
       </tr>`;
   }).join("")
-    : `<tr><td colspan="7" class="empty">Aucune plage ne correspond sur cette période. Allongez-la, réduisez la durée minimale ou levez la contrainte de lumière.</td></tr>`;
+    : data.results.length
+      ? `<tr><td colspan="7" class="empty">Aucune plage ne correspond aux filtres. Élargissez-les ou effacez-les.</td></tr>`
+      : `<tr><td colspan="7" class="empty">Aucune plage ne correspond sur cette période. Allongez-la, réduisez la durée minimale ou levez la contrainte de lumière.</td></tr>`;
 }
 
 async function search() {
