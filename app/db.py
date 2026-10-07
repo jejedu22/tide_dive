@@ -162,6 +162,11 @@ from .db_users import (  # noqa: F401
     delete_preferences,
     get_water_preferences,
     save_water_preferences,
+    save_calendar_feed,
+    get_calendar_feed,
+    get_calendar_feed_by_token,
+    touch_calendar_feed,
+    delete_calendar_feed,
 )
 from .db_memberships import (  # noqa: F401
     _sync_default,
