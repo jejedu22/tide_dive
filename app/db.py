@@ -160,6 +160,8 @@ from .db_users import (  # noqa: F401
     get_preferences,
     save_preferences,
     delete_preferences,
+    get_water_preferences,
+    save_water_preferences,
 )
 from .db_memberships import (  # noqa: F401
     _sync_default,
