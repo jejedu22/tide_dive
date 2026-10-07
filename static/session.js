@@ -585,43 +585,98 @@ const Session = (() => {
     setUser(res.user);
   }
 
-  // Encart compte dans l'en-tête ; links = [{ href, label, show(user) }]
+  // Icônes (trait, 24 px) des liens et du menu de l'en-tête
+  const ICONS = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    wave: '<path d="M2 12c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2.5 5 0"/><path d="M2 18c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2.5 5 0"/><path d="M12 3v5"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.3v.01"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+    logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
+    invite: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  };
+  const icon = (name, size = 18) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+  // Initiales du compte (pastille du menu)
+  function initials(u) {
+    const words = String(u.display_name || u.username).split(/[\s.@_-]+/).filter(Boolean);
+    return ((words[0]?.[0] || "") + (words.length > 1 ? words[words.length - 1][0] : "")).toUpperCase() || "?";
+  }
+
+  // En-tête : liens des pages (ordinateur) et menu du compte. Sur téléphone, tout passe dans le menu (bouton ☰) :
+  // compte et rôle, structure, pages, puis Voir comme / Mon compte / Se déconnecter.
+  // links = [{ href, label, icon, show(user) }]
   function mountAccount(el, links = []) {
+    const menuId = `account-menu-${Math.random().toString(36).slice(2, 8)}`;
+    const closeMenu = () => {
+      el.querySelector(".account-menu")?.setAttribute("hidden", "");
+      el.querySelector("[data-act=menu]")?.setAttribute("aria-expanded", "false");
+    };
     const render = u => {
       if (!u) {
         el.innerHTML = `<button type="button" class="account-btn" data-act="login">Se connecter</button>`;
         return;
       }
-      const extra = links
-        .filter(l => !l.show || l.show(u))
-        .map(l => `<a class="account-btn" href="${l.href}">${esc(l.label)}</a>`).join("");
+      const shown = links.filter(l => !l.show || l.show(u));
+      const pageLinks = cls => shown.map(l =>
+        `<a class="${cls}" href="${l.href}">${l.icon ? icon(l.icon) : ""}<span>${esc(l.label)}</span></a>`).join("");
       if (u.is_admin && structures === null) loadStructures().then(() => { if (user === u) render(u); });
-      const where = hasSeveralStructures(u)
+      const several = hasSeveralStructures(u);
+      const where = several
         ? structureSelect(u)
-        : u.structure
-          ? ` <span class="account-structure" title="${esc(roleLabel(u))}">· ${esc(u.structure.name)}</span>`
-          : "";
-      const invitations = u.invitations
-        ? `<button type="button" class="account-btn account-invitations" data-act="invitations"
-             title="Invitations à rejoindre une structure">Invitations <span class="account-dot">${u.invitations}</span></button>`
-        : "";
-      const preview = u.is_admin
-        ? `<button type="button" class="account-btn" data-act="preview"
-             title="Voir l'application comme un autre rôle (lecture seule)">Voir comme…</button>`
-        : "";
+        : u.structure ? `<span class="account-structure" title="${esc(roleLabel(u))}">${esc(u.structure.name)}</span>` : "";
+      const attention = u.invitations || !u.profile_complete;
       el.innerHTML = `
-        <span class="account-name" title="${esc(u.username)}">${esc(u.display_name)}${where}</span>
-        ${invitations}${extra}${preview}
-        <button type="button" class="account-btn" data-act="profile">Mon compte${u.profile_complete ? "" : ` <span class="account-dot" title="Profil à compléter">!</span>`}</button>
-        <button type="button" class="account-btn" data-act="logout">Se déconnecter</button>`;
+        <span class="account-links">${pageLinks("account-link")}</span>
+        <span class="account-where">${where}</span>
+        <button type="button" class="account-menu-btn" data-act="menu" aria-expanded="false" aria-controls="${menuId}"
+                aria-label="Menu du compte" title="${esc(u.display_name)}">
+          <span class="account-avatar">${esc(initials(u))}</span>${icon("menu", 24)}
+          ${attention ? `<span class="account-dot account-menu-dot" title="${u.invitations ? "Invitations en attente" : "Profil à compléter"}">!</span>` : ""}
+        </button>
+        <div class="account-menu" id="${menuId}" hidden>
+          <div class="account-who">${icon("user", 26)}<div><strong>${esc(u.display_name)}</strong>
+            <span>${esc(roleLabel(u) || "Sans structure")}</span></div></div>
+          ${several ? `<div class="account-menu-structure">Structure ${structureSelect(u)}</div>` : ""}
+          ${shown.length ? `<nav class="account-menu-pages" aria-label="Pages">${pageLinks("account-item")}</nav><hr>` : ""}
+          ${u.invitations ? `<button type="button" class="account-item" data-act="invitations">${icon("invite")}
+            <span>Invitations <span class="account-dot">${u.invitations}</span></span></button>` : ""}
+          ${u.is_admin ? `<button type="button" class="account-item" data-act="preview"
+            title="Voir l'application comme un autre rôle (lecture seule)">${icon("eye")}<span>Voir comme…</span></button>` : ""}
+          <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
+            : ` <span class="account-dot" title="Profil à compléter">!</span>`}</span></button>
+          <button type="button" class="account-item" data-act="logout">${icon("logout")}<span>Se déconnecter</span></button>
+        </div>`;
     };
     el.addEventListener("click", e => {
       const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "menu") {
+        const menu = el.querySelector(".account-menu");
+        const open = menu.hasAttribute("hidden");
+        if (open) {
+          menu.removeAttribute("hidden");
+          e.target.closest("[data-act]").setAttribute("aria-expanded", "true");
+          menu.querySelector("a, button, select")?.focus();
+        } else closeMenu();
+        return;
+      }
+      if (act && act !== "structure") closeMenu();
       if (act === "login") openLogin();
       if (act === "profile") openProfile();
       if (act === "logout") logout();
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
+    });
+    document.addEventListener("click", e => { if (!el.contains(e.target)) closeMenu(); });
+    document.addEventListener("keydown", e => {
+      if (e.key !== "Escape" || el.querySelector(".account-menu")?.hasAttribute("hidden") !== false) return;
+      closeMenu();
+      el.querySelector("[data-act=menu]")?.focus();
     });
     el.addEventListener("change", async e => {
       const sel = e.target.closest("select[data-act=structure]");
@@ -661,12 +716,12 @@ const Session = (() => {
   // Liens d'en-tête communs aux pages
   const LINKS = {
     // "./" renvoie les membres vers leurs créneaux
-    search: { href: "index.html", label: "Recherche", show: u => searchModes(u) !== "heights" },
-    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", show: u => searchModes(u) !== "tides" },
-    picks: { href: "mes-creneaux.html", label: "Créneaux choisis", show: u => u.can.view_selections },
-    admin: { href: "admin.html", label: "Administration", show: u => u.can.admin_area },
-    newsletters: { href: "newsletters.html", label: "Newsletters", show: u => u.can.newsletters },
-    help: { href: "aide.html", label: "Aide" },
+    search: { href: "index.html", label: "Recherche", icon: "search", show: u => searchModes(u) !== "heights" },
+    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", icon: "wave", show: u => searchModes(u) !== "tides" },
+    picks: { href: "mes-creneaux.html", label: "Créneaux choisis", icon: "calendar", show: u => u.can.view_selections },
+    admin: { href: "admin.html", label: "Administration", icon: "gear", show: u => u.can.admin_area },
+    newsletters: { href: "newsletters.html", label: "Newsletters", icon: "mail", show: u => u.can.newsletters },
+    help: { href: "aide.html", label: "Aide", icon: "help" },
   };
 
   // Application installable (PWA) : service worker (interface disponible hors connexion, voir sw.js) et
