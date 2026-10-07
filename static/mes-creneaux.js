@@ -21,7 +21,6 @@ const statusEl = $("status");
 const typeFilter = $("type-filter");
 const showPast = $("show-past");
 const onlyMine = $("only-mine");
-const summaryEl = $("summary");
 const emptyEl = $("picks-empty");
 const exportBtn = $("export-xlsx");
 const addCustomBtn = $("add-custom");
@@ -296,17 +295,6 @@ function visiblePicks() {
     (!typeFilter.value || String(p.type.id) === typeFilter.value));
 }
 
-function renderSummary(list) {
-  const counts = new Map();
-  for (const p of list) {
-    const c = counts.get(p.type.id) || { type: p.type, n: 0 };
-    c.n++;
-    counts.set(p.type.id, c);
-  }
-  summaryEl.innerHTML = [...counts.values()].map(c =>
-    `<li><span class="type-pill" style="--type-color:${esc(c.type.color)}">${esc(c.type.label)}<b>${c.n}</b></span></li>`).join("");
-}
-
 // ---- Calendrier ----
 
 // Jour à détailler en arrivant sur un mois : le prochain créneau du mois,
@@ -489,7 +477,6 @@ function renderListCards(list) {
 function render() {
   const list = visiblePicks();
   document.querySelector(".rdv-abbr").title = rdvTitle();
-  renderSummary(list);
   statusEl.textContent = picks.length
     ? `${list.length} créneau(x) affiché(s) sur ${picks.length} choisi(s).`
     : "";

@@ -772,8 +772,6 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
   border: 1px solid #cfe3ea;
   border-radius: 8px;
 }
-.picks-summary { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
-.picks-summary b { margin-left: 0.25em; }
 
 table.picks .c-type select,
 .slot-card .c-type select {
