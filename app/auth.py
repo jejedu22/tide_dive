@@ -324,6 +324,34 @@ class Preferences(BaseModel):
     filters: FilterPrefs = FilterPrefs()
 
 
+class WaterFormPrefs(BaseModel):
+    """Critères de la recherche par hauteur d'eau (période stockée en durée, comme FormPrefs)."""
+    model_config = ConfigDict(extra="forbid")
+    port_id: int | None = None
+    threshold_id: int | None = None
+    span_days: int | None = Field(None, ge=0, le=366)
+    daylight: Literal["nautical", "civil", "none"] | None = None
+    min_minutes: int | None = Field(None, ge=0, le=1440)
+
+
+class WaterFilterPrefs(BaseModel):
+    """Filtres de la ligne de titre du tableau des plages (clés = attributs data-f de hauteurs.html)."""
+    model_config = ConfigDict(extra="forbid")
+    day: Literal["", "off", "weekend", "ferie", "vacances", "semaine"] = ""
+    rdvMin: _FilterValue = ""
+    rdvMax: _FilterValue = ""
+    tight: Literal["", "sure"] = ""
+    durMin: _FilterValue = ""
+    hMin: _FilterValue = ""
+    hMax: _FilterValue = ""
+    pick: Literal["", "free", "picked"] = ""
+
+
+class WaterPreferences(BaseModel):
+    form: WaterFormPrefs = WaterFormPrefs()
+    filters: WaterFilterPrefs = WaterFilterPrefs()
+
+
 class UserCreate(_ProfileValidators):
     username: str | None = Field(None, max_length=32, description="vide : prenom.nom")
     first_name: str
@@ -598,6 +626,26 @@ def put_preferences(prefs: Preferences, user: CurrentUser):
 @router.delete("/me/preferences", status_code=204)
 def delete_preferences(user: CurrentUser):
     db.delete_preferences(user["id"])
+
+
+@router.get("/me/water-preferences")
+def get_water_preferences(user: CurrentUser):
+    """Préférences de la recherche par hauteur d'eau (page hauteurs.html)."""
+    row = db.get_water_preferences(user["id"])
+    if row is None:
+        return {"form": None, "filters": None, "updated_at": None}
+    try:   # repasse par les schémas : d'anciennes valeurs devenues invalides sont oubliées
+        prefs = WaterPreferences.model_validate(json.loads(row["prefs_json"]))
+    except ValueError:
+        prefs = WaterPreferences()
+    return {**prefs.model_dump(), "updated_at": row["updated_at"]}
+
+
+@router.put("/me/water-preferences")
+def put_water_preferences(prefs: WaterPreferences, user: CurrentUser):
+    updated_at = _iso(_now())
+    db.save_water_preferences(user["id"], prefs.model_dump_json(), updated_at)
+    return {**prefs.model_dump(), "updated_at": updated_at}
 
 
 # ---------------------------------------------------------------------------

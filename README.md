@@ -311,7 +311,7 @@ python -m app.jobs enqueue school-holidays
 
 ## Comptes, structures et préférences
 
-L'application reste utilisable sans compte. Un compte permet d'accéder aux créneaux choisis par sa **structure** et d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes. Sans préférence de port, la recherche propose le **port par défaut de la structure**, choisi par ses administrateurs dans **`/admin.html` → Créneaux**.
+L'application reste utilisable sans compte. Un compte permet d'accéder aux créneaux choisis par sa **structure** et d'**enregistrer ses préférences** : critères du formulaire (port, durée de la période, phase, coefficient max, marge, lumière) et filtres de la ligne de titre du tableau. Elles sont réappliquées à la connexion, puis une recherche est lancée automatiquement. La période est enregistrée comme une **durée** (« 13 jours à partir d'aujourd'hui »), pas comme des dates fixes. La recherche par hauteur d'eau a ses **propres préférences** (port, hauteur d'eau, durée de la période, lumière, durée minimale et filtres du tableau ; `GET`/`PUT /api/me/water-preferences`, table `user_water_preferences`). Sans préférence de port, la recherche propose le **port par défaut de la structure**, choisi par ses administrateurs dans **`/admin.html` → Créneaux**.
 
 ### Structures et rôles
 

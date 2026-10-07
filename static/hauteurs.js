@@ -277,6 +277,96 @@ rowsEl.addEventListener("click", async e => {
   render();
 });
 
+// ---- Préférences (formulaire + filtres du tableau), propres à cette page ----
+
+const prefsBar = $("prefs-bar");
+const prefsSaveBtn = $("prefs-save");
+const prefsRestoreBtn = $("prefs-restore");
+const prefsStatus = $("prefs-status");
+let savedPrefs = null;
+
+const fmtStamp = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" });
+const daysBetween = (a, b) => Math.round((new Date(`${b}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000);
+const hasOption = (sel, v) => v != null && !!sel.querySelector(`option[value="${v}"]`);
+
+function collectPrefs() {
+  const span = daysBetween($("start").value, $("end").value);
+  const filters = {};
+  for (const el of filtersRow.querySelectorAll("[data-f]")) filters[el.dataset.f] = el.value;
+  return {
+    form: {
+      port_id: portSelect.value ? Number(portSelect.value) : null,
+      threshold_id: thresholdSelect.value ? Number(thresholdSelect.value) : null,
+      // la période est gardée en durée : des dates enregistrées seraient vite périmées
+      span_days: Number.isFinite(span) && span >= 0 ? Math.min(span, 366) : null,
+      daylight: $("daylight").value,
+      min_minutes: Number($("min_minutes").value),
+    },
+    filters,
+  };
+}
+
+function applyPrefs(prefs) {
+  const f = prefs.form || {};
+  if (hasOption(portSelect, f.port_id)) {
+    portSelect.value = String(f.port_id);
+    renderThresholds();
+  }
+  if (hasOption(thresholdSelect, f.threshold_id)) thresholdSelect.value = String(f.threshold_id);
+  if (f.span_days != null) {
+    const now = new Date();
+    $("start").value = toISO(now);
+    $("end").value = toISO(new Date(now.getFullYear(), now.getMonth(), now.getDate() + f.span_days));
+  }
+  if (hasOption($("daylight"), f.daylight)) $("daylight").value = f.daylight;
+  if (hasOption($("min_minutes"), f.min_minutes)) $("min_minutes").value = String(f.min_minutes);
+  for (const el of filtersRow.querySelectorAll("[data-f]")) el.value = prefs.filters?.[el.dataset.f] ?? "";
+  readFilters();
+}
+
+function showSavedStamp() {
+  prefsStatus.textContent = savedPrefs?.updated_at
+    ? `Enregistrées le ${fmtStamp.format(new Date(savedPrefs.updated_at))}`
+    : "Aucune préférence enregistrée.";
+}
+
+// Préférences du compte : appliquées puis recherche lancée (comme la recherche par étale)
+async function loadPrefs() {
+  savedPrefs = null;
+  prefsRestoreBtn.disabled = true;
+  try {
+    const prefs = await Session.api("/api/me/water-preferences");
+    if (prefs.updated_at) {
+      savedPrefs = prefs;
+      prefsRestoreBtn.disabled = false;
+      applyPrefs(prefs);
+      search();
+    }
+    showSavedStamp();
+  } catch (e) {
+    prefsStatus.textContent = `Préférences non chargées : ${e.message}`;
+  }
+}
+
+prefsSaveBtn.addEventListener("click", async () => {
+  prefsSaveBtn.disabled = true;
+  try {
+    savedPrefs = await Session.api("/api/me/water-preferences", { method: "PUT", body: collectPrefs() });
+    prefsRestoreBtn.disabled = false;
+    showSavedStamp();
+  } catch (e) {
+    prefsStatus.textContent = `Échec de l'enregistrement : ${e.message}`;
+  } finally {
+    prefsSaveBtn.disabled = false;
+  }
+});
+
+prefsRestoreBtn.addEventListener("click", () => {
+  if (!savedPrefs) return;
+  applyPrefs(savedPrefs);
+  search();
+});
+
 // ---- Accès ----
 
 const today = new Date();
@@ -288,6 +378,7 @@ Session.onChange(async user => {
   const allowed = Session.searchModes(user) !== "tides";
   controlsEl.hidden = resultsEl.hidden = !allowed;
   gateEl.hidden = allowed;
+  prefsBar.hidden = !user;
   last = null;
   if (!user) {
     gateEl.innerHTML = `Connectez-vous pour chercher des plages par hauteur d'eau. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
@@ -312,6 +403,8 @@ Session.onChange(async user => {
     gateEl.textContent = user.is_admin
       ? "Aucun port n'a de hauteur d'eau : ajoutez-en dans Administration → Ports → « Hauteurs d'eau »."
       : "Aucune hauteur d'eau n'est encore renseignée : demandez-la aux administrateurs de l'application.";
+    return;
   }
+  await loadPrefs();
 });
 Session.init();

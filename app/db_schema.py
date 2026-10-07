@@ -287,6 +287,14 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     updated_at TEXT NOT NULL
 );
 
+-- Préférences de la recherche par hauteur d'eau (formulaire + filtres des colonnes, JSON) : à part, la page
+-- n'a pas les mêmes critères que la recherche par étale. Table créée sur toute base (CREATE IF NOT EXISTS).
+CREATE TABLE IF NOT EXISTS user_water_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    prefs_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
 -- File de tâches longues (précalcul, téléchargement FES…), exécutées une par
 -- une par le worker (python -m app.jobs worker). Voir jobs.py.
 CREATE TABLE IF NOT EXISTS jobs (

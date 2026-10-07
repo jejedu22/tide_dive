@@ -358,3 +358,19 @@ def save_preferences(user_id: int, form_json: str, filters_json: str, updated_at
 def delete_preferences(user_id: int) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM user_preferences WHERE user_id = ?", (user_id,))
+
+
+def get_water_preferences(user_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM user_water_preferences WHERE user_id = ?", (user_id,)).fetchone()
+
+
+def save_water_preferences(user_id: int, prefs_json: str, updated_at: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_water_preferences (user_id, prefs_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET prefs_json = excluded.prefs_json, updated_at = excluded.updated_at
+            """,
+            (user_id, prefs_json, updated_at),
+        )
