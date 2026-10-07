@@ -85,10 +85,30 @@ def test_droits(setup, client, new_client):
     assert _client(new_client, "solo").get("/api/selections.ics").status_code == 403         # sans structure
 
 
+def _feeds(c):
+    return {f["structure"]["name"]: f for f in c.get("/api/me/calendar-feeds").json()}
+
+
+def test_un_creneau(setup, client, new_client, make_user):
+    m1 = _client(new_client, "m1")
+    r = m1.get(f"/api/selections/{setup['s2']['id']}.ics")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/calendar")
+    assert 'filename="calendive-2099-07-01.ics"' in r.headers["content-disposition"]
+    assert len(_events(r.text)) == 1 and "SUMMARY:Du bord · Binic" in _unfold(r.text)
+    assert m1.get("/api/selections/9999.ics").status_code == 404
+    assert client.get(f"/api/selections/{setup['s2']['id']}.ics").status_code == 401
+    assert _client(new_client, "solo").get(f"/api/selections/{setup['s2']['id']}.ics").status_code == 403  # sans structure
+    # créneau d'une autre structure : introuvable
+    make_user("bob", structure_id=setup["other"], structure_role="manager")
+    assert _client(new_client, "bob").get(f"/api/selections/{setup['s2']['id']}.ics").status_code == 404
+
+
 def test_abonnement(setup, client, new_client):
     m1 = _client(new_client, "m1")
-    assert m1.get("/api/me/calendar-feed").json() == {"active": False}
-    r = m1.post("/api/me/calendar-feed", json={"mine": False, "type_id": setup["boat"]})
+    feeds = _feeds(m1)
+    assert list(feeds) == ["Club A"] and feeds["Club A"]["feed"] == {"active": False}
+    assert {t["label"] for t in feeds["Club A"]["types"]} == {"Sortie bateau", "Du bord"}
+    r = m1.post(f"/api/me/calendar-feeds/{setup['sid']}", json={"mine": False, "type_id": setup["boat"]})
     assert r.status_code == 201
     feed = r.json()
     assert feed["active"] and feed["url"].startswith("http://testserver/api/calendar/") and feed["url"].endswith(".ics")
@@ -97,25 +117,45 @@ def test_abonnement(setup, client, new_client):
     # lu sans session, comme le ferait le calendrier du téléphone
     got = client.get(path)
     assert got.status_code == 200 and len(_events(got.text)) == 2 and "Sortie bateau" in _unfold(got.text)
-    status = m1.get("/api/me/calendar-feed").json()
+    status = _feeds(m1)["Club A"]["feed"]
     assert "url" not in status and status["last_used_at"] and status["type_id"] == setup["boat"]
     # le lien suit les créneaux : un créneau retiré disparaît
     _client(new_client, "alice").delete(f"/api/selections/{setup['s1']['id']}")
     assert len(_events(client.get(path).text)) == 1
     # nouveau lien : l'ancien cesse de marcher
-    new = m1.post("/api/me/calendar-feed", json={"mine": True}).json()
+    new = m1.post(f"/api/me/calendar-feeds/{setup['sid']}", json={"mine": True}).json()
     assert client.get(path).status_code == 404
     new_path = new["url"][len("http://testserver"):]
     assert client.get(new_path).status_code == 200 and _events(client.get(new_path).text) == []
     # désactivé
-    assert m1.delete("/api/me/calendar-feed").status_code == 204
+    assert m1.delete(f"/api/me/calendar-feeds/{setup['sid']}").status_code == 204
     assert client.get(new_path).status_code == 404
-    assert m1.get("/api/me/calendar-feed").json() == {"active": False}
+    assert _feeds(m1)["Club A"]["feed"] == {"active": False}
+
+
+def test_toutes_les_structures_du_compte(setup, client, new_client):
+    """« Mon agenda » gère les abonnements de chaque structure, sans changer de structure active."""
+    uid = db.get_user_credentials("m1")["id"]
+    db.add_membership(uid, setup["other"], "viewer", "2026-01-01T00:00:00+00:00")
+    m1 = _client(new_client, "m1")
+    assert list(_feeds(m1)) == ["Club A", "Club B"]
+    url = m1.post(f"/api/me/calendar-feeds/{setup['other']}", json={}).json()["url"]
+    assert "Club B" in _unfold(client.get(url[len("http://testserver"):]).text)
+    assert _feeds(m1)["Club B"]["feed"]["active"] and not _feeds(m1)["Club A"]["feed"]["active"]
+    # fichier d'une autre de ses structures
+    assert "X-WR-CALNAME:Calendive — Club B" in _unfold(m1.get(f"/api/selections.ics?structure_id={setup['other']}").text)
+
+
+def test_structure_d_un_autre(setup, new_client):
+    alice = _client(new_client, "alice")
+    assert alice.post(f"/api/me/calendar-feeds/{setup['other']}", json={}).status_code == 403
+    assert alice.get(f"/api/selections.ics?structure_id={setup['other']}").status_code == 403
+    assert _client(new_client, "solo").get("/api/me/calendar-feeds").json() == []
 
 
 def test_abonnement_coupe_si_le_compte_quitte_la_structure(setup, client, new_client):
     m1 = _client(new_client, "m1")
-    path = m1.post("/api/me/calendar-feed", json={}).json()["url"][len("http://testserver"):]
+    path = m1.post(f"/api/me/calendar-feeds/{setup['sid']}", json={}).json()["url"][len("http://testserver"):]
     assert client.get(path).status_code == 200
     db.remove_membership(db.get_user_credentials("m1")["id"], setup["sid"])
     assert client.get(path).status_code == 404
@@ -124,8 +164,8 @@ def test_abonnement_coupe_si_le_compte_quitte_la_structure(setup, client, new_cl
 
 def test_abonnement_validation(setup, new_client):
     m1 = _client(new_client, "m1")
-    assert m1.post("/api/me/calendar-feed", json={"type_id": setup["bob_type"]}).status_code == 422
-    assert m1.post("/api/me/calendar-feed", json={"autre": 1}).status_code == 422
+    assert m1.post(f"/api/me/calendar-feeds/{setup['sid']}", json={"type_id": setup["bob_type"]}).status_code == 422
+    assert m1.post(f"/api/me/calendar-feeds/{setup['sid']}", json={"autre": 1}).status_code == 422
 
 
 # ---- format iCalendar ----
