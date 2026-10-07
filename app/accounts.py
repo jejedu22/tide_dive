@@ -202,7 +202,10 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
              "rdv_offset_minutes": row["structure_rdv_offset_minutes"],
              "default_port_id": row["structure_default_port_id"],
              "default_max_registrations": row["structure_default_max_registrations"],
-             "search_modes": row["structure_search_modes"]}
+             "search_modes": row["structure_search_modes"],
+             # horaires de marée vus par la structure (réglages de ses administrateurs) : note de source des pages
+             "tide_sources": {"api_maree": bool(row["structure_use_api_maree"]),
+                              "calibration": bool(row["structure_use_calibration"])}}
             if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],

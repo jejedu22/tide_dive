@@ -730,7 +730,25 @@ function showSavedStamp() {
     : "Aucune préférence enregistrée.";
 }
 
+// Note de source du pied de page : selon les réglages de la structure du compte
+const API_MAREE = '<a href="https://api-maree.fr" rel="noopener">api-maree.fr</a>';
+function tideSourceNote(user) {
+  const ts = Session.tideSources(user);
+  const fes = "calcul local (pyTMD, modèle FES2014/2022)";
+  const mine = " (réglage de votre structure)";
+  if (ts.api_maree) {
+    return `Marées : pour le mois à venir, horaires de l'atlas harmonique Ifremer/PREVIMER via ${API_MAREE} (licence CC BY), `
+      + `mis à jour chaque jour ; au-delà, ${fes} `
+      + (ts.calibration ? "recalé sur cette même source." : `brut, sans correction${mine}.`);
+  }
+  return ts.calibration
+    ? `Marées : ${fes} recalé sur les horaires de l'atlas harmonique Ifremer/PREVIMER (${API_MAREE}, licence CC BY), `
+      + `y compris pour le mois à venir${mine}.`
+    : `Marées : ${fes} brut, sans api-maree.fr ni correction${mine}.`;
+}
+
 async function onSessionChange(user) {
+  document.getElementById("tide-source-note").innerHTML = tideSourceNote(user);
   // structure réglée sur la seule recherche par hauteur d'eau : c'est sa page de recherche
   if (Session.searchModes(user) === "heights") {
     location.replace("hauteurs.html");

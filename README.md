@@ -272,6 +272,7 @@ Pour cela, la base garde jusqu'à trois séries par port (colonne `source` de `t
 
 - Les **visiteurs** et les comptes sans structure voient les réglages par défaut.
 - Une structure ne **choisit** que des étales de ses horaires ; la recherche rappelle les réglages s'ils ne sont pas ceux par défaut.
+- La **note de source** en bas des pages de recherche (étales et hauteurs d'eau) décrit les horaires réellement vus par la structure du compte (`structure.tide_sources` de `/api/auth/me`).
 - **Changer de réglage** recale les créneaux choisis **à venir** de la structure sur l'étale correspondante de ses nouveaux horaires (même marée, à 2 h près) : heure, hauteur, coefficient et RDV sont mis à jour. Les autres structures ne sont pas touchées.
 - Un recalcul (précalcul, mois glissant) recale les créneaux de chaque structure dans **ses** horaires.
 - **Mise à jour d'une base existante** (migration n° 5) : la série unique devient `cal` pour un port recalé, `fes` sinon, et `api` sur la dernière fenêtre du mois glissant. Le calcul brut d'un port recalé n'existe pas encore : les années à venir concernées sont **remises en file de précalcul** automatiquement (onglet *Données et tâches*). D'ici là, une structure qui désactive la correction voit encore le calcul corrigé, et une structure qui désactive api-maree.fr voit encore ses horaires sur la dernière fenêtre.

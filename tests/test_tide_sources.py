@@ -318,3 +318,16 @@ def test_mois_glissant_stocke_a_part(tmp_db, monkeypatch, make_structure, make_u
     # un nouveau précalcul de l'année ne touche pas aux horaires api-maree.fr
     db.replace_year(port, year, [(t.isoformat(), float(x) + 6.0) for t, x in zip(ts, h)], fes, [], model="TEST")
     assert [r["ts_utc"] for r in db.get_extrema_range(port, day_start, day_end)] == [r["ts_utc"] for r in api]
+
+
+def test_reglages_exposes_au_compte_pour_la_note_de_source(new_client, setup):
+    """Le pied de page des recherches décrit les horaires vus par la structure : /api/auth/me les expose."""
+    alice = _client(new_client, "alice")
+    assert alice.get("/api/auth/me").json()["user"]["structure"]["tide_sources"] == {"api_maree": True, "calibration": True}
+    db.update_structure_settings(setup["a"], use_api_maree=False)
+    assert alice.get("/api/auth/me").json()["user"]["structure"]["tide_sources"] == {"api_maree": False, "calibration": True}
+    db.update_structure_settings(setup["a"], use_calibration=False)
+    assert alice.get("/api/auth/me").json()["user"]["structure"]["tide_sources"] == {"api_maree": False, "calibration": False}
+    # l'autre structure garde les siens
+    bob = _client(new_client, "bob")
+    assert bob.get("/api/auth/me").json()["user"]["structure"]["tide_sources"] == {"api_maree": True, "calibration": True}

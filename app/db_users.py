@@ -34,6 +34,7 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
            st.default_port_id AS structure_default_port_id,
            st.default_max_registrations AS structure_default_max_registrations,
            st.search_modes AS structure_search_modes,
+           st.use_api_maree AS structure_use_api_maree, st.use_calibration AS structure_use_calibration,
            u.first_name, u.last_name, u.email, u.phone,
            u.must_change_password, u.password_changed_at,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
@@ -232,7 +233,7 @@ def get_session_user(token_hash: str, now: str) -> sqlite3.Row | dict | None:
 PREVIEW_ROLES = ("manager", "viewer", "none")
 _STRUCTURE_FIELDS = ("structure_id", "structure_role", "structure_name", "structure_rdv_offset_minutes",
                      "structure_default_port_id", "structure_default_max_registrations", "structure_search_modes",
-                     "profiles")
+                     "structure_use_api_maree", "structure_use_calibration", "profiles")
 
 
 def _previewed(row: sqlite3.Row, role: str, profiles: str | None) -> dict:
