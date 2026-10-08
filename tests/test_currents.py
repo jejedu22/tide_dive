@@ -132,7 +132,7 @@ def test_courant_d_un_site_sur_une_periode(setup, new_client, client):
     assert r["available"] and len(r["series"]) == 17                 # toutes les 15 min sur 4 h
     assert r["slack"]["t"] == PM.isoformat() and r["slack"]["knots"] == 0
     assert r["max"]["knots"] == pytest.approx(2 / 3 / cc.KNOT, abs=0.01)
-    assert "SHOM" in r["attribution"]
+    assert "Shom" in r["attribution"] and "10.17183/ATLASCOURANTS2D_NETCDF" in r["attribution"]
     bad = client.get(f"/api/dive-sites/{site['id']}/currents",
                      params={"start": start, "end": (PM + timedelta(days=4)).isoformat()})
     assert bad.status_code == 422

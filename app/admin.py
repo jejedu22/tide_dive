@@ -277,7 +277,7 @@ def admin_delete_port(port_id: int, admin: CurrentAdmin):
 # ---------------------------------------------------------------------------
 
 class JobIn(BaseModel):
-    kind: Literal["precompute", "calibrate", "short_term", "fetch_models", "school_holidays"]
+    kind: Literal["precompute", "calibrate", "short_term", "fetch_models", "school_holidays", "currents_atlas"]
     params: dict = {}
 
 

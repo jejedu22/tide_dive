@@ -158,11 +158,15 @@ def api_dive_windows(
     tide_phase: str = Query("both", pattern="^(PM|BM|both)$"),
     daylight: str = Query("nautical", pattern="^(civil|nautical|none)$"),
     margin_minutes: int = Query(45, ge=0, le=240, description="Demi-largeur de la fenêtre autour de l'étale"),
+    site_id: int | None = Query(None, description="Site de plongée : courant de marée autour de chaque étale"),
     user: Annotated[sqlite3.Row | None, Depends(auth.optional_user)] = None,
 ):
     port = db.get_port(port_id)
     if port is None:
         raise HTTPException(404, "Port inconnu")
+    site = db.get_dive_site(site_id) if site_id is not None else None
+    if site_id is not None and (site is None or site["port_id"] != port_id):
+        raise HTTPException(422, "Site de plongée inconnu pour ce port")
     if end < start:
         raise HTTPException(422, "La date de fin précède la date de début")
     if (end - start).days > MAX_SEARCH_DAYS:
@@ -182,6 +186,7 @@ def api_dive_windows(
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
 
     extrema = db.get_extrema_range(port_id, start_utc.isoformat(), end_utc.isoformat(), sources)
+    site_currents = currents.SiteCurrents(site, start_utc, end_utc) if site is not None else None
     sun_rows = {
         r["date"]: r
         for r in db.get_sun_times_range(port_id, start.isoformat(), end.isoformat())
@@ -263,6 +268,10 @@ def api_dive_windows(
                 "fully_in_daylight": in_daylight,
             }
         )
+        if site_currents is not None:
+            utc = ZoneInfo("UTC")
+            results[-1]["current"] = site_currents.around(
+                datetime.fromisoformat(ex["ts_utc"]), window_start.astimezone(utc), window_end.astimezone(utc), tz)
         if rdv_offset is not None:
             rdv_dt = rdv_time(local_dt, rdv_offset)
             results[-1]["rdv"] = {"date": rdv_dt.date().isoformat(), "time": rdv_dt.strftime("%H:%M")}
@@ -283,6 +292,7 @@ def api_dive_windows(
     }
 
     return {"port": port["name"], "rdv_offset_minutes": rdv_offset, "school_holidays": school_holidays_status,
+            "site": currents.site_info(site) if site is not None else None,
             "tide_sources": {"api_maree": sources[0] == "api", "calibration": sources.index("cal") < sources.index("fes")},
             "criteria": {
         "max_coefficient": max_coefficient, "tide_phase": tide_phase,

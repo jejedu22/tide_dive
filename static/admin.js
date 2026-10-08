@@ -256,7 +256,8 @@ async function loadJobs() {
   for (const j of jobs) {
     const before = previousStatuses.get(j.id);
     if (before && before !== j.status && !["queued", "running"].includes(j.status)) {
-      if (j.kind === "precompute") refreshPorts = true;
+      // précalcul : années disponibles ; atlas de courants : courant des sites et zones téléchargées
+      if (j.kind === "precompute" || j.kind === "currents_atlas") refreshPorts = true;
       else refreshStatus = true;
     }
   }
@@ -677,6 +678,7 @@ async function loadPorts() {
     return;
   }
   renderPorts();
+  loadCurrents();
   catalogSelect.innerHTML = `<option value="">Point personnalisé (saisie libre)</option>` +
     (catalog.length ? `<optgroup label="Catalogue">${catalog.map((p, i) =>
       `<option value="${i}">${esc(p.name)}${p.offset_zh_m ? "" : " (niveau moyen à renseigner)"}</option>`).join("")}</optgroup>` : "");
@@ -858,6 +860,54 @@ portsBody.addEventListener("click", async e => {
   }
 });
 
+// ---- Atlas de courants de marée du SHOM : zones téléchargées, téléchargement (tâche de fond), recalcul des sites ----
+
+async function loadCurrents() {
+  let data;
+  try {
+    data = await Session.api("/api/admin/currents");
+  } catch (e) {
+    $("currents-body").innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  const portNames = new Set(ports.map(p => p.name.toLowerCase()));
+  $("currents-body").innerHTML = data.zones.map(z => {
+    const ref = z.ref_port
+      ? `${esc(z.ref_port)}${portNames.has(z.ref_port.toLowerCase()) ? "" : ` <span class="tag tag-pending" title="À ajouter dans les ports, avec ses marées calculées">absent</span>`}`
+      : `<span class="muted">indiqué dans l'atlas</span>`;
+    const state = z.downloaded
+      ? `téléchargé le ${esc(new Date(z.updated_at).toLocaleDateString("fr-FR"))} <span class="muted">(${z.files.length} fichier${z.files.length > 1 ? "s" : ""})</span>`
+      : `<span class="muted">non téléchargé · ${esc(z.size)}</span>`;
+    return `<tr>
+      <th scope="row">${esc(z.label)}</th>
+      <td data-label="Port de référence">${ref}</td>
+      <td data-label="État">${state}</td>
+      <td class="actions"><button type="button" class="btn-quiet" data-zone="${esc(z.zone)}">${z.downloaded ? "Mettre à jour" : "Télécharger"}</button></td>
+    </tr>`;
+  }).join("");
+  $("currents-attribution").textContent = `Source : ${data.attribution}. À n'utiliser qu'en complément des cartes et ouvrages nautiques officiels.`;
+}
+
+$("currents-body").addEventListener("click", e => {
+  const btn = e.target.closest("[data-zone]");
+  if (btn) enqueue("currents_atlas", { zone: btn.dataset.zone });
+});
+
+$("currents-refresh").addEventListener("click", async () => {
+  const btn = $("currents-refresh");
+  btn.disabled = true;
+  try {
+    const res = await Session.api("/api/admin/currents/sites", { method: "POST" });
+    diveSites = res.sites;
+    $("currents-report").textContent = res.report.length ? res.report.join(" · ") : "Aucun site de plongée.";
+    renderPorts();
+  } catch (e) {
+    $("currents-report").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ---- Sites de plongée d'un port : position GPS précise (le courant de marée y est extrait de l'atlas du SHOM) ----
 
 const siteCount = p => diveSites.filter(x => x.port_id === p.id).length;
@@ -871,7 +921,7 @@ function openDiveSites(port) {
 
   const currentNote = x => (x.current
     ? `<span class="tag" title="Atlas ${esc(x.current.atlas)}, port de référence ${esc(x.current.ref_port || "?")}">courant ✓</span>`
-    : `<span class="muted">pas encore de courant</span>`);
+    : `<span class="muted">${esc(x.current_status || "pas encore de courant")}</span>`);
   const render = () => {
     const list = diveSites.filter(x => x.port_id === port.id);
     const t = editing;

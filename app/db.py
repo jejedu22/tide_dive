@@ -258,6 +258,7 @@ from .db_currents import (  # noqa: F401
     _clear_currents,
     save_site_currents,
     clear_site_currents,
+    set_site_current_status,
     get_site_currents,
 )
 from .db_requests import (  # noqa: F401

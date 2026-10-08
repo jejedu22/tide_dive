@@ -61,22 +61,31 @@ def delete_dive_site(site_id: int) -> None:
 
 def _clear_currents(conn, site_id: int) -> None:
     conn.execute("DELETE FROM site_currents WHERE site_id = ?", (site_id,))
-    conn.execute("UPDATE dive_sites SET current_atlas = NULL, current_ref_port_id = NULL, current_lat = NULL, "
-                 "current_lon = NULL, current_imported_at = NULL WHERE id = ?", (site_id,))
+    conn.execute("UPDATE dive_sites SET current_atlas = NULL, current_ref_port_id = NULL, current_ref_kind = NULL, "
+                 "current_lat = NULL, current_lon = NULL, current_imported_at = NULL, current_status = NULL "
+                 "WHERE id = ?", (site_id,))
 
 
 def save_site_currents(site_id: int, atlas: str, ref_port_id: int, point_lat: float, point_lon: float,
-                       series: list[tuple[int, float, float, float, float]], now: str) -> None:
-    """Remplace le courant du site : series = [(décalage en minutes à la PM de référence, u45, v45, u95, v95)]."""
+                       series: list[tuple[int, float, float, float, float]], now: str, ref_kind: str = "PM") -> None:
+    """Remplace le courant du site : series = [(décalage en minutes à la pleine mer (ou basse mer, ref_kind) du port
+    de référence, u45, v45, u95, v95)]."""
     with get_conn() as conn:
         _clear_currents(conn, site_id)
         conn.executemany(
             "INSERT INTO site_currents (site_id, offset_min, u45, v45, u95, v95) VALUES (?, ?, ?, ?, ?, ?)",
             [(site_id, *row) for row in series],
         )
-        conn.execute("UPDATE dive_sites SET current_atlas = ?, current_ref_port_id = ?, current_lat = ?, "
-                     "current_lon = ?, current_imported_at = ? WHERE id = ?",
-                     (atlas, ref_port_id, point_lat, point_lon, now, site_id))
+        conn.execute("UPDATE dive_sites SET current_atlas = ?, current_ref_port_id = ?, current_ref_kind = ?, "
+                     "current_lat = ?, current_lon = ?, current_imported_at = ? WHERE id = ?",
+                     (atlas, ref_port_id, ref_kind, point_lat, point_lon, now, site_id))
+
+
+def set_site_current_status(site_id: int, status: str | None) -> None:
+    """Efface le courant du site et note pourquoi il n'en a pas (None : pas encore cherché)."""
+    with get_conn() as conn:
+        _clear_currents(conn, site_id)
+        conn.execute("UPDATE dive_sites SET current_status = ? WHERE id = ?", (status, site_id))
 
 
 def clear_site_currents(site_id: int) -> None:

@@ -527,7 +527,9 @@ CREATE TABLE IF NOT EXISTS dive_sites (
     notes TEXT,
     created_at TEXT NOT NULL,
     current_atlas TEXT,             -- zone de l'atlas (ex. « Bretagne Nord »)
-    current_ref_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL,  -- port de référence (PM) de l'atlas
+    current_ref_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL,  -- port de référence de l'atlas
+    current_ref_kind TEXT CHECK (current_ref_kind IS NULL OR current_ref_kind IN ('PM', 'BM')),
+    current_status TEXT,            -- pourquoi le site n'a pas de courant (hors atlas, port de référence absent…)
     current_lat REAL,               -- point de grille retenu
     current_lon REAL,
     current_imported_at TEXT,

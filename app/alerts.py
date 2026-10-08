@@ -108,7 +108,8 @@ def notify(problems: list[Problem], now: datetime | None = None) -> bool:
 def job_failed(job_id: int, kind: str, label: str) -> None:
     """Alerte immédiate pour une tâche en échec (au plus un e-mail par type de tâche et par jour). Ne lève jamais."""
     try:
-        if kind not in ("precompute", "fetch_models", "calibrate", "short_term", "school_holidays", "newsletter_send"):
+        if kind not in ("precompute", "fetch_models", "calibrate", "short_term", "school_holidays", "newsletter_send",
+                        "currents_atlas"):
             return
         now = _now()
         key = f"alert_job_{kind}"

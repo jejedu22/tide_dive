@@ -20,14 +20,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import current_calc, db
+from . import current_calc, db, shom_currents
 from .auth import CurrentSuperAdmin
 
 router = APIRouter(prefix="/api")
 
 MAX_SPAN = timedelta(days=3)          # période demandée pour la courbe d'un site
 CURVE_STEP = timedelta(minutes=15)
-ATTRIBUTION = "Courants : atlas de courants de marée du SHOM (Licence Ouverte Etalab 2.0)"
+ATTRIBUTION = shom_currents.ATTRIBUTION
 
 
 class SiteIn(BaseModel):
@@ -57,10 +57,11 @@ def site_out(row: sqlite3.Row) -> dict:
         "id": row["id"], "port_id": row["port_id"], "port": row["port_name"], "name": row["name"],
         "lat": row["lat"], "lon": row["lon"], "notes": row["notes"],
         "current": ({
-            "atlas": row["current_atlas"], "ref_port": row["current_ref_port"],
+            "atlas": row["current_atlas"], "ref_port": row["current_ref_port"], "ref_kind": row["current_ref_kind"],
             "point": {"lat": row["current_lat"], "lon": row["current_lon"]},
             "imported_at": row["current_imported_at"],
         } if has_current else None),
+        "current_status": None if has_current else row["current_status"],   # pourquoi pas de courant
     }
 
 
@@ -92,16 +93,25 @@ def admin_create_site(port_id: int, body: SiteIn, admin: CurrentSuperAdmin):
         sid = db.create_dive_site(port_id, body.name, round(body.lat, 6), round(body.lon, 6), body.notes, _now())
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Ce port a déjà un site « {body.name} »")
+    _refresh(sid)
     return site_out(db.get_dive_site(sid))
+
+
+def _refresh(site_id: int) -> None:
+    """Courant du site depuis les atlas déjà téléchargés (rien à faire s'il n'y en a aucun)."""
+    if shom_currents.atlas_files():
+        shom_currents.update_site(db.get_dive_site(site_id))
 
 
 @router.put("/admin/dive-sites/{site_id}")
 def admin_update_site(site_id: int, body: SiteIn, admin: CurrentSuperAdmin):
     _site_or_404(site_id)
     try:
-        db.update_dive_site(site_id, body.name, round(body.lat, 6), round(body.lon, 6), body.notes)
+        moved = db.update_dive_site(site_id, body.name, round(body.lat, 6), round(body.lon, 6), body.notes)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Ce port a déjà un site « {body.name} »")
+    if moved:
+        _refresh(site_id)
     return site_out(db.get_dive_site(site_id))
 
 
@@ -109,6 +119,20 @@ def admin_update_site(site_id: int, body: SiteIn, admin: CurrentSuperAdmin):
 def admin_delete_site(site_id: int, admin: CurrentSuperAdmin):
     _site_or_404(site_id)
     db.delete_dive_site(site_id)
+
+
+@router.get("/admin/currents")
+def admin_currents(admin: CurrentSuperAdmin):
+    """Atlas de courants du SHOM : zones téléchargées ou non (téléchargement : tâche « currents_atlas »)."""
+    return {"zones": shom_currents.zones_status(), "attribution": ATTRIBUTION}
+
+
+@router.post("/admin/currents/sites")
+def admin_refresh_sites(admin: CurrentSuperAdmin):
+    """Recalcule le courant de tous les sites depuis les atlas téléchargés (ex. après l'ajout d'un port de
+    référence)."""
+    report = shom_currents.update_all_sites()
+    return {"report": report, "sites": [site_out(r) for r in db.list_dive_sites()]}
 
 
 # ---------------------------------------------------------------------------
@@ -121,14 +145,20 @@ def list_sites(port_id: int | None = None):
     return [site_out(r) for r in db.list_dive_sites(port_id)]
 
 
-def high_waters(ref_port_id: int, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
-    """Pleines mers du port de référence autour de [start, end] (UTC), avec leur coefficient."""
-    rows = db.get_extrema_range(ref_port_id, (start - timedelta(hours=8)).isoformat(),
-                                (end + timedelta(hours=8)).isoformat())
+def high_waters(ref_port_id: int, start: datetime, end: datetime, kind: str = "PM") -> list[tuple[datetime, float]]:
+    """Pleines mers (ou basses mers, kind) du port de référence autour de [start, end] (UTC), avec le coefficient
+    de la marée (celui de la pleine mer la plus proche pour une basse mer)."""
+    rows = db.get_extrema_range(ref_port_id, (start - timedelta(hours=14)).isoformat(),
+                                (end + timedelta(hours=14)).isoformat())
+    pms = [(datetime.fromisoformat(r["ts_utc"]), float(r["coefficient"]))
+           for r in rows if r["kind"] == "PM" and r["coefficient"] is not None]
+    if kind == "PM":
+        return sorted(pms)
     out = []
     for r in rows:
-        if r["kind"] == "PM" and r["coefficient"] is not None:
-            out.append((datetime.fromisoformat(r["ts_utc"]), float(r["coefficient"])))
+        if r["kind"] == "BM" and pms:
+            t = datetime.fromisoformat(r["ts_utc"])
+            out.append((t, min(pms, key=lambda p: abs(p[0] - t))[1]))
     return sorted(out)
 
 
@@ -148,7 +178,7 @@ def site_currents(site_id: int, start: datetime = Query(...), end: datetime = Qu
     points = current_calc.as_points(db.get_site_currents(site_id))
     if not points or site["current_ref_port_id"] is None:
         return {"site": site_out(site), "available": False, "series": [], "slack": None, "max": None}
-    hws = high_waters(site["current_ref_port_id"], start, end)
+    hws = high_waters(site["current_ref_port_id"], start, end, site["current_ref_kind"] or "PM")
     series = []
     t = start
     while t <= end:
@@ -163,3 +193,45 @@ def site_currents(site_id: int, start: datetime = Query(...), end: datetime = Qu
         "max": _out(current_calc.max_in(points, hws, start, end)),
         "attribution": ATTRIBUTION,
     }
+
+
+# ---------------------------------------------------------------------------
+# Courant d'un site autour d'une étale (recherche par étale)
+# ---------------------------------------------------------------------------
+
+SLACK_SEARCH = timedelta(hours=2)     # étale de courant cherchée à ± 2 h de l'étale de hauteur
+
+
+class SiteCurrents:
+    """Courant d'un site sur une période : série et pleines mers de référence chargées une fois."""
+
+    def __init__(self, site: sqlite3.Row, start: datetime, end: datetime):
+        self.site = site
+        self.points = current_calc.as_points(db.get_site_currents(site["id"]))
+        self.hws = (high_waters(site["current_ref_port_id"], start - SLACK_SEARCH, end + SLACK_SEARCH,
+                                site["current_ref_kind"] or "PM")
+                    if self.points and site["current_ref_port_id"] is not None else [])
+
+    @property
+    def available(self) -> bool:
+        return bool(self.points and self.hws)
+
+    def around(self, tide_utc: datetime, window_start: datetime, window_end: datetime, tz) -> dict | None:
+        """Étale de courant (courant le plus faible à ± 2 h de l'étale de hauteur) et courant le plus fort pendant la
+        fenêtre de plongée ; None si inconnu (marées du port de référence non calculées)."""
+        if not self.available:
+            return None
+        slack = current_calc.slack_in(self.points, self.hws, tide_utc - SLACK_SEARCH, tide_utc + SLACK_SEARCH)
+        strongest = current_calc.max_in(self.points, self.hws, window_start, window_end)
+        if slack is None or strongest is None:
+            return None
+        return {
+            "slack": {"time": slack[0].astimezone(tz).strftime("%H:%M"), "knots": slack[1].knots,
+                      "offset_min": round((slack[0] - tide_utc).total_seconds() / 60)},
+            "max": {"knots": strongest.knots, "direction": strongest.direction},
+        }
+
+
+def site_info(site: sqlite3.Row) -> dict:
+    return {"id": site["id"], "name": site["name"], "available": bool(site["current_points"]),
+            "attribution": ATTRIBUTION}
