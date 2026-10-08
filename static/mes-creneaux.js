@@ -147,6 +147,12 @@ const pickedBy = p => (p.picked_by ? esc(p.picked_by) : `<span class="muted">com
 // Ajouter ce créneau au calendrier du téléphone ou de l'ordinateur (fichier .ics d'un seul créneau)
 const agendaLink = p => `<a class="btn-quiet btn-small slot-agenda" href="/api/selections/${p.id}.ics" download
   title="Ajouter ce créneau à mon agenda (calendrier du téléphone ou de l'ordinateur)">${Session.icon("calendar", 15)}<span>Agenda</span></a>`;
+// Courants : ports dont au moins un site de plongée a son courant (atlas du SHOM) ; pas pour un séjour
+let currentPorts = new Set();
+const currentsButton = p => (p.port_id != null && !p.end_date && currentPorts.has(p.port_id)
+  ? `<button type="button" class="btn-quiet btn-small slot-currents" data-act="currents"
+      title="Courant de marée aux sites de plongée du port, autour du créneau">${Session.icon("wave", 15)}<span>Courants</span></button>`
+  : "");
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
 // Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
 const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
@@ -189,7 +195,7 @@ function slotCard(p) {
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
         <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
-        <span class="slot-acts">${agendaLink(p)}${editButton(p)}${removeButton()}</span>
+        <span class="slot-acts">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -455,7 +461,7 @@ function renderTable(list) {
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${agendaLink(p)}${editButton(p)}${removeButton()}</td>
+          <td class="c-actions">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -532,11 +538,14 @@ async function load() {
   closePop();
   statusEl.textContent = "Chargement…";
   try {
-    [types, picks, unavailabilities] = await Promise.all([
+    let sites;
+    [types, picks, unavailabilities, sites] = await Promise.all([
       canPick() ? Session.api("/api/slot-types") : [],
       Session.api("/api/selections"),
       Session.api("/api/unavailabilities"),
+      Session.api("/api/dive-sites").catch(() => []),   // sans les sites, pas de bouton Courants
     ]);
+    currentPorts = new Set(sites.filter(x => x.current).map(x => x.port_id));
   } catch (e) {
     statusEl.textContent = e.message;
     return;
@@ -1021,3 +1030,100 @@ Session.onChange(user => {
   load();
 });
 Session.init();
+
+// ---- Courants de marée aux sites du port (atlas du SHOM) ----
+
+const COMPASS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+const compass = deg => COMPASS[Math.round(deg / 45) % 8];
+const fmtKnots = k => k.toFixed(1).replace(".", ",");
+const arrow = (deg, size = 14) => `<svg class="cur-arrow" width="${size}" height="${size}" viewBox="-10 -10 20 20" aria-hidden="true">
+  <path d="M0 8V-7M-5-2 0-8 5-2" transform="rotate(${deg})"/></svg>`;
+
+// Vitesse au fil de la période (toutes les 15 min), repère de l'étale, direction toutes les demi-heures
+const minutesOf = (hhmm, base) => {
+  const m = Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+  return base != null && m < base - 360 ? m + 1440 : m;   // passage de minuit
+};
+
+function currentChart(s, mark) {
+  const W = 420, H = 140, L = 30, R = 8, T = 22, B = 20;
+  const pts = s.series;
+  const m0 = minutesOf(pts[0].time);
+  const span = Math.max(15, minutesOf(pts[pts.length - 1].time, m0) - m0);
+  const x = hhmm => L + ((minutesOf(hhmm, m0) - m0) * (W - L - R)) / span;
+  const top = Math.max(1, Math.ceil(Math.max(...pts.map(q => q.knots)) * 2) / 2);
+  const y = k => T + (H - T - B) * (1 - k / top);
+  const line = pts.map((q, i) => `${i ? "L" : "M"}${x(q.time).toFixed(1)} ${y(q.knots).toFixed(1)}`).join("");
+  const area = `${line}L${x(pts[pts.length - 1].time).toFixed(1)} ${y(0)}L${L} ${y(0)}Z`;
+  const out = [];
+  for (let k = 0; k <= top + 1e-9; k += top > 2 ? 1 : 0.5) {
+    out.push(`<line class="cur-grid" x1="${L}" x2="${W - R}" y1="${y(k)}" y2="${y(k)}"/>
+      <text class="cur-tick" x="${L - 4}" y="${y(k) + 3.5}" text-anchor="end">${fmtKnots(k)}</text>`);
+  }
+  out.push(`<path class="cur-area" d="${area}"/><path class="cur-line" d="${line}"/>`);
+  for (const q of pts) {
+    if (q.time.endsWith(":00")) {
+      out.push(`<text class="cur-tick" x="${x(q.time)}" y="${H - 5}" text-anchor="middle">${Number(q.time.slice(0, 2))} h</text>`);
+    }
+    if (q.time.endsWith(":00") || q.time.endsWith(":30")) {
+      out.push(`<g transform="translate(${x(q.time).toFixed(1)} 9) rotate(${q.direction})"><title>${q.time} : ${fmtKnots(q.knots)} nd vers ${compass(q.direction)}</title><path class="cur-dir" d="M0 6V-6M-3.5-2 0-6 3.5-2"/></g>`);
+    }
+  }
+  if (mark) out.push(`<line class="cur-mark" x1="${x(mark)}" x2="${x(mark)}" y1="${T - 4}" y2="${y(0)}"/>`);
+  out.push(`<circle class="cur-slack-dot" cx="${x(s.slack.time)}" cy="${y(s.slack.knots)}" r="4"><title>Étale de courant ${s.slack.time}</title></circle>`);
+  return `<svg class="cur-chart" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Courant de ${pts[0].time} à ${pts[pts.length - 1].time}, au plus ${fmtKnots(s.max.knots)} nœuds">${out.join("")}</svg>`;
+}
+
+function siteCurrentBlock(s, mark) {
+  const name = `<h3>${esc(s.site.name)}</h3>${s.site.notes ? `<p class="dialog-hint">${esc(s.site.notes)}</p>` : ""}`;
+  if (!s.available) {
+    return `<section class="cur-site">${name}<p class="dialog-hint">Courant inconnu pour ce créneau (site hors des atlas, ou marées du port de référence non calculées).</p></section>`;
+  }
+  return `<section class="cur-site">${name}
+    <p class="cur-summary">
+      <span><b>Étale de courant</b> ${s.slack.time} <span class="muted">(${fmtKnots(s.slack.knots)} nd)</span></span>
+      <span><b>Plus fort</b> ${s.max.time} : ${fmtKnots(s.max.knots)} nd ${arrow(s.max.direction)} ${compass(s.max.direction)}</span>
+    </p>
+    ${currentChart(s, mark)}
+  </section>`;
+}
+
+async function openCurrents(p) {
+  const d = document.createElement("dialog");
+  d.className = "account-dialog currents-dialog";
+  const what = p.water ? "Plage de hauteur d'eau" : p.custom ? "Créneau" : `Étale de ${p.kind === "PM" ? "pleine" : "basse"} mer de ${p.time}`;
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>Courants · ${esc(p.port)}</h2>
+      <p class="dialog-hint">${what} le ${esc(formatLong(p.date))}${p.note ? ` (${esc(p.note)})` : ""}.</p>
+      <div class="cur-body"><p class="dialog-hint">Chargement…</p></div>
+      <div class="dialog-actions"><button type="submit" class="btn-primary">Fermer</button></div>
+    </form>`;
+  document.body.append(d);
+  d.addEventListener("close", () => d.remove());
+  d.showModal();
+  const body = d.querySelector(".cur-body");
+  try {
+    const data = await Session.api(`/api/selections/${p.id}/currents`);
+    const sites = data.sites;
+    if (!data.period || !sites.length) {
+      body.innerHTML = `<p class="dialog-hint">Aucun site de plongée avec courant pour ce créneau.</p>`;
+      return;
+    }
+    body.innerHTML = `
+      <p class="dialog-hint">De ${data.period.start} à ${data.period.end}${data.period.mark ? `, autour de l'étale (trait pointillé)` : ""}.
+        Vitesse en nœuds ; les flèches indiquent où porte le courant ; le point marque l'étale de courant.</p>
+      ${sites.map(s => siteCurrentBlock(s, data.period.mark)).join("")}
+      <p class="cur-source">Indicatif : courant de surface d'un modèle, hors vent et houle ; à n'utiliser qu'en complément des documents nautiques officiels. ${esc(data.attribution)}</p>`;
+  } catch (e) {
+    body.innerHTML = `<p class="dialog-error">${esc(e.message)}</p>`;
+  }
+}
+
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=currents]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openCurrents(p);
+});

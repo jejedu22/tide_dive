@@ -139,44 +139,44 @@ def test_courant_d_un_site_sur_une_periode(setup, new_client, client):
     assert client.get("/api/dive-sites/999/currents", params={"start": start, "end": end}).status_code == 404
 
 
-def test_recherche_par_etale_avec_le_courant_du_site(setup, new_client, client):
-    """Le site choisi ajoute à chaque étale l'étale de courant et le courant le plus fort de la fenêtre."""
-    root = _client(new_client, "root")
-    site = root.post(f"/api/admin/ports/{setup['port']}/dive-sites", json={"name": "Le Moulin", "lat": 48.7, "lon": -2.7}).json()
-    pm_binic = PM + timedelta(minutes=20)    # étale du port de plongée, 20 min après la PM de référence
+
+def test_courants_d_un_creneau_choisi(setup, make_structure, make_user, new_client):
+    """Sur un créneau choisi : courant de chaque site du port autour du créneau."""
+    sid = make_structure("Club A")
+    make_user("bob", structure_id=sid, structure_role="manager")
+    make_user("eve", structure_id=make_structure("Club B"), structure_role="manager")
+    boat = db.create_slot_type(sid, "Sortie bateau", "#118ab2", True)
+    root, bob = _client(new_client, "root"), _client(new_client, "bob")
+    moulin = root.post(f"/api/admin/ports/{setup['port']}/dive-sites", json={"name": "Le Moulin", "lat": 48.7, "lon": -2.7}).json()
+    root.post(f"/api/admin/ports/{setup['port']}/dive-sites", json={"name": "Sans atlas", "lat": 48.8, "lon": -2.7})
+    pm_binic = PM + timedelta(minutes=20)    # étale du port, 20 min après la PM de référence
     db.replace_year(setup["port"], 2099, [], [(pm_binic.isoformat(), "PM", 9.0, 95.0)], [], model="TEST")
-    params = {"port_id": setup["port"], "start": "2099-07-01", "end": "2099-07-01", "daylight": "none",
-              "max_coefficient": 120, "margin_minutes": 60, "site_id": site["id"]}
-
-    # pas encore de courant : le site est indiqué, le courant reste inconnu
-    data = client.get("/api/dive-windows", params=params).json()
-    assert data["site"] == {"id": site["id"], "name": "Le Moulin", "available": False, "attribution": cc_attr()}
-    assert data["results"][0]["current"] is None
-
     db.replace_year(setup["ref"], 2099, [], [(PM.isoformat(), "PM", 7.0, 95.0)], [], model="TEST")
-    db.save_site_currents(site["id"], "Bretagne Nord", setup["ref"], 48.701, -2.699,
+    db.save_site_currents(moulin["id"], "Bretagne Nord", setup["ref"], 48.701, -2.699,
                           [(p.offset_min, p.u45, p.v45, p.u95, p.v95) for p in _series()], "2026-10-08T00:00:00+00:00")
-    data = client.get("/api/dive-windows", params=params).json()
-    assert data["site"]["available"] is True
-    cur = data["results"][0]["current"]
-    # étale de courant à la PM de référence (12:00 UTC = 14:00 heure de Paris), 20 min avant l'étale de hauteur
-    assert cur["slack"] == {"time": "14:00", "knots": 0, "offset_min": -20}
-    # fenêtre 11:20–13:20 UTC : le plus fort à +1 h 20 de la PM de référence, porte vers l'ouest
-    assert cur["max"]["knots"] == pytest.approx(80 / 180 * 1.0 / cc.KNOT, abs=0.01)
-    assert cur["max"]["direction"] == 270
-    # sans site : pas de courant
-    plain = client.get("/api/dive-windows", params={k: v for k, v in params.items() if k != "site_id"}).json()
-    assert plain["site"] is None and "current" not in plain["results"][0]
+    tide = bob.post("/api/selections", json={"port_id": setup["port"], "ts_utc": pm_binic.isoformat(), "type_id": boat}).json()
 
+    data = bob.get(f"/api/selections/{tide['id']}/currents").json()
+    # étale de 14:20 (heure de Paris) ± 3 h
+    assert (data["port"], data["period"]) == ("Binic", {"start": "11:20", "end": "17:20", "mark": "14:20"})
+    assert "10.17183/ATLASCOURANTS2D_NETCDF" in data["attribution"]
+    by_name = {s["site"]["name"]: s for s in data["sites"]}
+    assert by_name["Sans atlas"]["available"] is False and by_name["Sans atlas"]["series"] == []
+    m = by_name["Le Moulin"]
+    # toutes les 15 min, calé sur les quarts d'heure : 11:15 → 17:30
+    assert m["available"] and len(m["series"]) == 26 and (m["series"][0]["time"], m["series"][-1]["time"]) == ("11:15", "17:30")
+    assert m["slack"] == {"time": "14:00", "knots": 0, "direction": 0}  # à la PM de référence
+    assert m["max"]["direction"] == 270                                   # jusant vers l'ouest, au plus fort à PM+3 h
+    assert m["max"]["time"] == "17:00" and m["max"]["knots"] == pytest.approx(1 / cc.KNOT, abs=0.01)
 
-def test_recherche_site_d_un_autre_port_refuse(setup, new_client, client):
-    root = _client(new_client, "root")
-    site = root.post(f"/api/admin/ports/{setup['ref']}/dive-sites", json={"name": "Pointe", "lat": 48.3, "lon": -4.6}).json()
-    params = {"port_id": setup["port"], "start": "2099-07-01", "end": "2099-07-01", "site_id": site["id"]}
-    assert client.get("/api/dive-windows", params=params).status_code == 422
-    assert client.get("/api/dive-windows", params={**params, "site_id": 999}).status_code == 422
+    # créneau personnalisé au port : 6 h à partir du RDV ; séjour ou autre lieu : pas de période
+    custom = bob.post("/api/selections/custom", json={"port_id": setup["port"], "date": "2099-07-01", "time": "13:00",
+                                                       "type_id": boat}).json()
+    assert bob.get(f"/api/selections/{custom['id']}/currents").json()["period"] == {"start": "13:00", "end": "19:00", "mark": None}
+    away = bob.post("/api/selections/custom", json={"location": "Fosse, Plouha", "date": "2099-07-01", "time": "09:30",
+                                                     "type_id": boat}).json()
+    assert bob.get(f"/api/selections/{away['id']}/currents").json() == {
+        "port": None, "period": None, "sites": [], "attribution": data["attribution"]}
 
-
-def cc_attr():
-    from app import shom_currents
-    return shom_currents.ATTRIBUTION
+    # créneau d'une autre structure : introuvable
+    assert _client(new_client, "eve").get(f"/api/selections/{tide['id']}/currents").status_code == 404

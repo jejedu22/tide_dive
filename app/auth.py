@@ -294,7 +294,6 @@ class FormPrefs(BaseModel):
     les dates enregistrées seraient vite périmées."""
     model_config = ConfigDict(extra="forbid")
     port_id: int | None = None
-    site_id: int | None = None
     span_days: int | None = Field(None, ge=0, le=366)
     tide_phase: Literal["both", "PM", "BM"] | None = None
     max_coefficient: int | None = Field(None, ge=20, le=120)
@@ -317,7 +316,6 @@ class FilterPrefs(BaseModel):
     hMax: _FilterValue = ""
     coefMin: _FilterValue = ""
     coefMax: _FilterValue = ""
-    curMax: _FilterValue = ""
     pick: Literal["", "free", "picked"] = ""
 
 

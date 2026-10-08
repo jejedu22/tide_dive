@@ -120,18 +120,25 @@ def slack_in(points: Sequence[Point], high_waters: Sequence[tuple[datetime, floa
     return best
 
 
-def max_in(points: Sequence[Point], high_waters: Sequence[tuple[datetime, float]], start, end,
-           step: timedelta = SLACK_STEP) -> Current | None:
-    """Courant le plus fort entre start et end (UTC)."""
+def peak_in(points: Sequence[Point], high_waters: Sequence[tuple[datetime, float]], start, end,
+            step: timedelta = SLACK_STEP) -> tuple[datetime, Current] | None:
+    """Instant et valeur du courant le plus fort entre start et end (UTC)."""
     start, end = _utc(start), _utc(end)
-    best = None
+    best: tuple[datetime, Current] | None = None
     t = start
     while t <= end:
         c = current_at(points, high_waters, t)
-        if c is not None and (best is None or c.knots > best.knots):
-            best = c
+        if c is not None and (best is None or c.knots > best[1].knots):
+            best = (t, c)
         t += step
     return best
+
+
+def max_in(points: Sequence[Point], high_waters: Sequence[tuple[datetime, float]], start, end,
+           step: timedelta = SLACK_STEP) -> Current | None:
+    """Courant le plus fort entre start et end (UTC)."""
+    peak = peak_in(points, high_waters, start, end, step)
+    return peak[1] if peak else None
 
 
 def as_points(rows: Iterable) -> list[Point]:

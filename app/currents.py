@@ -7,7 +7,8 @@ Sites de plongée et courants de marée.
   autour de la pleine mer d'un port de référence, pour les coefficients 45 et 95, extraite au point de grille le
   plus proche du site (site_currents). Calcul : current_calc.
 - Les membres voient, pour un site et une période, le courant toutes les 15 minutes, l'étale de courant et le
-  courant le plus fort (GET /api/dive-sites/{id}/currents).
+  courant le plus fort (GET /api/dive-sites/{id}/currents) ; et, sur un créneau choisi, le courant de tous les sites
+  de son port autour du créneau (GET /api/selections/{id}/currents).
 
 Routes : /api/dive-sites (tous), /api/admin/dive-sites (super administrateurs).
 """
@@ -16,12 +17,13 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from . import current_calc, db, shom_currents
-from .auth import CurrentSuperAdmin
+from .auth import CurrentMember, CurrentSuperAdmin
 
 router = APIRouter(prefix="/api")
 
@@ -196,42 +198,74 @@ def site_currents(site_id: int, start: datetime = Query(...), end: datetime = Qu
 
 
 # ---------------------------------------------------------------------------
-# Courant d'un site autour d'une étale (recherche par étale)
+# Courants d'un créneau choisi : tous les sites du port, autour du créneau
 # ---------------------------------------------------------------------------
 
-SLACK_SEARCH = timedelta(hours=2)     # étale de courant cherchée à ± 2 h de l'étale de hauteur
+AROUND_TIDE = timedelta(hours=3)      # créneau d'étale : étale ± 3 h
+AROUND_WATER = timedelta(hours=1)     # plage de hauteur d'eau : ± 1 h
+CUSTOM_SPAN = timedelta(hours=6)      # créneau personnalisé : RDV → RDV + 6 h
 
 
-class SiteCurrents:
-    """Courant d'un site sur une période : série et pleines mers de référence chargées une fois."""
-
-    def __init__(self, site: sqlite3.Row, start: datetime, end: datetime):
-        self.site = site
-        self.points = current_calc.as_points(db.get_site_currents(site["id"]))
-        self.hws = (high_waters(site["current_ref_port_id"], start - SLACK_SEARCH, end + SLACK_SEARCH,
-                                site["current_ref_kind"] or "PM")
-                    if self.points and site["current_ref_port_id"] is not None else [])
-
-    @property
-    def available(self) -> bool:
-        return bool(self.points and self.hws)
-
-    def around(self, tide_utc: datetime, window_start: datetime, window_end: datetime, tz) -> dict | None:
-        """Étale de courant (courant le plus faible à ± 2 h de l'étale de hauteur) et courant le plus fort pendant la
-        fenêtre de plongée ; None si inconnu (marées du port de référence non calculées)."""
-        if not self.available:
-            return None
-        slack = current_calc.slack_in(self.points, self.hws, tide_utc - SLACK_SEARCH, tide_utc + SLACK_SEARCH)
-        strongest = current_calc.max_in(self.points, self.hws, window_start, window_end)
-        if slack is None or strongest is None:
-            return None
-        return {
-            "slack": {"time": slack[0].astimezone(tz).strftime("%H:%M"), "knots": slack[1].knots,
-                      "offset_min": round((slack[0] - tide_utc).total_seconds() / 60)},
-            "max": {"knots": strongest.knots, "direction": strongest.direction},
-        }
+def selection_period(sel: sqlite3.Row, tz) -> tuple[datetime, datetime, datetime | None] | None:
+    """(début, fin, instant repère) en UTC du courant à montrer pour un créneau ; None : pas de port, ou séjour."""
+    if sel["port_id"] is None or sel["end_date"] is not None:
+        return None
+    if sel["ts_utc"] is not None:
+        t = datetime.fromisoformat(sel["ts_utc"])
+        return t - AROUND_TIDE, t + AROUND_TIDE, t
+    if sel["window_start_utc"] is not None:
+        return (datetime.fromisoformat(sel["window_start_utc"]) - AROUND_WATER,
+                datetime.fromisoformat(sel["window_end_utc"]) + AROUND_WATER, None)
+    rdv = datetime.fromisoformat(f"{sel['rdv_date']}T{sel['rdv_time']}").replace(tzinfo=tz).astimezone(timezone.utc)
+    return rdv, rdv + CUSTOM_SPAN, None
 
 
-def site_info(site: sqlite3.Row) -> dict:
-    return {"id": site["id"], "name": site["name"], "available": bool(site["current_points"]),
-            "attribution": ATTRIBUTION}
+def _local(t: datetime, tz) -> str:
+    return t.astimezone(tz).strftime("%H:%M")
+
+
+def site_period(site: sqlite3.Row, start: datetime, end: datetime, tz) -> dict:
+    """Courant d'un site toutes les 15 minutes sur la période, étale de courant et courant le plus fort."""
+    out = {"site": {"id": site["id"], "name": site["name"], "lat": site["lat"], "lon": site["lon"],
+                    "notes": site["notes"]},
+           "available": False, "series": [], "slack": None, "max": None}
+    points = current_calc.as_points(db.get_site_currents(site["id"]))
+    if not points or site["current_ref_port_id"] is None:
+        return out
+    hws = high_waters(site["current_ref_port_id"], start, end, site["current_ref_kind"] or "PM")
+    # série calée sur les quarts d'heure, débordant un peu la période
+    t = start - timedelta(minutes=start.minute % 15, seconds=start.second, microseconds=start.microsecond)
+    while t < end + CURVE_STEP:
+        c = current_calc.current_at(points, hws, t)
+        if c is not None:
+            out["series"].append({"time": _local(t, tz), "t": t.isoformat(), "knots": c.knots,
+                                  "direction": c.direction})
+        t += CURVE_STEP
+    if not out["series"]:
+        return out
+    slack = current_calc.slack_in(points, hws, start, end)
+    peak = current_calc.peak_in(points, hws, start, end)
+    out["available"] = True
+    out["slack"] = {"time": _local(slack[0], tz), "knots": slack[1].knots, "direction": slack[1].direction}
+    out["max"] = {"time": _local(peak[0], tz), "knots": peak[1].knots, "direction": peak[1].direction}
+    return out
+
+
+@router.get("/selections/{selection_id}/currents")
+def selection_currents(selection_id: int, user: CurrentMember):
+    """Courant de tous les sites du port d'un créneau choisi par la structure du compte : étale ± 3 h, plage de
+    hauteur d'eau ± 1 h, ou 6 h à partir du RDV d'un créneau personnalisé."""
+    sel = db.get_selection(user["structure_id"], selection_id)
+    if sel is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    port = db.get_port(sel["port_id"]) if sel["port_id"] is not None else None
+    tz = ZoneInfo(port["timezone"]) if port is not None else timezone.utc
+    period = selection_period(sel, tz) if port is not None else None
+    sites = db.list_dive_sites(sel["port_id"]) if period is not None else []
+    return {
+        "port": port["name"] if port is not None else None,
+        "period": ({"start": _local(period[0], tz), "end": _local(period[1], tz),
+                    "mark": _local(period[2], tz) if period[2] else None} if period else None),
+        "sites": [site_period(s, period[0], period[1], tz) for s in sites],
+        "attribution": ATTRIBUTION,
+    }
