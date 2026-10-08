@@ -662,13 +662,15 @@ const defaultYear = new Date().getMonth() >= 10 ? new Date().getFullYear() + 1 :
 $("annual-year").value = defaultYear;
 
 let waterThresholds = [];   // hauteurs d'eau de tous les ports (recherche par hauteur d'eau)
+let diveSites = [];         // sites de plongée de tous les ports (courants de marée)
 
 async function loadPorts() {
   try {
-    [ports, catalog, waterThresholds] = await Promise.all([
+    [ports, catalog, waterThresholds, diveSites] = await Promise.all([
       Session.api("/api/admin/ports"),
       Session.api("/api/admin/ports/catalog"),
       Session.api("/api/admin/water-thresholds"),
+      Session.api("/api/admin/dive-sites"),
     ]);
   } catch (e) {
     flash(esc(e.message));
@@ -760,6 +762,7 @@ function renderPorts() {
           <button type="button" class="btn-quiet" data-act="short_term" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Reprendre maintenant les horaires de J−1 à J+29 depuis api-maree.fr (fait chaque jour à 5 h)"`}>30 jours</button>
           <button type="button" class="btn-quiet" data-act="calibrate" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Recaler le calcul FES (long terme) sur api-maree.fr"`}>Recaler</button>
           <button type="button" class="btn-quiet" data-act="water" title="Hauteurs d'eau de la recherche par hauteur d'eau">Hauteurs d'eau${waterCount(p) ? ` (${waterCount(p)})` : ""}</button>
+          <button type="button" class="btn-quiet" data-act="sites" title="Sites de plongée du port : position précise, courant de marée">Sites${siteCount(p) ? ` (${siteCount(p)})` : ""}</button>
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
@@ -836,6 +839,9 @@ portsBody.addEventListener("click", async e => {
     case "water":
       openWaterThresholds(port);
       break;
+    case "sites":
+      openDiveSites(port);
+      break;
     case "edit":
       editPort(port);
       break;
@@ -851,6 +857,91 @@ portsBody.addEventListener("click", async e => {
       break;
   }
 });
+
+// ---- Sites de plongée d'un port : position GPS précise (le courant de marée y est extrait de l'atlas du SHOM) ----
+
+const siteCount = p => diveSites.filter(x => x.port_id === p.id).length;
+
+function openDiveSites(port) {
+  const d = document.createElement("dialog");
+  d.className = "account-dialog water-dialog";
+  document.body.append(d);
+  d.addEventListener("close", () => d.remove());
+  let editing = null;   // site en cours de modification
+
+  const currentNote = x => (x.current
+    ? `<span class="tag" title="Atlas ${esc(x.current.atlas)}, port de référence ${esc(x.current.ref_port || "?")}">courant ✓</span>`
+    : `<span class="muted">pas encore de courant</span>`);
+  const render = () => {
+    const list = diveSites.filter(x => x.port_id === port.id);
+    const t = editing;
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>Sites de plongée — ${esc(port.name)}</h2>
+        <p class="dialog-hint">Position GPS précise de chaque site (degrés décimaux, ex. 48.6612 / -2.7845) : le courant de marée change beaucoup d'un point à l'autre. Il est extrait de l'atlas de courants du SHOM au point le plus proche ; déplacer un site efface son courant, à réimporter.</p>
+        <ul class="water-list">${list.length ? list.map(x => `
+          <li data-id="${x.id}">
+            <span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${currentNote(x)}${x.notes ? `<br><span class="muted">${esc(x.notes)}</span>` : ""}</span>
+            <span><button type="button" class="btn-quiet btn-small" data-site="edit">Modifier</button>
+            <button type="button" class="btn-danger btn-small" data-site="delete">Supprimer</button></span>
+          </li>`).join("") : `<li class="muted">Aucun site de plongée pour ce port.</li>`}
+        </ul>
+        <fieldset class="water-form">
+          <legend>${t ? `Modifier « ${esc(t.name)} »` : "Ajouter un site"}</legend>
+          <label>Nom <input name="name" maxlength="60" placeholder="ex. Roches de Saint-Quay" value="${esc(t?.name ?? "")}"></label>
+          <label>Latitude <input name="lat" type="number" step="0.000001" min="-90" max="90" placeholder="48.6612" value="${t?.lat ?? ""}"></label>
+          <label>Longitude <input name="lon" type="number" step="0.000001" min="-180" max="180" placeholder="-2.7845" value="${t?.lon ?? ""}"></label>
+          <label>Notes <input name="notes" maxlength="300" placeholder="facultatif (profondeur, mouillage…)" value="${esc(t?.notes ?? "")}"></label>
+        </fieldset>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn-quiet" value="close">Fermer</button>
+          ${t ? `<button type="button" class="btn-quiet" value="cancel-edit">Annuler la modification</button>` : ""}
+          <button type="submit" class="btn-primary">${t ? "Enregistrer" : "Ajouter"}</button>
+        </div>
+      </form>`;
+    const form = d.querySelector("form");
+    const err = d.querySelector(".dialog-error");
+    d.querySelector("[value=close]").addEventListener("click", () => d.close());
+    d.querySelector("[value=cancel-edit]")?.addEventListener("click", () => { editing = null; render(); });
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      const body = { name: form.name.value.trim(), lat: Number(form.lat.value), lon: Number(form.lon.value),
+                     notes: form.notes.value.trim() || null };
+      if (!body.name || form.lat.value === "" || form.lon.value === "") { err.textContent = "Nom, latitude et longitude obligatoires."; return; }
+      if (t && t.current && (t.lat !== body.lat || t.lon !== body.lon)
+          && !confirm("Déplacer le site efface son courant (il valait pour l'ancienne position). Continuer ?")) return;
+      try {
+        await Session.api(t ? `/api/admin/dive-sites/${t.id}` : `/api/admin/ports/${port.id}/dive-sites`,
+          { method: t ? "PUT" : "POST", body });
+        diveSites = await Session.api("/api/admin/dive-sites");
+        editing = null;
+        render();
+        renderPorts();
+      } catch (e2) {
+        err.textContent = e2.message;
+      }
+    });
+    d.querySelector(".water-list").addEventListener("click", async e => {
+      const btn = e.target.closest("[data-site]");
+      if (!btn) return;
+      const x = diveSites.find(w => w.id === Number(btn.closest("li").dataset.id));
+      if (btn.dataset.site === "edit") { editing = x; render(); d.querySelector("[name=name]").focus(); return; }
+      if (!confirm(`Supprimer le site « ${x.name} » ?`)) return;
+      try {
+        await Session.api(`/api/admin/dive-sites/${x.id}`, { method: "DELETE" });
+        diveSites = await Session.api("/api/admin/dive-sites");
+        if (editing?.id === x.id) editing = null;
+        render();
+        renderPorts();
+      } catch (e2) {
+        err.textContent = e2.message;
+      }
+    });
+  };
+  render();
+  d.showModal();
+}
 
 // ---- Hauteurs d'eau d'un port : la recherche par hauteur d'eau donne les plages au-dessus (ou au-dessous) ----
 
