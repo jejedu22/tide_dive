@@ -104,6 +104,12 @@ def normalize_params(kind: str, params: dict) -> dict:
         return {"newsletter_id": int(params["newsletter_id"])}
     if kind == "school_holidays":
         return {}
+    if kind == "currents_atlas":
+        from .shom_currents import ZONES
+        zone = str(params.get("zone", ""))
+        if zone not in ZONES:
+            raise ValueError(f"zone d'atlas de courants inconnue : {zone}")
+        return {"zone": zone}
     raise ValueError(f"type de tâche inconnu : {kind}")
 
 
@@ -124,6 +130,8 @@ def build_command(kind: str, params: dict) -> list[str]:
     if kind == "fetch_models":
         exe = shutil.which("fetch_aviso_fes.py") or "fetch_aviso_fes.py"
         return [exe, "--directory", MODEL_DIR, "--tide", params["model"]]
+    if kind == "currents_atlas":
+        return [sys.executable, "-m", "app.shom_currents", "--download", params["zone"]]
     return [sys.executable, "-m", "app.calendar_fr"]
 
 
@@ -157,6 +165,9 @@ def job_label(kind: str, params: dict, port_names: dict[int, str]) -> str:
         return f"Téléchargement {params.get('model')} (AVISO+)"
     if kind == "school_holidays":
         return "Vacances scolaires"
+    if kind == "currents_atlas":
+        from .shom_currents import ZONES
+        return f"Atlas de courants SHOM {ZONES.get(params.get('zone'), (params.get('zone'),))[0]}"
     return kind
 
 

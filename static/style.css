@@ -791,6 +791,24 @@ table.picks .c-actions :is(a, button) + :is(a, button) { margin-left: 0.3rem; }
 .slot-span { display: block; font-size: 0.82rem; font-weight: 600; color: var(--blue-deep); }
 .slot-acts { display: flex; gap: 0.3rem; margin-left: auto; }
 
+/* Courants aux sites du port d'un créneau (modale) */
+.slot-currents { display: inline-flex; align-items: center; gap: 0.25rem; }
+.account-dialog.currents-dialog { width: min(40rem, calc(100vw - 2rem)); }
+.cur-site { margin: 0.9rem 0 0; padding-top: 0.7rem; border-top: 1px solid #e3eef2; }
+.cur-site h3 { margin: 0 0 0.3rem; font-size: 1rem; color: var(--blue-deep); }
+.cur-summary { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; margin: 0 0 0.4rem; font-size: 0.9rem; }
+.cur-summary b { color: var(--blue-deep); font-weight: 600; }
+.cur-arrow { vertical-align: -2px; fill: none; stroke: var(--blue-deep); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.cur-chart { display: block; width: 100%; height: auto; }
+.cur-chart .cur-grid { stroke: #e3eef2; }
+.cur-chart .cur-tick { font-size: 10px; fill: #607d8b; }
+.cur-chart .cur-area { fill: rgba(17, 138, 178, 0.14); }
+.cur-chart .cur-line { fill: none; stroke: #118ab2; stroke-width: 2; }
+.cur-chart .cur-mark { stroke: var(--blue-deep); stroke-dasharray: 4 3; }
+.cur-chart .cur-slack-dot { fill: #06d6a0; stroke: white; stroke-width: 1.5; }
+.cur-chart .cur-dir { fill: none; stroke: #4a6572; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.cur-source { margin: 0.9rem 0 0; font-size: 0.75rem; color: #607d8b; }
+
 /* --- Administration : types de créneaux ------------------------------ */
 
 .settings-form {

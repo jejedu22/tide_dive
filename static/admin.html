@@ -150,6 +150,19 @@
           </div>
           <p class="hint">Seuls les ports ayant au moins une année calculée sont proposés sur la page de recherche. Après une modification des coordonnées ou du niveau moyen, relancez le calcul des années concernées. Pour les ports dotés d'un site api-maree.fr, les horaires de J−1 à J+29 sont repris chaque jour d'api-maree.fr (« 30 jours ») ; au-delà, le calcul FES est recalé chaque mois sur api-maree.fr (« Recaler »), et un recalage qui change sensiblement relance de lui-même le calcul des années à venir.</p>
         </div>
+
+        <div class="panel" id="currents-panel">
+          <h2>Courants de marée (atlas du SHOM)</h2>
+          <p class="hint">Le courant de chaque site de plongée (bouton « Sites » d'un port) vient des atlas de courants de marée 2D du SHOM : téléchargez les zones utiles. Le courant d'un site se calcule à partir de la pleine mer du <strong>port de référence</strong> de l'atlas, qui doit figurer ci-dessus avec ses marées calculées (même sans site de plongée).</p>
+          <div class="table-wrap">
+            <table class="users">
+              <thead><tr><th scope="col">Zone</th><th scope="col">Port de référence</th><th scope="col">État</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+              <tbody id="currents-body"></tbody>
+            </table>
+          </div>
+          <p><button type="button" class="btn-secondary" id="currents-refresh">Recalculer le courant des sites</button> <span id="currents-report" class="hint"></span></p>
+          <p class="hint" id="currents-attribution"></p>
+        </div>
       </section>
 
       <!-- ============ Données et tâches ============ -->

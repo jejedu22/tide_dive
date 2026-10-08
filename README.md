@@ -16,6 +16,7 @@ Tout est **précalculé une fois par an** et stocké dans une base SQLite locale
 - [Précalcul](#précalcul)
 - [Ports et zéro des cartes](#ports-et-zéro-des-cartes)
 - [Recalage sur api-maree.fr](#recalage-sur-api-mareefr)
+- [Courants de marée aux sites de plongée](#courants-de-marée-aux-sites-de-plongée)
 - [Administration des données](#administration-des-données)
 - [Comptes, structures et préférences](#comptes-structures-et-préférences)
 - [Créneaux choisis](#créneaux-choisis)
@@ -276,6 +277,25 @@ Pour cela, la base garde jusqu'à trois séries par port (colonne `source` de `t
 - **Changer de réglage** recale les créneaux choisis **à venir** de la structure sur l'étale correspondante de ses nouveaux horaires (même marée, à 2 h près) : heure, hauteur, coefficient et RDV sont mis à jour. Les autres structures ne sont pas touchées.
 - Un recalcul (précalcul, mois glissant) recale les créneaux de chaque structure dans **ses** horaires.
 - **Mise à jour d'une base existante** (migration n° 5) : la série unique devient `cal` pour un port recalé, `fes` sinon, et `api` sur la dernière fenêtre du mois glissant. Le calcul brut d'un port recalé n'existe pas encore : les années à venir concernées sont **remises en file de précalcul** automatiquement (onglet *Données et tâches*). D'ici là, une structure qui désactive la correction voit encore le calcul corrigé, et une structure qui désactive api-maree.fr voit encore ses horaires sur la dernière fenêtre.
+
+## Courants de marée aux sites de plongée
+
+Le courant change beaucoup d'un point à l'autre : il est donné **site par site**, à partir des **atlas de courants de marée 2D du SHOM** ([Licence Ouverte 2.0](https://www.etalab.gouv.fr/licence-ouverte-open-licence/), citation obligatoire : « Shom, 2026. Atlas de courants de marée 2D au format netcdf, https://dx.doi.org/10.17183/ATLASCOURANTS2D_NETCDF »).
+
+- **Sites de plongée** : saisis par les super administrateurs, port par port (`/admin.html` → **Ports** → **Sites**) : nom et position GPS précise. Déplacer un site efface le courant extrait à l'ancienne position et le recalcule.
+- **Atlas** : `/admin.html` → **Ports** → *Courants de marée (atlas du SHOM)* : un bouton par zone (Bretagne Nord, Golfe normand-breton, Finistère, Gascogne, Manche, Baie de Seine, Pas-de-Calais) met en file une tâche `currents_atlas` qui télécharge l'archive .7z du SHOM, en extrait les fichiers netCDF dans `data/currents/<ZONE>/` (à côté de la base) puis met à jour les sites. La zone Finistère pèse 780 Mo.
+- **Extraction** (`app/shom_currents.py`) : pour chaque site, le fichier le plus fin qui le couvre, puis la maille en mer la plus proche (1,5 km au plus) ; sa série (u, v toutes les heures ou demi-heures, de PM−6 h à PM+6 h, coefficients 45 et 95) est recopiée en base (`site_currents`). Les fichiers ne sont plus lus ensuite.
+- **Port de référence** : chaque atlas suit la pleine mer (parfois la basse mer) d'un port de référence (Saint-Malo pour le Golfe normand-breton, Roscoff pour la Bretagne Nord, Brest…). Ce port **doit exister dans l'application avec ses marées calculées** ; sinon le site l'indique (« port de référence Saint-Malo absent… ») : ajoutez-le, calculez-le, puis **Recalculer le courant des sites**.
+- **Calcul** (`app/current_calc.py`, méthode des atlas du SHOM) : pleine mer de référence la plus proche et son coefficient, interpolation dans le temps puis entre les coefficients 45 et 95 (extrapolée au-delà) ; vitesse en nœuds, direction vers laquelle porte le courant.
+- **Créneaux choisis** : un bouton **Courants** sur chaque créneau d'un port qui a au moins un site avec courant ouvre une fenêtre avec, pour **chaque site du port**, la courbe de vitesse toutes les 15 minutes, la direction où porte le courant (flèches toutes les demi-heures), l'**étale de courant** (courant le plus faible, souvent décalée de l'étale de hauteur) et le **courant le plus fort**. Période : étale ± 3 h, plage de hauteur d'eau ± 1 h, ou 6 h à partir du RDV d'un créneau personnalisé (pas de courant pour un séjour ou un lieu libre).
+- Indicatif : courant de surface d'un modèle, hors vent et houle ; à n'utiliser qu'en complément des documents nautiques officiels.
+
+```bash
+python -m app.shom_currents --download GOLFE_NORMAND_BRETON   # télécharge, extrait, met à jour les sites
+python -m app.shom_currents --sites                            # recalcule le courant de tous les sites
+```
+
+API : `GET /api/dive-sites?port_id`, `GET /api/dive-sites/{id}/currents?start&end` (courant toutes les 15 min, 3 jours au plus), `GET /api/selections/{id}/currents` (tous les sites du port d'un créneau choisi) ; super administrateurs : `/api/admin/dive-sites`, `POST /api/admin/ports/{id}/dive-sites`, `GET /api/admin/currents`, `POST /api/admin/currents/sites`.
 
 ## Administration des données
 
@@ -707,7 +727,7 @@ Réservée au super administrateur.
 | `GET /api/admin/ports/catalog` | ports du catalogue pas encore en base |
 | `PATCH` / `DELETE /api/admin/ports/{id}` | modification / suppression avec ses données |
 | `DELETE /api/admin/ports/{id}/calibration` | abandon du recalage api-maree.fr du port |
-| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `calibrate` (`port_id`), `short_term` (`port_id`), `fetch_models` (`model`), `school_holidays` |
+| `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `calibrate` (`port_id`), `short_term` (`port_id`), `fetch_models` (`model`), `school_holidays`, `currents_atlas` (`zone`) |
 | `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
 | `GET /api/admin/jobs/{id}` | détail avec journal |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
@@ -805,6 +825,7 @@ app/
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
   db_unavailabilities.py  plages d'indisponibilité des structures
   db_water.py       hauteurs d'eau des ports (seuils)
+  db_currents.py    sites de plongée, courant de marée à chaque site (atlas du SHOM)
   db_requests.py    demandes de création de structure
   db_newsletters.py connexion Mailjet, newsletters, groupes d'envoi
   auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
@@ -829,6 +850,9 @@ app/
   unavailability.py plages d'indisponibilité : API d'administration, contrôle au choix des créneaux
   water.py          recherche par hauteur d'eau : seuils (administration), plages, choix
   water_windows.py  calcul des plages de hauteur d'eau (fonctions pures)
+  currents.py       sites de plongée (administration, consultation), courant autour d'un créneau choisi
+  current_calc.py   courant à un instant, étale de courant (fonctions pures)
+  shom_currents.py  atlas de courants du SHOM : téléchargement, lecture netCDF, extraction par site (+ CLI)
   slots.py          description d'une étale (coefficient, RDV), partagée
   jobs.py           file de tâches et worker (+ CLI enqueue)
   calendar_fr.py    jours fériés et vacances scolaires
@@ -863,7 +887,7 @@ Les fichiers FES sont soumis à la licence AVISO+ (indépendante de la licence d
 - Valider les sorties sur une année complète contre maree.info / l'annuaire SHOM.
 - Renseigner les `offset_zh_m` manquants depuis les RAM du Shom.
 - Intégrer l'atlas régional Ifremer/PREVIMER ([accès sur demande](https://marc.ifremer.fr/produits/atlas_de_composantes_harmoniques)) : format non lu nativement par pyTMD, seul `tide_model.py` serait à adapter.
-- Ajouter les courants de marée pour qualifier chaque site au-delà du coefficient.
+- Courant des sites dans les newsletters et la recherche.
 - Mode « deux plongées dans la journée ».
 - Notifications push (place libérée, nouveau créneau) pour l'application installée.
 
