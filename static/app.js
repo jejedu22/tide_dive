@@ -1,4 +1,6 @@
 const portSelect = document.getElementById("port");
+const siteSelect = document.getElementById("site");
+const siteField = document.getElementById("site-field");
 const startInput = document.getElementById("start");
 const endInput = document.getElementById("end");
 const tidePhaseSelect = document.getElementById("tide_phase");
@@ -66,6 +68,26 @@ function todayISO(offsetDays = 0) {
   return d.toISOString().slice(0, 10);
 }
 
+// Sites de plongée du port dont le courant est connu (atlas du SHOM) : courant autour de chaque étale
+async function loadSites(keep = siteSelect.value) {
+  const portId = portSelect.value;
+  let sites = [];
+  if (portId) {
+    try {
+      const res = await fetch(`/api/dive-sites?port_id=${encodeURIComponent(portId)}`);
+      if (res.ok) sites = (await res.json()).filter(s => s.current);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  siteSelect.innerHTML = `<option value="">Aucun : sans courant</option>`
+    + sites.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("");
+  siteField.hidden = !sites.length;
+  if (keep && siteSelect.querySelector(`option[value="${keep}"]`)) siteSelect.value = String(keep);
+}
+
+portSelect.addEventListener("change", () => loadSites(""));
+
 async function loadPorts() {
   const res = await fetch("/api/ports");
   const ports = await res.json();
@@ -96,6 +118,24 @@ function pair(a, b) {
   return `${show(a)}<span class="sep">/</span>${show(b)}`;
 }
 
+// Courant : seulement quand un site de plongée est choisi
+const hasCurrent = data => !!data?.site;
+const COMPASS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+const compass = deg => COMPASS[Math.round(deg / 45) % 8];
+const fmtKnots = k => k.toFixed(1).replace(".", ",");
+
+function currentCell(r) {
+  const c = r.current;
+  if (!c) return "–";
+  const off = c.slack.offset_min;
+  const rel = off ? ` (${off > 0 ? "+" : "−"}${Math.abs(off)} min)` : "";
+  const d = c.max.direction;
+  return `<span class="cur-slack" title="Étale de courant : ${fmtKnots(c.slack.knots)} nœud(s)${rel}">${c.slack.time}</span>`
+    + ` <span class="cur-max" title="Courant le plus fort pendant la fenêtre, portant au ${d}°">`
+    + `<span class="cur-arrow" style="transform: rotate(${d}deg)" aria-hidden="true">↑</span>`
+    + `${fmtKnots(c.max.knots)} nd ${compass(d)}</span>`;
+}
+
 // RDV : réservé aux comptes connectés (absent des résultats d'un visiteur)
 const hasRdv = data => data?.rdv_offset_minutes != null;
 
@@ -121,6 +161,7 @@ const TABLE_HEAD = `
       <th scope="col" class="num"><abbr title="Hauteur d'eau à l'étale, en mètres">H (m)</abbr></th>
       <th scope="col" class="num"><abbr title="Coefficient de marée (indicatif)">Coef</abbr></th>
       <th scope="col"><abbr title="Fenêtre de plongée : étale ± marge">Fenêtre</abbr></th>
+      <th scope="col" class="c-cur"><abbr title="Courant au site : heure de l'étale de courant (courant le plus faible à ± 2 h de l'étale), puis courant le plus fort pendant la fenêtre, en nœuds, et sa direction">Courant</abbr></th>
       <th scope="col"><abbr title="Lever / coucher du soleil">Soleil</abbr></th>
       <th scope="col"><abbr title="Aube / crépuscule nautique (soleil à −12°)">Naut.</abbr></th>
       <th scope="col" class="c-pick-head">Choix</th>
@@ -161,7 +202,11 @@ const TABLE_HEAD = `
           <input type="number" data-f="coefMax" min="20" max="120" step="1" placeholder="max" aria-label="Coefficient maximal">
         </div>
       </th>
-      <th colspan="3">
+      <th class="f-empty"></th>
+      <th class="c-cur" data-label="Courant max (nœuds)">
+        <input type="number" data-f="curMax" min="0" step="0.1" placeholder="max" aria-label="Courant maximal pendant la fenêtre (nœuds)" title="Courant maximal pendant la fenêtre (nœuds)">
+      </th>
+      <th colspan="2">
         <button type="button" class="reset-filters" disabled>Effacer les filtres</button>
       </th>
       <th class="c-pick-head" data-label="Choix">
@@ -180,6 +225,7 @@ const LEGEND = `
     <span><b>H</b> hauteur d'eau</span>
     <span><b>Soleil</b> lever/coucher</span>
     <span><b>Naut.</b> aube/crépuscule nautique</span>
+    <span class="c-cur"><b>Courant</b> étale de courant · courant max (nœuds) et direction où il porte</span>
     <span class="c-rdv"><b>J-1</b> RDV la veille</span>
     <span><span class="coef ve">VE</span> coef ≥ 90</span>
     <span><span class="coef me">ME</span> coef ≤ 50</span>
@@ -243,7 +289,9 @@ function applyFilters(results, f) {
   const rdv = hasRdv(lastData);  // filtre RDV caché et ignoré sans RDV
   const hMin = toNum(f.hMin), hMax = toNum(f.hMax);
   const cMin = toNum(f.coefMin), cMax = toNum(f.coefMax);
+  const curMax = hasCurrent(lastData) ? toNum(f.curMax) : null;   // filtre courant ignoré sans site
   return results.filter(r =>
+    inRange(r.current?.max.knots, null, curMax) &&
     matchPick(r, f.pick) &&
     matchDay(r.day, f.day) &&
     (!f.kind || r.kind === f.kind) &&
@@ -278,6 +326,7 @@ function buildRows(results) {
           <td class="num" data-label="Hauteur">${fmtHeight(r.height_m)}</td>
           <td class="num" data-label="Coef"><span class="coef ${coefClass(r.coefficient)}">${fmtCoef(r.coefficient)}</span></td>
           <td class="c-win" data-label="Fenêtre">${r.window.start}–${r.window.end}</td>
+          <td class="c-cur" data-label="Courant">${currentCell(r)}</td>
           ${first ? `<td rowspan="${span}" class="c-sun" data-label="Soleil">${pair(sun.sunrise, sun.sunset)}</td>` : ""}
           ${first ? `<td rowspan="${span}" class="c-sun" data-label="Nautique">${pair(sun.nautical_dawn, sun.nautical_dusk)}</td>` : ""}
           <td class="c-pick" data-label="Choix">${pickCell(picked, r.unavailable)}</td>
@@ -304,12 +353,28 @@ function schoolHolidaysWarning(data) {
     : ` Vacances scolaires non chargées : lance « python -m app.calendar_fr ».`;
 }
 
+// Site choisi : source du courant (citation obligatoire) ou raison de son absence
+function renderCurrentNote() {
+  const note = resultsEl.querySelector(".current-note");
+  if (!note) return;
+  const site = lastData.site;
+  note.hidden = !site;
+  if (!site) return;
+  const missing = !lastData.results.some(r => r.current);
+  note.textContent = (missing
+    ? `Courant inconnu au site « ${site.name} » sur cette période (marées du port de référence non calculées). `
+    : `Courant au site « ${site.name} » : indicatif, courant de surface hors vent et houle. `)
+    + site.attribution;
+}
+
 function renderRows() {
   if (!lastData || !tableEl) return;
   const f = readFilters();
   const active = Object.values(f).some(v => v !== "");
   const all = lastData.results;
   resultsEl.closest(".results").classList.toggle("show-rdv", hasRdv(lastData));
+  resultsEl.closest(".results").classList.toggle("show-current", hasCurrent(lastData));
+  renderCurrentNote();
   if (hasRdv(lastData)) tableEl.querySelector(".rdv-abbr").title = rdvTitle(lastData.rdv_offset_minutes);
   const shown = active ? applyFilters(all, f) : all;
   lastShown = shown;
@@ -328,7 +393,7 @@ function renderRows() {
 
   tableEl.tBodies[0].innerHTML = shown.length
     ? buildRows(shown)
-    : `<tr><td colspan="9" class="empty">Aucun créneau ne correspond aux filtres. Élargis-les ou efface-les.</td></tr>`;
+    : `<tr><td colspan="10" class="empty">Aucun créneau ne correspond aux filtres. Élargis-les ou efface-les.</td></tr>`;
 }
 
 // Le tableau est construit une seule fois : les filtres restent en place d'une recherche à l'autre
@@ -337,7 +402,7 @@ function ensureTable() {
   resultsEl.innerHTML = `
     <div class="table-wrap">
       <table class="windows">${TABLE_HEAD}<tbody></tbody></table>
-    </div>${LEGEND}`;
+    </div>${LEGEND}<p class="current-note" hidden></p>`;
   tableEl = resultsEl.querySelector("table.windows");
   const thead = tableEl.tHead;
   setFilterInputs(pendingFilters);
@@ -379,6 +444,7 @@ async function search() {
   statusEl.textContent = "Recherche…";
   const params = new URLSearchParams({
     port_id: portId,
+    ...(siteSelect.value ? { site_id: siteSelect.value } : {}),
     start: startInput.value,
     end: endInput.value,
     max_coefficient: maxCoefInput.value,
@@ -428,6 +494,11 @@ function exportColumns() {
     { header: "Coefficient", type: "int", width: 11, value: r => (r.coefficient != null ? Math.round(r.coefficient) : null) },
     { header: "Fenêtre début", type: "time", width: 13, value: r => r.window.start },
     { header: "Fenêtre fin", type: "time", width: 11, value: r => r.window.end },
+    ...(hasCurrent(lastData) ? [
+      { header: "Étale de courant", type: "time", width: 15, value: r => r.current?.slack.time },
+      { header: "Courant max (nœuds)", type: "decimal", width: 18, value: r => r.current?.max.knots },
+      { header: "Direction courant (°)", type: "int", width: 18, value: r => r.current?.max.direction },
+    ] : []),
     { header: "Lever soleil", type: "time", width: 11, value: r => r.sun?.sunrise },
     { header: "Coucher soleil", type: "time", width: 13, value: r => r.sun?.sunset },
     { header: "Aube nautique", type: "time", width: 13, value: r => r.sun?.nautical_dawn },
@@ -690,6 +761,7 @@ function collectPrefs() {
   return {
     form: {
       port_id: portSelect.value ? Number(portSelect.value) : null,
+      site_id: siteSelect.value ? Number(siteSelect.value) : null,
       span_days: Number.isFinite(span) && span >= 0 ? Math.min(span, 366) : null,
       tide_phase: tidePhaseSelect.value,
       max_coefficient: Number(maxCoefInput.value),
@@ -700,11 +772,12 @@ function collectPrefs() {
   };
 }
 
-function applyPrefs(prefs) {
+async function applyPrefs(prefs) {
   const f = prefs.form || {};
   if (f.port_id != null && portSelect.querySelector(`option[value="${f.port_id}"]`)) {
     portSelect.value = String(f.port_id);
   }
+  await loadSites(f.site_id != null ? String(f.site_id) : "");
   if (f.span_days != null) {
     startInput.value = todayISO();
     endInput.value = todayISO(f.span_days);
@@ -762,6 +835,7 @@ async function onSessionChange(user) {
   const defaultPort = user?.structure?.default_port_id;
   if (defaultPort != null && portSelect.querySelector(`option[value="${defaultPort}"]`)) {
     portSelect.value = String(defaultPort);
+    await loadSites("");
   }
   prefsBar.hidden = !user;
   savedPrefs = null;
@@ -775,7 +849,7 @@ async function onSessionChange(user) {
     if (prefs.updated_at) {
       savedPrefs = prefs;
       prefsRestoreBtn.disabled = false;
-      applyPrefs(prefs);
+      await applyPrefs(prefs);
       search();
       refresh = false;
     }
@@ -799,9 +873,9 @@ prefsSaveBtn.addEventListener("click", async () => {
   }
 });
 
-prefsRestoreBtn.addEventListener("click", () => {
+prefsRestoreBtn.addEventListener("click", async () => {
   if (!savedPrefs) return;
-  applyPrefs(savedPrefs);
+  await applyPrefs(savedPrefs);
   search();
 });
 
@@ -809,6 +883,7 @@ prefsRestoreBtn.addEventListener("click", () => {
   // les ports d'abord : la préférence port_id doit trouver son option
   try {
     await loadPorts();
+    await loadSites();
   } catch (e) {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
   }

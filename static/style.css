@@ -700,6 +700,13 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
 .results:not(.can-pick) .c-pick-head { display: none; }
 /* Heure de RDV dans la recherche : comptes connectés seulement (toujours affichée dans les créneaux choisis) */
 .results:not(.show-rdv) .c-rdv:not(table.picks .c-rdv) { display: none; }
+/* Courant : seulement quand un site de plongée est choisi */
+.results:not(.show-current) .c-cur { display: none; }
+.windows td.c-cur { white-space: nowrap; }
+.windows .cur-max { color: #50707c; font-size: 0.85em; }
+.windows .cur-arrow { display: inline-block; margin-right: 0.15rem; color: var(--blue-deep); }
+.windows .filters input[data-f="curMax"] { width: 4.5rem; }
+.current-note { font-size: 0.8rem; color: #50707c; margin-top: 0.4rem; }
 
 .windows .c-pick { white-space: nowrap; }
 .windows .c-pick select {
@@ -1364,6 +1371,7 @@ main.narrow-main { max-width: 32rem; }
   }
   .windows tr.filters th[data-label]::before { content: attr(data-label); }
   .windows tr.filters th[colspan] { grid-column: 1 / -1; }
+  .windows tr.filters th.f-empty { display: none; }
   .windows tr.filters th { min-width: 0; }
   /* largeur fixe des champs heure et nombre (grand écran) : ici ils se partagent la colonne */
   .windows .filters select,
