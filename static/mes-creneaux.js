@@ -552,8 +552,30 @@ function renderTypeFilter() {
 // même ordre que le serveur : jour, puis RDV (un créneau personnalisé n'a pas d'heure d'étale)
 const byWhen = (a, b) => (a.date + a.rdv.date + a.rdv.time + (a.time || "")).localeCompare(b.date + b.rdv.date + b.rdv.time + (b.time || ""));
 
+// Fiche de la structure (logo, contact) : saisie par ses administrateurs, onglet « Ma structure »
+async function loadStructureCard() {
+  const el = $("structure-card");
+  let c;
+  try {
+    c = await Session.api("/api/me/structure-card");
+  } catch {
+    el.hidden = true;
+    return;
+  }
+  const lines = [
+    c.address ? esc(c.address) : "",
+    c.contact_email ? `<a href="mailto:${esc(c.contact_email)}">${esc(c.contact_email)}</a>` : "",
+    c.contact_phone ? `<a href="tel:${esc(c.contact_phone.replace(/\s/g, ""))}">${esc(c.contact_phone)}</a>` : "",
+    c.website ? `<a href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website.replace(/^https?:\/\//, ""))}</a>` : "",
+  ].filter(Boolean);
+  el.hidden = !lines.length && !c.logo_url;
+  el.innerHTML = `${c.logo_url ? `<img src="${esc(c.logo_url)}" alt="" class="structure-logo">` : ""}
+    <div><strong>${esc(c.name)}</strong>${lines.length ? `<p>${lines.join(" · ")}</p>` : ""}</div>`;
+}
+
 async function load() {
   closePop();
+  loadStructureCard();
   statusEl.textContent = "Chargement…";
   try {
     let sites;

@@ -223,8 +223,39 @@ CREATE TABLE IF NOT EXISTS structures (
     remind_slot_days INTEGER CHECK (remind_slot_days BETWEEN 1 AND 14),
     alert_low_fill_days INTEGER CHECK (alert_low_fill_days BETWEEN 1 AND 30),
     remind_caci_days INTEGER CHECK (remind_caci_days BETWEEN 1 AND 90),
-    alert_late_unregister_days INTEGER CHECK (alert_late_unregister_days BETWEEN 1 AND 14)
+    alert_late_unregister_days INTEGER CHECK (alert_late_unregister_days BETWEEN 1 AND 14),
+    -- fiche de la structure, saisie par ses administrateurs (structure_profile.py)
+    contact_email TEXT,
+    contact_phone TEXT,
+    website TEXT,
+    address TEXT,
+    -- lien d'adhésion public (/rejoindre.html#<jeton>) ; NULL : désactivé
+    join_token TEXT
 );
+
+-- Logo d'une structure (PNG, JPEG ou WebP, 200 Ko au plus)
+CREATE TABLE IF NOT EXISTS structure_logos (
+    structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+    content_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demandes d'adhésion reçues par le lien public d'une structure ; traitées par ses administrateurs
+CREATE TABLE IF NOT EXISTS join_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    message TEXT,
+    status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'done', 'rejected')),
+    created_at TEXT NOT NULL,
+    handled_at TEXT,
+    handled_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_join_requests_structure ON join_requests(structure_id, status);
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
 -- is_admin = super administrateur (toute l'application, toutes les structures).

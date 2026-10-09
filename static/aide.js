@@ -4,9 +4,10 @@
 function guidesFor(u) {
   if (!u?.structure) return new Set();
   const mine = new Set(["membre"]);
-  if (u.role === "manager") mine.add("administrateur").add("inscriptions");
+  if (u.role === "manager") mine.add("administrateur").add("inscriptions").add("creneaux");
   if (u.profiles?.includes("gestionnaire")) mine.add("gestionnaire");
   if (u.profiles?.includes("inscriptions")) mine.add("inscriptions");
+  if (u.profiles?.includes("creneaux")) mine.add("creneaux");
   return mine;
 }
 

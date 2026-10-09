@@ -336,6 +336,46 @@ def _m013_reminders(conn: sqlite3.Connection) -> None:
     conn.execute(REMINDERS_SENT_TABLE)
 
 
+STRUCTURE_PROFILE_COLUMNS = {
+    "contact_email": "TEXT", "contact_phone": "TEXT", "website": "TEXT", "address": "TEXT",
+    # lien d'adhésion public (/rejoindre.html#<jeton>) ; NULL : désactivé
+    "join_token": "TEXT",
+}
+
+STRUCTURE_PROFILE_TABLES = (
+    """CREATE TABLE IF NOT EXISTS structure_logos (
+        structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+        content_type TEXT NOT NULL,
+        data BLOB NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS join_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT,
+        message TEXT,
+        status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'done', 'rejected')),
+        created_at TEXT NOT NULL,
+        handled_at TEXT,
+        handled_by TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_join_requests_structure ON join_requests(structure_id, status)",
+)
+
+
+def _m014_structure_profile(conn: sqlite3.Connection) -> None:
+    """Fiche de la structure (contact, site, adresse, logo), lien d'adhésion et demandes d'adhésion."""
+    existing = _columns(conn, "structures")
+    for col, ddl in STRUCTURE_PROFILE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} {ddl}")
+    for sql in STRUCTURE_PROFILE_TABLES:
+        conn.execute(sql)
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -350,6 +390,7 @@ MIGRATIONS: list[Migration] = [
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
     Migration(12, "feuille de présence des créneaux", _m012_attendance),
     Migration(13, "rappels et alertes par e-mail", _m013_reminders),
+    Migration(14, "fiche de la structure, logo et demandes d'adhésion", _m014_structure_profile),
 ]
 
 

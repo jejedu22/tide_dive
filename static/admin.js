@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "fiche", "types", "sites", "utilisateurs", "mailjet", "journal"];
 const SUPER_TABS = ["dashboard", "structures", "ports", "donnees"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -94,6 +94,7 @@ function showTab(name) {
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "dashboard") loadDashboard();
   if (name === "activite") loadHome();
+  if (name === "fiche") loadFiche();
   if (name === "journal") loadJournal();
   if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
@@ -728,6 +729,124 @@ $("stats-export").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Ma structure : fiche, logo, lien d'adhésion
+// ---------------------------------------------------------------------------
+
+let ficheScope = null;    // structure affichée (choix du super administrateur)
+let fiche = null;         // fiche chargée
+const ficheId = () => (isSuper() ? ficheScope : Session.user?.structure?.id);
+const ficheForm = $("fiche-form");
+
+$("fiche-structure").addEventListener("change", e => {
+  ficheScope = Number(e.target.value) || null;
+  loadFiche();
+});
+
+function renderFiche() {
+  for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) ficheForm[k].value = fiche[k] ?? "";
+  $("fiche-logo").hidden = !fiche.logo_url;
+  if (fiche.logo_url) $("fiche-logo").src = fiche.logo_url;
+  $("fiche-no-logo").hidden = !!fiche.logo_url;
+  $("fiche-logo-delete").hidden = !fiche.logo_url;
+  const url = fiche.join_url ? new URL(fiche.join_url, location.origin).href : null;
+  $("fiche-join").innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`
+    : `<span class="muted">Lien désactivé.</span>`;
+  $("fiche-join-create").textContent = url ? "Remplacer le lien" : "Activer le lien";
+  $("fiche-join-copy").hidden = $("fiche-join-delete").hidden = !url;
+}
+
+async function loadFiche() {
+  const sid = ficheId();
+  ficheForm.hidden = !sid;
+  if (!sid) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${sid}/profile`);
+  } catch (e) {
+    $("fiche-status").textContent = e.message;
+    return;
+  }
+  renderFiche();
+}
+
+ficheForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = {};
+  for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) body[k] = ficheForm[k].value.trim() || null;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/profile`, { method: "PATCH", body });
+    renderFiche();
+    $("fiche-status").textContent = "Fiche enregistrée.";
+    const st = structures.find(x => x.id === fiche.id);
+    if (st && st.name !== fiche.name) loadStructures();    // nom changé : listes et en-tête
+    if (Session.user?.structure?.id === fiche.id) Session.user.structure.name = fiche.name;
+  } catch (err) {
+    $("fiche-status").textContent = err.message;
+  }
+});
+
+$("fiche-logo-file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const status = $("fiche-logo-status");
+  if (file.size > 200 * 1024) { status.textContent = "Image trop lourde : 200 Ko au plus."; return; }
+  try {
+    const res = await fetch(`/api/admin/structures/${ficheId()}/logo`, {
+      method: "PUT", credentials: "same-origin", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.detail || `Erreur ${res.status}`);
+    fiche = data;
+    renderFiche();
+    status.textContent = "Logo enregistré.";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+$("fiche-logo-delete").addEventListener("click", async () => {
+  if (!confirm("Retirer le logo de la structure ?")) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/logo`, { method: "DELETE" });
+    renderFiche();
+  } catch (err) {
+    $("fiche-logo-status").textContent = err.message;
+  }
+});
+
+$("fiche-join-create").addEventListener("click", async () => {
+  if (fiche?.join_url && !confirm("Remplacer le lien ? L'ancien cessera de fonctionner.")) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/join-link`, { method: "POST" });
+    renderFiche();
+    $("fiche-join-status").textContent = "Lien d'adhésion actif.";
+  } catch (err) {
+    $("fiche-join-status").textContent = err.message;
+  }
+});
+
+$("fiche-join-delete").addEventListener("click", async () => {
+  if (!confirm("Désactiver le lien d'adhésion ? Il cessera de fonctionner.")) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/join-link`, { method: "DELETE" });
+    renderFiche();
+    $("fiche-join-status").textContent = "Lien désactivé.";
+  } catch (err) {
+    $("fiche-join-status").textContent = err.message;
+  }
+});
+
+$("fiche-join-copy").addEventListener("click", async () => {
+  const url = new URL(fiche.join_url, location.origin).href;
+  try {
+    await navigator.clipboard.writeText(url);
+    $("fiche-join-status").textContent = "Lien copié.";
+  } catch {
+    $("fiche-join-status").textContent = url;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Journal d'activité
 // ---------------------------------------------------------------------------
 
@@ -772,6 +891,10 @@ function renderStructureSelects() {
   const keepTypes = typesScope ?? Session.user?.structure?.id ?? structures[0]?.id ?? null;
   typesSel.innerHTML = opts(keepTypes);
   typesScope = typesSel.value ? Number(typesSel.value) : null;
+
+  const ficheSel = $("fiche-structure");
+  ficheSel.innerHTML = opts(ficheScope ?? keepTypes);
+  ficheScope = ficheSel.value ? Number(ficheSel.value) : null;
 
   const homeSel = $("home-structure");
   homeSel.innerHTML = opts(homeScope ?? keepTypes);
@@ -2174,8 +2297,105 @@ $("users-export").addEventListener("click", () => {
   ], list);
 });
 
+// ---- Demandes d'adhésion (lien public de la structure) ----
+
+let joinRequests = [];
+let joinPending = null;   // demande en cours de traitement : classée quand le compte est créé ou invité
+const JOIN_STATUS = { new: "à traiter", done: "traitée", rejected: "classée sans suite" };
+
+async function loadJoinRequests() {
+  const filter = isSuper() ? $("users-filter").value : "";
+  if (isSuper() && !filter) { $("join-panel").hidden = true; return; }
+  try {
+    joinRequests = await Session.api(`/api/admin/join-requests${filter ? `?structure_id=${filter}` : ""}`);
+  } catch {
+    joinRequests = [];
+  }
+  renderJoinRequests();
+}
+
+function renderJoinRequests() {
+  const pending = joinRequests.filter(r => r.status === "new").length;
+  $("join-panel").hidden = !joinRequests.length;
+  $("join-count").hidden = !pending;
+  $("join-count").textContent = `${pending} à traiter`;
+  $("join-list").innerHTML = joinRequests.map(r => {
+    const acts = r.status === "new"
+      ? `<button type="button" class="btn-primary btn-small" data-act="join-create">Créer le compte</button>
+         <button type="button" class="btn-secondary btn-small" data-act="join-invite" title="La personne a déjà un compte dans une autre structure">Inviter son compte</button>
+         <button type="button" class="btn-quiet btn-small" data-act="join-reject">Classer sans suite</button>`
+      : `<button type="button" class="btn-quiet btn-small" data-act="join-reopen">Remettre en attente</button>`;
+    return `
+    <article class="request-card${r.status === "new" ? " is-new" : ""}" data-id="${r.id}">
+      <div class="request-head"><strong>${esc(r.first_name)} ${esc(r.last_name)}</strong>
+        <span class="tag${r.status === "new" ? " tag-pending" : ""}">${JOIN_STATUS[r.status]}</span></div>
+      <p class="request-contact"><a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.phone ? ` · <a href="tel:${esc(r.phone.replace(/\s/g, ""))}">${esc(r.phone)}</a>` : ""}</p>
+      ${r.message ? `<p class="request-message">${esc(r.message)}</p>` : ""}
+      <p class="request-meta muted">Reçue le ${stamp(r.created_at)}${r.handled_by ? ` · traitée par ${esc(r.handled_by)}` : ""}</p>
+      <div class="request-acts">${acts}<button type="button" class="btn-danger btn-small" data-act="join-delete">Supprimer</button></div>
+    </article>`;
+  }).join("");
+}
+
+async function setJoinStatus(id, status) {
+  const r = await Session.api(`/api/admin/join-requests/${id}`, { method: "PATCH", body: { status } });
+  joinRequests = joinRequests.map(x => (x.id === r.id ? r : x));
+  renderJoinRequests();
+}
+
+$("join-list").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const r = joinRequests.find(x => x.id === Number(btn.closest("[data-id]").dataset.id));
+  if (!r) return;
+  try {
+    switch (btn.dataset.act) {
+      case "join-create":
+        joinPending = r.id;
+        createForm.first_name.value = r.first_name;
+        createForm.last_name.value = r.last_name;
+        createForm.email.value = r.email;
+        createForm.phone.value = r.phone || "";
+        createForm.role.value = "viewer";
+        for (const name of ["first_name", "last_name", "email"]) createForm[name].dispatchEvent(new Event("input", { bubbles: true }));
+        createForm.scrollIntoView({ block: "start" });
+        flash(`Compte de ${esc(r.first_name)} ${esc(r.last_name)} prérempli : choisissez le rôle et le mot de passe, puis validez. La demande sera classée.`);
+        break;
+      case "join-invite":
+        joinPending = r.id;
+        inviteForm.email.value = r.email;
+        inviteForm.scrollIntoView({ block: "start" });
+        flash(`Invitation préparée pour ${esc(r.email)} : validez pour l'envoyer. La demande sera classée.`);
+        break;
+      case "join-reject":
+        await setJoinStatus(r.id, "rejected");
+        break;
+      case "join-reopen":
+        await setJoinStatus(r.id, "new");
+        break;
+      case "join-delete":
+        if (!confirm(`Supprimer la demande de ${r.first_name} ${r.last_name} ?`)) return;
+        await Session.api(`/api/admin/join-requests/${r.id}`, { method: "DELETE" });
+        joinRequests = joinRequests.filter(x => x.id !== r.id);
+        renderJoinRequests();
+        break;
+    }
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
+// compte créé ou invitation envoyée pour une demande d'adhésion : elle est classée
+async function joinHandled() {
+  if (joinPending == null) return;
+  const id = joinPending;
+  joinPending = null;
+  try { await setJoinStatus(id, "done"); } catch { /* la demande reste à traiter */ }
+}
+
 async function loadUsers() {
   const filter = isSuper() ? $("users-filter").value : "";
+  loadJoinRequests();
   try {
     users = await Session.api(`/api/admin/users${filter ? `?structure_id=${filter}` : ""}`);
     renderUsers();
@@ -2319,6 +2539,7 @@ createForm.addEventListener("submit", async e => {
       msg += `Transmettez-lui son mot de passe : il ne sera plus affiché.`;
     }
     createStatus.innerHTML = msg;
+    joinHandled();
     for (const name of ["first_name", "last_name", "email", "phone", "username", "password"]) createForm[name].value = "";
     for (const box of createForm.querySelectorAll("[name=profile]")) box.checked = false;
     suggestUsername();
@@ -2437,6 +2658,7 @@ inviteForm.addEventListener("submit", async e => {
   try {
     const r = await Session.api("/api/admin/structure-invitations", { method: "POST", body });
     status.textContent = r.detail;
+    joinHandled();
     inviteForm.email.value = "";
     for (const box of inviteForm.querySelectorAll("[name=profile]")) box.checked = false;
     loadInvitations();
@@ -3011,6 +3233,12 @@ async function onSessionChange(user) {
   $("types-structure").previousElementSibling.hidden = !sup;
   $("types-structure-name").hidden = sup;
 
+  for (const k of ["fiche"]) {
+    $(`${k}-structure`).hidden = !sup;
+    $(`${k}-structure`).previousElementSibling.hidden = !sup;
+    $(`${k}-structure-name`).textContent = sup ? "" : user.structure?.name ?? "";
+    $(`${k}-structure-name`).hidden = sup;
+  }
   $("home-structure").hidden = !sup;
   $("home-structure").previousElementSibling.hidden = !sup;
   $("home-structure-name").textContent = sup ? "" : user.structure?.name ?? "";

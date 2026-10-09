@@ -97,7 +97,7 @@ const Session = (() => {
   };
 
   function previewLabel(u) {
-    const profiles = (u.profiles || []).map(p => ({ gestionnaire: "Gestionnaire", inscriptions: "Inscriptions" })[p] || p);
+    const profiles = (u.profiles || []).map(p => ({ gestionnaire: "Gestionnaire", inscriptions: "Inscriptions", creneaux: "Créneaux" })[p] || p);
     return PREVIEW_ROLE_LABELS[u.preview.role] + (profiles.length ? ` + ${profiles.join(", ")}` : "")
       + (u.structure ? ` de ${u.structure.name}` : "");
   }
@@ -1147,6 +1147,7 @@ const Session = (() => {
     if (u.role) parts.push(`${ROLE_LABELS[u.role]} de la structure`);
     if (u.profiles?.includes("gestionnaire")) parts.push("Gestionnaire");
     if (u.profiles?.includes("inscriptions")) parts.push("Inscriptions");
+    if (u.profiles?.includes("creneaux")) parts.push("Créneaux");
     return parts.join(" · ");
   }
 

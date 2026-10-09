@@ -52,6 +52,13 @@ LABELS: dict[tuple[str, str], str] = {
     ("PATCH", "/api/admin/structures/{structure_id}"): "Structure renommée",
     ("DELETE", "/api/admin/structures/{structure_id}"): "Structure supprimée",
     ("PATCH", "/api/admin/structures/{structure_id}/settings"): "Réglages de la structure modifiés",
+    ("PATCH", "/api/admin/structures/{structure_id}/profile"): "Fiche de la structure modifiée",
+    ("PUT", "/api/admin/structures/{structure_id}/logo"): "Logo de la structure changé",
+    ("DELETE", "/api/admin/structures/{structure_id}/logo"): "Logo de la structure retiré",
+    ("POST", "/api/admin/structures/{structure_id}/join-link"): "Lien d'adhésion créé",
+    ("DELETE", "/api/admin/structures/{structure_id}/join-link"): "Lien d'adhésion désactivé",
+    ("PATCH", "/api/admin/join-requests/{request_id}"): "Demande d'adhésion traitée",
+    ("DELETE", "/api/admin/join-requests/{request_id}"): "Demande d'adhésion supprimée",
     ("POST", "/api/selections"): "Créneau choisi",
     ("POST", "/api/selections/bulk"): "Créneaux choisis en groupe",
     ("POST", "/api/selections/custom"): "Créneau personnalisé ajouté",
@@ -114,7 +121,7 @@ SKIPPED_PREFIXES = (
     "/api/auth/login", "/api/auth/forgot-password", "/api/auth/token-info", "/api/auth/reset-password",
     "/api/me/preferences", "/api/me/water-preferences", "/api/me/structure", "/api/me/calendar-feeds",
     "/api/me/newsletters", "/api/newsletters/preview", "/api/newsletters/unsubscribe", "/api/mailjet/events",
-    "/api/structure-requests", "/api/admin/mailjet/test", "/api/admin/mailjet/events",
+    "/api/structure-requests", "/api/join/", "/api/admin/mailjet/test", "/api/admin/mailjet/events",
 )
 
 
@@ -171,6 +178,9 @@ _RESOLVERS = [
         r["structure_id"] if r else None)),
     (re.compile(r"/water-thresholds/(\d+)"), lambda m: (
         (r := _simple("SELECT label FROM water_thresholds WHERE id = ?", int(m[1]))) and r["label"], None)),
+    (re.compile(r"/join-requests/(\d+)"), lambda m: (
+        (r := _simple("SELECT first_name || ' ' || last_name AS who, structure_id FROM join_requests WHERE id = ?",
+                      int(m[1]))) and r["who"], r["structure_id"] if r else None)),
     (re.compile(r"/newsletters/(\d+)"), lambda m: (
         (r := _simple("SELECT subject, structure_id FROM newsletters WHERE id = ?", int(m[1]))) and r["subject"],
         r["structure_id"] if r else None)),

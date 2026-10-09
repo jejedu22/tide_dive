@@ -136,6 +136,11 @@ PROFILES = {
         "label": "Inscriptions",
         "description": "Inscrire d'autres membres sur les créneaux, ou retirer leur inscription",
     },
+    "creneaux": {
+        "label": "Créneaux",
+        "description": "Choisir, ajouter, modifier et retirer les créneaux de la structure, inscrire des membres et "
+                       "pointer les présences, sans gérer les membres ni les réglages (directeur de plongée…)",
+    },
 }
 
 
@@ -163,12 +168,13 @@ def permissions(row: sqlite3.Row) -> dict:
         "super_admin": is_super,
         "admin_area": is_super or manager,     # accès à /admin.html
         "manage_structure": manager,           # membres et types de SA structure
-        "pick": manager,                       # choisir / retirer des créneaux
+        # choisir / retirer des créneaux : administration, ou profil « créneaux » (directeur de plongée…)
+        "pick": manager or (in_structure and "creneaux" in profiles_of(row)),
         "view_selections": in_structure,       # voir les créneaux de sa structure
         "manage_mailjet": manager,             # connexion Mailjet de sa structure
         # inscrire d'autres membres / retirer leur inscription, délais compris :
         # administration, ou profil « inscriptions » (un encadrant, par exemple)
-        "manage_registrations": manager or (in_structure and "inscriptions" in profiles_of(row)),
+        "manage_registrations": manager or (in_structure and bool({"inscriptions", "creneaux"} & set(profiles_of(row)))),
         # newsletters : profil « gestionnaire » exigé, y compris pour un administrateur
         # (il se l'attribue lui-même s'il en a besoin)
         "newsletters": in_structure and "gestionnaire" in profiles_of(row),
