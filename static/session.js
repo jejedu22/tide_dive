@@ -964,6 +964,78 @@ const Session = (() => {
       <p class="dialog-hint">Lien personnel : ne le partagez pas.</p>`;
   }
 
+  // « Mes notifications » : e-mails de rappel et de changement, récapitulatif des nouveaux créneaux, push
+  async function openNotifications() {
+    const d = document.createElement("dialog");
+    d.className = "account-dialog notifications-dialog";
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>Mes notifications</h2>
+        <div class="notif-body"><p class="muted">Chargement…</p></div>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn-quiet" value="cancel">Fermer</button>
+          <button type="submit" class="btn-primary" hidden>Enregistrer</button>
+        </div>
+      </form>`;
+    document.body.append(d);
+    d.addEventListener("close", () => d.remove());
+    d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+    const form = d.querySelector("form");
+    const body = d.querySelector(".notif-body");
+    const errEl = d.querySelector(".dialog-error");
+    d.showModal();
+    let n;
+    try {
+      n = await api("/api/me/notifications");
+    } catch (err) {
+      body.innerHTML = "";
+      errEl.textContent = err.message;
+      return;
+    }
+    const dg = n.digest;
+    body.innerHTML = `
+      <fieldset class="notif-group">
+        <legend>Par e-mail</legend>
+        ${n.mail ? "" : `<p class="dialog-hint">L'envoi d'e-mails n'est pas disponible (pas d'adresse sur votre compte, ou serveur non configuré).</p>`}
+        <label class="check"><input type="checkbox" name="changes"${n.changes ? " checked" : ""}>
+          Quand un de mes créneaux est annulé ou modifié</label>
+        <label class="check"><input type="checkbox" name="reminders"${n.reminders ? " checked" : ""}>
+          Rappels avant mes créneaux et avant l'échéance de mon certificat médical (si ma structure les envoie)</label>
+        ${dg.available ? `
+        <label class="check"><input type="checkbox" name="digest"${dg.enabled ? " checked" : ""}>
+          Récapitulatif hebdomadaire des nouveaux créneaux de ma structure</label>
+        <div class="notif-types"${dg.enabled ? "" : " hidden"}>
+          <p class="dialog-hint">Types de créneaux (aucun coché : tous)</p>
+          ${dg.slot_types.map(t => `<label class="check"><input type="checkbox" name="digest_type" value="${t.id}"${dg.types.includes(t.id) ? " checked" : ""}>
+            <span class="type-pill" style="--type-color:${esc(t.color)}">${esc(t.label)}</span></label>`).join("")}
+        </div>` : ""}
+        <p class="dialog-hint">Une place libérée qui vous confirme sur un créneau vous est toujours annoncée. Les newsletters se règlent dans « Mon compte ».</p>
+      </fieldset>
+      <fieldset class="notif-group notif-push"${n.push.available ? "" : " hidden"}>
+        <legend>Sur cet appareil</legend>
+        <div class="push-state"></div>
+      </fieldset>`;
+    form.querySelector("[type=submit]").hidden = false;
+    form.digest?.addEventListener("change", () => { form.querySelector(".notif-types").hidden = !form.digest.checked; });
+    if (n.push.available && typeof setupPush === "function") setupPush(form.querySelector(".push-state"), n.push);
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      errEl.textContent = "";
+      const payload = { reminders: form.reminders.checked, changes: form.changes.checked };
+      if (form.digest) {
+        payload.digest_enabled = form.digest.checked;
+        payload.digest_types = [...form.querySelectorAll("[name=digest_type]:checked")].map(b => Number(b.value));
+      }
+      try {
+        await api("/api/me/notifications", { method: "PUT", body: payload });
+        d.close();
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    });
+  }
+
   async function openAgenda() {
     const d = document.createElement("dialog");
     d.className = "account-dialog calendar-dialog";
@@ -1122,6 +1194,8 @@ const Session = (() => {
             title="Voir l'application comme un autre rôle (lecture seule)">${icon("eye")}<span>Voir comme…</span></button>` : ""}
           ${u.structures?.length || u.structure ? `<button type="button" class="account-item" data-act="agenda"
             title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
+          <button type="button" class="account-item" data-act="notifications"
+            title="E-mails de rappel, nouveaux créneaux, notifications sur ce téléphone">${icon("mail")}<span>Mes notifications</span></button>
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
             : ` <span class="account-dot" title="Profil à compléter">!</span>`}</span></button>
           ${u.can.diver_sheet ? `<button type="button" class="account-item" data-act="diver"
@@ -1153,6 +1227,7 @@ const Session = (() => {
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
       if (act === "agenda") openAgenda();
+      if (act === "notifications") openNotifications();
     });
     document.addEventListener("click", e => { if (!el.contains(e.target)) closeMenu(); });
     document.addEventListener("keydown", e => {

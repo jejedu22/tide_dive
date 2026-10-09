@@ -42,6 +42,7 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
            u.caci_date, u.caci_validated_at, u.caci_validated_by,
            u.must_change_password, u.password_changed_at,
            u.totp_enabled_at IS NOT NULL AS totp_enabled, u.suspended_at, u.suspended_reason,
+           u.mail_reminders, u.mail_changes, m.digest_types,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
            (SELECT MAX(t.expires_at) FROM user_tokens t
              WHERE t.user_id = u.id AND t.purpose = 'invite') AS invite_expires_at,
@@ -444,3 +445,16 @@ def validate_caci(user_id: int, validated_by: str, now: str) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE users SET caci_validated_at = ?, caci_validated_by = ? "
                      "WHERE id = ? AND caci_date IS NOT NULL", (now, validated_by, user_id))
+
+
+def set_mail_preferences(user_id: int, reminders: bool, changes: bool) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET mail_reminders = ?, mail_changes = ? WHERE id = ?",
+                     (int(reminders), int(changes), user_id))
+
+
+def set_digest_types(user_id: int, structure_id: int, value: str | None) -> None:
+    """Récapitulatif des nouveaux créneaux : None désactivé, '' tous les types, '3,5' certains types."""
+    with get_conn() as conn:
+        conn.execute("UPDATE memberships SET digest_types = ? WHERE user_id = ? AND structure_id = ?",
+                     (value, user_id, structure_id))

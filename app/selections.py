@@ -833,7 +833,8 @@ def _members_to_notify(structure_id: int, row: sqlite3.Row) -> list[sqlite3.Row]
     if not mailer.enabled() or (row["end_date"] or row["local_date"]) < _today():
         return []
     members = (db.get_user(r["user_id"], structure_id) for r in db.list_registrations(structure_id, row["id"]))
-    return [m for m in members if m is not None and m["email"]]
+    # le membre peut refuser ces e-mails (« Mes notifications »)
+    return [m for m in members if m is not None and m["email"] and m["mail_changes"]]
 
 
 def cancelled_message(member: sqlite3.Row, row: sqlite3.Row, by: str, reason: str | None) -> tuple[str, str, str]:

@@ -135,6 +135,8 @@ from .db_structures import (  # noqa: F401
     delete_structure,
 )
 from .db_users import (  # noqa: F401
+    set_mail_preferences,
+    set_digest_types,
     _user_query,
     _ORDER_USERS,
     UNUSABLE_PASSWORD,

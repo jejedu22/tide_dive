@@ -394,6 +394,24 @@ def _m016_structure_profile(conn: sqlite3.Connection) -> None:
         conn.execute(sql)
 
 
+MAIL_PREFERENCE_COLUMNS = {
+    # e-mails au membre : rappels (créneau, certificat médical) ; changements de ses créneaux (annulation,
+    # modification, nouvelle heure de rendez-vous). 1 : reçus (défaut)
+    "mail_reminders": "INTEGER NOT NULL DEFAULT 1",
+    "mail_changes": "INTEGER NOT NULL DEFAULT 1",
+}
+
+
+def _m017_mail_preferences(conn: sqlite3.Connection) -> None:
+    """Préférences d'e-mails des comptes et récapitulatif des nouveaux créneaux, par structure (désactivé)."""
+    existing = _columns(conn, "users")
+    for col, ddl in MAIL_PREFERENCE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+    if "digest_types" not in _columns(conn, "memberships"):
+        conn.execute("ALTER TABLE memberships ADD COLUMN digest_types TEXT")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -411,6 +429,7 @@ MIGRATIONS: list[Migration] = [
     Migration(14, "feuille de présence des créneaux", _m014_attendance),
     Migration(15, "rappels et alertes par e-mail", _m015_reminders),
     Migration(16, "fiche de la structure, logo et demandes d'adhésion", _m016_structure_profile),
+    Migration(17, "préférences d'e-mails et récapitulatif des nouveaux créneaux", _m017_mail_preferences),
 ]
 
 

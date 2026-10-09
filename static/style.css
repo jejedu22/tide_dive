@@ -2019,3 +2019,9 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .users.wrap-table th, .users.wrap-table td { white-space: normal; }
 .users.wrap-table tbody th { min-width: 12rem; }
 .dash-issues .tag { white-space: normal; border-radius: 8px; line-height: 1.3; padding: 0.1rem 0.45rem; }
+
+/* Mes notifications */
+.account-dialog .notif-group { border: 1px solid #d8e8ee; border-radius: 10px; padding: 0.4rem 0.9rem 0.6rem; margin: 0 0 0.9rem; }
+.account-dialog .notif-group legend { font-weight: 700; padding: 0 0.3rem; }
+.account-dialog .notif-types { display: flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; margin: 0 0 0.4rem 1.6rem; }
+.account-dialog .notif-types .dialog-hint { flex-basis: 100%; margin: 0; }

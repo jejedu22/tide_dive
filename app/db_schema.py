@@ -335,7 +335,10 @@ CREATE TABLE IF NOT EXISTS users (
     totp_last_step INTEGER,
     -- Suspension (super administrateur) : connexion refusée, sessions fermées
     suspended_at TEXT,
-    suspended_reason TEXT
+    suspended_reason TEXT,
+    -- e-mails au membre (member_prefs.py) : rappels ; changements de ses créneaux. 1 : reçus
+    mail_reminders INTEGER NOT NULL DEFAULT 1,
+    mail_changes INTEGER NOT NULL DEFAULT 1
 );
 
 -- Jetons à usage unique envoyés par e-mail : invitation (définir son premier
@@ -382,6 +385,9 @@ CREATE TABLE IF NOT EXISTS memberships (
     structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE RESTRICT,
     role TEXT NOT NULL CHECK (role IN ('viewer', 'manager')),
     created_at TEXT NOT NULL,
+    -- récapitulatif des nouveaux créneaux (reminders.py) : NULL désactivé, '' tous les types, sinon les
+    -- identifiants des types retenus séparés par des virgules
+    digest_types TEXT,
     PRIMARY KEY (user_id, structure_id)
 );
 CREATE INDEX IF NOT EXISTS idx_memberships_structure ON memberships(structure_id, role);

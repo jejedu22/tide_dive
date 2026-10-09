@@ -131,7 +131,7 @@ LABELS: dict[tuple[str, str], str] = {
 # Sans intérêt pour le journal, ou sans compte connecté
 SKIPPED_PREFIXES = (
     "/api/auth/login", "/api/auth/forgot-password", "/api/auth/token-info", "/api/auth/reset-password",
-    "/api/me/preferences", "/api/me/water-preferences", "/api/me/structure", "/api/me/calendar-feeds",
+    "/api/me/preferences", "/api/me/water-preferences", "/api/me/notifications", "/api/me/push", "/api/me/structure", "/api/me/calendar-feeds",
     "/api/me/newsletters", "/api/newsletters/preview", "/api/newsletters/unsubscribe", "/api/mailjet/events",
     "/api/structure-requests", "/api/join/", "/api/admin/mailjet/test", "/api/admin/mailjet/events",
 )
