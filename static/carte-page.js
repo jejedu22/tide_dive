@@ -48,7 +48,7 @@ async function init() {
         <li><button type="button" class="link-button" data-go="site:${s.id}">
           <i class="dot" style="background:${s.current ? Carte.COLORS.current : Carte.COLORS.site}"></i>${esc(s.name)}</button>
           ${s.notes ? `<span class="muted"> · ${esc(s.notes)}</span>` : ""}</li>`).join("")}</ul>`
-    : `<p class="muted">Aucun site de plongée pour ${esc(structure)} : ses administrateurs les ajoutent dans Administration → Créneaux.</p>`;
+    : `<p class="muted">Aucun site de plongée pour ${esc(structure)} : ses administrateurs les ajoutent dans Administration → Sites de plongée.</p>`;
   places.innerHTML = `
     <div class="map-place"><h3>Sites de plongée${structure ? ` · ${esc(structure)}` : ""}</h3>${siteList}</div>
     <div class="map-place"><h3>Ports</h3>${ports.length ? `<ul>${ports.map(p => `

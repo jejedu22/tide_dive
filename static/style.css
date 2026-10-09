@@ -1860,3 +1860,4 @@ section[id] { scroll-margin-top: 1rem; }
 main > .panel + .panel { margin-top: 1.25rem; }
 .leaflet-tooltip.map-label { padding: 1px 5px; font-size: 0.72rem; font-weight: 600; color: var(--blue-deep); }
 .map-small .leaflet-control-attribution, .map-pick .leaflet-control-attribution { font-size: 0.6rem; }
+#sites-map { margin: 0.6rem 0; }
