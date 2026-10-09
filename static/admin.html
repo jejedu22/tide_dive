@@ -701,10 +701,45 @@
               </span>
             </p>
           </div>
+          <div class="users-filters" role="group" aria-label="Filtres">
+            <label>Rôle <select id="users-role">
+              <option value="">Tous</option>
+              <option value="manager">Administration</option>
+              <option value="viewer">Visualisation</option>
+              <option value="super" data-super>Super administrateur</option>
+            </select></label>
+            <label>Profil <select id="users-profile"><option value="">Tous</option></select></label>
+            <label>Certificat médical <select id="users-caci">
+              <option value="">Tous</option>
+              <option value="valid">Valable</option>
+              <option value="pending">À valider</option>
+              <option value="problem">Absent ou expiré</option>
+            </select></label>
+            <label>État <select id="users-state">
+              <option value="">Tous</option>
+              <option value="pending">Invitation ou mot de passe provisoire</option>
+              <option value="never">Jamais connecté</option>
+              <option value="incomplete">Profil incomplet</option>
+              <option value="suspended">Suspendu</option>
+            </select></label>
+            <button type="button" id="users-export" class="btn-quiet btn-small">Exporter en Excel</button>
+          </div>
+          <div id="users-bulk" class="users-bulk" hidden>
+            <strong id="users-bulk-count"></strong>
+            <label class="visually-hidden" for="users-bulk-action">Action groupée</label>
+            <select id="users-bulk-action">
+              <option value="">Action groupée…</option>
+              <option value="role:manager">Passer en administration</option>
+              <option value="role:viewer">Passer en visualisation</option>
+            </select>
+            <button type="button" id="users-bulk-apply" class="btn-secondary btn-small">Appliquer</button>
+            <button type="button" id="users-bulk-clear" class="btn-quiet btn-small">Tout décocher</button>
+          </div>
           <div class="table-wrap">
             <table class="users users-list">
               <thead>
                 <tr>
+                  <th scope="col" class="col-check"><input type="checkbox" id="users-check-all" aria-label="Tout cocher (comptes affichés)"></th>
                   <th scope="col">Nom</th>
                   <th scope="col">Contact</th>
                   <th scope="col">Structure</th>

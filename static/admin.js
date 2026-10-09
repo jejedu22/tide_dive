@@ -2007,13 +2007,48 @@ function deleteButtons(u) {
     + `<button type="button" class="btn-danger" data-act="delete">Supprimer${scoped ? " le compte" : ""}</button>`;
 }
 
+// Filtres de la liste (en plus de la recherche) : rôle, profil, certificat médical, état du compte
+function userMatches(u) {
+  const role = $("users-role").value, profile = $("users-profile").value;
+  const caci = $("users-caci").value, state = $("users-state").value;
+  if (role === "super" ? !u.is_admin : role && u.role !== role) return false;
+  if (profile && !(u.profiles || []).includes(profile)) return false;
+  const cs = u.caci?.state;
+  if (caci === "problem" ? !["missing", "expired"].includes(cs) : caci && cs !== caci) return false;
+  if (state === "pending" && !(u.pending_invite || u.must_change_password)) return false;
+  if (state === "never" && u.last_login_at) return false;
+  if (state === "incomplete" && u.profile_complete) return false;
+  if (state === "suspended" && !u.suspended) return false;
+  return true;
+}
+
+function shownUsers() {
+  const q = $("users-search").value.trim().toLowerCase();
+  return users.filter(u => userMatches(u) && (!q || [u.display_name, u.username, u.email, u.phone, u.diver?.licence_number]
+    .some(v => v && v.toLowerCase().includes(q))));
+}
+
+const checkedUsers = new Set();   // comptes cochés pour une action groupée
+
+function renderBulk() {
+  const shownIds = new Set(shownUsers().filter(u => u.id !== Session.user.id).map(u => u.id));   // cochables
+  for (const id of [...checkedUsers]) if (!shownIds.has(id)) checkedUsers.delete(id);
+  const n = checkedUsers.size;
+  // super administrateur : une action groupée vaut dans UNE structure (rôle et profils y sont propres)
+  const possible = !isSuper() || !!$("users-filter").value;
+  $("users-bulk").hidden = !n;
+  $("users-bulk-count").textContent = possible ? `${n} compte(s) coché(s)` : `${n} compte(s) coché(s) : choisissez d'abord une structure`;
+  $("users-bulk-action").disabled = $("users-bulk-apply").disabled = !possible;
+  const all = $("users-check-all");
+  all.checked = !!shownIds.size && [...shownIds].every(id => checkedUsers.has(id));
+  all.indeterminate = !all.checked && [...shownIds].some(id => checkedUsers.has(id));
+}
+
 function renderUsers() {
   const me = Session.user;
   const q = $("users-search").value.trim().toLowerCase();
-  const shown = q
-    ? users.filter(u => [u.display_name, u.username, u.email, u.phone, u.diver?.licence_number]
-      .some(v => v && v.toLowerCase().includes(q)))
-    : users;
+  const shown = shownUsers();
+  const filtered = q || ["users-role", "users-profile", "users-caci", "users-state"].some(id => $(id).value);
   usersBody.innerHTML = shown.length ? shown.map(u => {
     const self = u.id === me.id;
     const contact = [
@@ -2022,6 +2057,7 @@ function renderUsers() {
     ].filter(Boolean).join("<br>");
     return `
       <tr data-id="${u.id}">
+        <td class="col-check">${self ? "" : `<input type="checkbox" data-check value="${u.id}"${checkedUsers.has(u.id) ? " checked" : ""} aria-label="Cocher ${esc(u.display_name)}">`}</td>
         <th scope="row">
           <span class="user-name">${esc(u.display_name)}</span>${self ? ` <span class="tag">vous</span>` : ""}
           <span class="user-sub">${esc(u.username)}</span>
@@ -2040,9 +2076,82 @@ function renderUsers() {
         </td>
       </tr>`;
   }).join("")
-    : `<tr><td colspan="6" class="empty">${q ? "Aucun compte ne correspond à la recherche." : "Aucun compte."}</td></tr>`;
-  usersStatus.textContent = q ? `${shown.length} compte(s) sur ${users.length}.` : `${users.length} compte(s).`;
+    : `<tr><td colspan="7" class="empty">${filtered ? "Aucun compte ne correspond à la recherche." : "Aucun compte."}</td></tr>`;
+  usersStatus.textContent = filtered ? `${shown.length} compte(s) sur ${users.length}.` : `${users.length} compte(s).`;
+  renderBulk();
 }
+
+for (const id of ["users-role", "users-profile", "users-caci", "users-state"]) $(id).addEventListener("change", renderUsers);
+
+usersBody.addEventListener("change", e => {
+  const box = e.target.closest("[data-check]");
+  if (!box) return;
+  if (box.checked) checkedUsers.add(Number(box.value)); else checkedUsers.delete(Number(box.value));
+  renderBulk();
+});
+$("users-check-all").addEventListener("change", e => {
+  for (const u of shownUsers()) if (u.id !== Session.user.id) {
+    if (e.target.checked) checkedUsers.add(u.id); else checkedUsers.delete(u.id);
+  }
+  renderUsers();
+});
+$("users-bulk-clear").addEventListener("click", () => { checkedUsers.clear(); renderUsers(); });
+
+$("users-bulk-apply").addEventListener("click", async () => {
+  const [action, arg] = $("users-bulk-action").value.split(":");
+  if (!action || !checkedUsers.size) return;
+  const n = checkedUsers.size;
+  const labels = {
+    role: `Passer ${n} compte(s) en ${arg === "manager" ? "administration" : "visualisation"} ?`,
+    add_profile: `Attribuer le profil « ${profileCatalog.find(p => p.id === arg)?.label} » à ${n} compte(s) ?`,
+    remove_profile: `Retirer le profil « ${profileCatalog.find(p => p.id === arg)?.label} » à ${n} compte(s) ?`,
+    remove: `Retirer ${n} compte(s) de la structure ? Un compte qui n'appartient à aucune autre structure est supprimé, avec ses inscriptions.`,
+  };
+  if (!confirm(labels[action])) return;
+  const body = { user_ids: [...checkedUsers], action };
+  if (action === "role") body.role = arg;
+  if (action.endsWith("_profile")) body.profile = arg;
+  const scope = isSuper() ? `?structure_id=${$("users-filter").value}` : "";
+  try {
+    const r = await Session.api(`/api/admin/users/bulk${scope}`, { method: "POST", body });
+    checkedUsers.clear();
+    const names = id => users.find(u => u.id === id)?.display_name || `n° ${id}`;
+    usersStatus.textContent = `${r.done.length} compte(s) modifié(s).` + (r.skipped.length
+      ? ` Non traités : ${r.skipped.map(s => `${names(s.id)} (${s.reason})`).join(", ")}.` : "");
+    const status = usersStatus.textContent;
+    await loadUsers();
+    usersStatus.textContent = status;
+  } catch (err) {
+    usersStatus.textContent = err.message;
+  }
+});
+
+// Export Excel des comptes affichés (filtres compris)
+const CACI_LABELS = { valid: "valable", pending: "à valider", missing: "absent", expired: "expiré" };
+$("users-export").addEventListener("click", () => {
+  const list = shownUsers();
+  if (!list.length) return;
+  const name = isSuper() ? ($("users-filter").selectedOptions[0]?.textContent || "tous") : Session.user?.structure?.name;
+  const profileLabel = id => profileCatalog.find(p => p.id === id)?.label || id;
+  XlsxExport.download(`membres-${XlsxExport.slug(name || "structure")}.xlsx`, "Membres", [
+    { header: "Nom", width: 18, value: u => u.last_name || "" },
+    { header: "Prénom", width: 16, value: u => u.first_name || "" },
+    { header: "Identifiant", width: 18, value: u => u.username },
+    { header: "E-mail", width: 28, value: u => u.email || "" },
+    { header: "Téléphone", width: 16, value: u => u.phone || "" },
+    { header: "Structure", width: 18, value: u => u.structure?.name || "" },
+    { header: "Rôle", width: 14, value: u => (u.is_admin ? "super administrateur" : ROLE_LABELS[u.role] || "") },
+    { header: "Profils", width: 22, value: u => (u.profiles || []).map(profileLabel).join(", ") },
+    { header: "Niveau", width: 16, value: u => u.diver?.diver_level_label || "" },
+    { header: "Encadrement", width: 16, value: u => u.diver?.instructor_level_label || "" },
+    { header: "Licence", width: 16, value: u => u.diver?.licence_number || "" },
+    { header: "CACI (date)", type: "date", width: 12, value: u => u.caci?.date || null },
+    { header: "CACI valable jusqu'au", type: "date", width: 14, value: u => u.caci?.valid_until || null },
+    { header: "CACI", width: 11, value: u => CACI_LABELS[u.caci?.state] || "" },
+    { header: "Dernière connexion", type: "date", width: 14, value: u => (u.last_login_at ? u.last_login_at.slice(0, 10) : null) },
+    { header: "Compte créé le", type: "date", width: 14, value: u => (u.created_at ? u.created_at.slice(0, 10) : null) },
+  ], list);
+});
 
 async function loadUsers() {
   const filter = isSuper() ? $("users-filter").value : "";
@@ -2055,7 +2164,7 @@ async function loadUsers() {
   }
 }
 
-$("users-filter").addEventListener("change", loadUsers);
+$("users-filter").addEventListener("change", () => { checkedUsers.clear(); loadUsers(); });
 $("users-search").addEventListener("input", renderUsers);
 
 // ---- Profils (en plus du rôle, cumulables) ----
@@ -2081,6 +2190,15 @@ async function loadProfileCatalog() {
   box.insertAdjacentHTML("beforeend", profileChoices());
   box.hidden = !profileCatalog.length;
   renderInviteProfiles();
+  // filtre de la liste et actions groupées
+  $("users-profile").innerHTML = `<option value="">Tous</option>` +
+    profileCatalog.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+  const bulk = $("users-bulk-action");
+  bulk.querySelectorAll("[data-profile], [data-remove]").forEach(o => o.remove());
+  bulk.insertAdjacentHTML("beforeend", profileCatalog.map(p =>
+    `<option data-profile value="add_profile:${esc(p.id)}">Attribuer le profil « ${esc(p.label)} »</option>
+     <option data-profile value="remove_profile:${esc(p.id)}">Retirer le profil « ${esc(p.label)} »</option>`).join("") +
+    `<option data-remove value="remove">Retirer de la structure…</option>`);
 }
 
 // ---- Création ----

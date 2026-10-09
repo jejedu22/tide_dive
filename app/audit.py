@@ -39,6 +39,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/admin/users/{user_id}"): "Compte supprimé ou retiré de la structure",
     ("POST", "/api/admin/users/{user_id}/send-link"): "Lien de connexion envoyé",
     ("POST", "/api/admin/users/import"): "Import CSV de comptes",
+    ("POST", "/api/admin/users/bulk"): "Action groupée sur des comptes",
     ("PUT", "/api/admin/settings/tide-model"): "Modèle de marée changé",
     ("POST", "/api/admin/ports"): "Port créé",
     ("PATCH", "/api/admin/ports/{port_id}"): "Port modifié",

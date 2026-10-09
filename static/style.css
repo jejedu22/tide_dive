@@ -1961,3 +1961,20 @@ dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-o
 .inline-select { font-size: 0.9rem; font-weight: normal; margin-left: 0.5rem; }
 .stats-table td.num, .stats-table th.num { text-align: right; }
 .panel h3 { font-size: 1rem; margin: 1.2rem 0 0.4rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+
+/* Liste des comptes : filtres, cases à cocher, actions groupées */
+.users-filters { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: end; margin: 0 0 0.8rem; font-size: 0.88rem; }
+.users-filters label { display: flex; flex-direction: column; gap: 0.15rem; }
+.users-filters button { margin-left: auto; }
+.users-bulk { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; margin-bottom: 0.6rem;
+  border-radius: 10px; background: #e6f3f8; }
+.col-check { width: 2rem; text-align: center; }
+@media (max-width: 720px) {
+  .users-list tbody td.col-check { grid-column: 1 / -1; width: auto; text-align: left; }
+  .users-list tbody td.col-check:empty { display: none; }
+  .users-filters button { margin-left: 0; }
+}
+.stats-table thead th:not(:first-child) { text-align: right; }
+.account-dialog .att-choice { display: inline-flex; flex-direction: row; align-items: center; gap: 0.25rem; margin: 0;
+  font-weight: normal; }
+.account-dialog .att-choice input { width: auto; margin: 0; }
