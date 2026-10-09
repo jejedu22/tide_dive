@@ -58,7 +58,7 @@ def test_fiche_plongeur_du_membre(setup, new_client):
     u = r.json()["user"]
     assert u["diver"] == {"diver_level": "n2", "diver_level_label": "Niveau 2 (PE40 / PA20)", "instructor_level": None,
                           "instructor_level_label": None, "qualifications": "Nitrox RIFAP",
-                          "licence_number": "A-14-123456", "licence_url": "https://licence.ffessm.fr/abc"}
+                          "licence_number": "A-14-123456", "licence_url": "https://licence.ffessm.fr/abc", "rank": 3}
     # saisie par le membre : en attente de validation
     assert (u["caci"]["date"], u["caci"]["state"], u["caci"]["validated"]) == (_iso(-30), "pending", False)
     # contrôles
