@@ -55,6 +55,8 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/selections"): "Créneau choisi",
     ("POST", "/api/selections/bulk"): "Créneaux choisis en groupe",
     ("POST", "/api/selections/custom"): "Créneau personnalisé ajouté",
+    ("POST", "/api/selections/custom/series"): "Série de créneaux personnalisés ajoutée",
+    ("POST", "/api/selections/{selection_id}/duplicate"): "Créneau dupliqué",
     ("POST", "/api/selections/height"): "Créneau de hauteur d'eau choisi",
     ("PATCH", "/api/selections/{selection_id}"): "Créneau modifié",
     ("DELETE", "/api/selections/{selection_id}"): "Créneau retiré",

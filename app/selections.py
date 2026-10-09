@@ -194,6 +194,39 @@ class CustomSelectionIn(BaseModel):
         return self
 
 
+MAX_SERIES = 60   # créneaux d'une série au plus (plus d'un an chaque semaine)
+
+
+class CustomSeriesIn(CustomSelectionIn):
+    """Série de créneaux personnalisés : le même chaque `every_weeks` semaine(s), du jour `date` au jour `until`
+    inclus (une fosse tous les mardis, par exemple). Pas de séjour sur plusieurs jours."""
+    until: dt.date = Field(ge=MIN_DATE, le=MAX_DATE)
+    every_weeks: int = Field(1, ge=1, le=4)
+
+    @model_validator(mode="after")
+    def _series(self):
+        if self.end_date is not None:
+            raise ValueError("une série ne peut pas être un séjour sur plusieurs jours")
+        if self.until <= self.date:
+            raise ValueError("la fin de la série doit être postérieure au premier jour")
+        if len(self.days()) > MAX_SERIES:
+            raise ValueError(f"{MAX_SERIES} créneaux au plus par série : rapprochez la date de fin")
+        return self
+
+    def days(self) -> list[dt.date]:
+        step = timedelta(weeks=self.every_weeks)
+        out, d = [], self.date
+        while d <= self.until:
+            out.append(d)
+            d += step
+        return out
+
+
+class DuplicateIn(BaseModel):
+    """Copie d'un créneau personnalisé à un autre jour (même heure, lieu, type, intitulé et places)."""
+    date: dt.date = Field(ge=MIN_DATE, le=MAX_DATE)
+
+
 class SelectionPatch(BaseModel):
     """type_id, note, max_registrations : tout créneau. port_id / location, date, end_date, time : créneau
     personnalisé uniquement (ceux d'une étale sont ceux de l'étale)."""
@@ -466,6 +499,54 @@ def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
         body.end_date.isoformat() if body.end_date else None, body.time, body.note, _now_iso(),
         max_registrations=_initial_capacity(body, sid),
     )
+    return _one_out(sid, sel_id, user["id"])
+
+
+@router.post("/selections/custom/series", status_code=201)
+def create_custom_series(body: CustomSeriesIn, user: CurrentPicker):
+    """Série de créneaux personnalisés, chaque semaine (ou toutes les 2 à 4 semaines). Les jours d'une plage
+    d'indisponibilité sont sautés et listés dans « skipped »."""
+    sid = user["structure_id"]
+    if body.port_id is not None and db.get_port(body.port_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
+    _active_type_or_422(body.type_id, sid)
+    capacity = _initial_capacity(body, sid)
+    unavailable = db.list_unavailabilities(sid)
+    created, skipped = [], []
+    for day in body.days():
+        if blocking(unavailable, *custom_span(day.isoformat(), body.time, None)):
+            skipped.append({"date": day.isoformat(), "reason": "indisponible"})
+            continue
+        created.append(db.create_custom_selection(
+            sid, user["id"], body.port_id, body.location, body.type_id, day.isoformat(), None, body.time, body.note,
+            _now_iso(), max_registrations=capacity))
+    locks = db.get_lock_days(sid)
+    rows = {r["id"]: r for r in db.list_selections(sid) if r["id"] in set(created)}
+    return {"created": [_selection_out(rows[i], [], user["id"], locks) for i in created], "skipped": skipped}
+
+
+@router.post("/selections/{selection_id}/duplicate", status_code=201)
+def duplicate_selection(selection_id: int, body: DuplicateIn, user: CurrentPicker):
+    """Copie un créneau personnalisé à un autre jour ; un séjour garde sa durée. Sans les inscrits."""
+    sid = user["structure_id"]
+    row = db.get_selection(sid, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["ts_utc"] is not None or row["window_start_utc"] is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Seul un créneau personnalisé se duplique : un créneau d'étale suit la marée de son jour.")
+    end = None
+    if row["end_date"]:
+        span = date.fromisoformat(row["end_date"]) - date.fromisoformat(row["local_date"])
+        end = (body.date + span).isoformat()
+    type_id = row["type_id"]
+    t = db.get_slot_type(type_id)
+    if t is None or not t["active"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Le type de ce créneau n'est plus proposé")
+    ensure_available(sid, *custom_span(body.date.isoformat(), row["rdv_time"], end))
+    sel_id = db.create_custom_selection(
+        sid, user["id"], row["port_id"], row["location"], type_id, body.date.isoformat(), end, row["rdv_time"],
+        row["note"], _now_iso(), max_registrations=row["max_registrations"])
     return _one_out(sid, sel_id, user["id"])
 
 

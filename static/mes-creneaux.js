@@ -160,6 +160,8 @@ const currentsButton = p => (!p.end_date && hasCurrentSites
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
 // Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
 const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
+// Dupliquer : créneau personnalisé seulement (un créneau d'étale suit la marée de son jour)
+const duplicateButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="duplicate" title="Copier ce créneau à un autre jour">Dupliquer…</button>` : "");
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
 
 // Séjour sur plusieurs jours (créneau personnalisé) : dernier jour, nombre de jours, mention affichée
@@ -199,7 +201,7 @@ function slotCard(p) {
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
         <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
-        <span class="slot-acts">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${removeButton()}</span>
+        <span class="slot-acts">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -477,7 +479,7 @@ function renderTable(list) {
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${removeButton()}</td>
+          <td class="c-actions">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -881,6 +883,16 @@ async function openCustomDialog(p = null) {
         <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>
       ${p && !p.past && p.registrations.length && Session.config.password_reset ? `
       <label class="check"><input type="checkbox" name="notify" checked> Prévenir les ${p.registrations.length} inscrit(s) par e-mail si le jour, l'heure ou le lieu change</label>` : ""}
+      ${p ? "" : `<fieldset class="repeat-field">
+        <legend><label class="check"><input type="checkbox" name="repeat"> Répéter</label></legend>
+        <div class="repeat-detail" hidden>
+          <label>Toutes les <select name="every_weeks">
+            <option value="1">semaines</option><option value="2">2 semaines</option>
+            <option value="3">3 semaines</option><option value="4">4 semaines</option></select></label>
+          <label>Jusqu'au <input type="date" name="until" min="${addDays(day, 7)}"></label>
+          <p class="field-hint">Un créneau par date, au même lieu et à la même heure ; les jours indisponibles sont sautés.</p>
+        </div>
+      </fieldset>`}
       ${p ? "" : `<label>Places <span class="field-hint">(vide : illimité)</span>
         <input type="number" name="max_registrations" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité"
           value="${Session.user?.structure?.default_max_registrations ?? ""}"></label>`}`,
@@ -901,6 +913,19 @@ async function openCustomDialog(p = null) {
         const places = String(f.get("max_registrations") ?? "").trim();
         body.max_registrations = places === "" ? null : Number(places);   // toujours envoyé : vide = illimité, pas « défaut »
       }
+      if (!p && form.repeat.checked) {
+        if (!f.get("until")) throw new Error("Indiquez la date de fin de la série.");
+        if (body.end_date) throw new Error("Une série ne peut pas être un séjour sur plusieurs jours.");
+        body.until = f.get("until");
+        body.every_weeks = Number(f.get("every_weeks"));
+        const r = await Session.api("/api/selections/custom/series", { method: "POST", body });
+        picks = [...picks, ...r.created].sort(byWhen);
+        renderTypeFilter();
+        render();
+        statusEl.textContent = `${r.created.length} créneau(x) ajouté(s)` + (r.skipped.length
+          ? ` ; ${r.skipped.length} jour(s) sauté(s), indisponible(s) : ${r.skipped.map(x => formatDay(x.date)).join(", ")}.` : ".");
+        return;
+      }
       const saved = await Session.api(p ? `/api/selections/${p.id}` : "/api/selections/custom",
         { method: p ? "PATCH" : "POST", body });
       picks = p ? picks.map(x => (x.id === saved.id ? saved : x)) : [...picks, saved];
@@ -917,6 +942,14 @@ async function openCustomDialog(p = null) {
     form.end_date.min = addDays(form.date.value, 1);
     if (form.end_date.value && form.end_date.value <= form.date.value) form.end_date.value = "";
   });
+  // série : choix de la fréquence et de la date de fin
+  if (!p) {
+    form.repeat.addEventListener("change", () => {
+      form.querySelector(".repeat-detail").hidden = !form.repeat.checked;
+      form.until.required = form.repeat.checked;
+    });
+    form.date.addEventListener("change", () => { if (form.date.value) form.until.min = addDays(form.date.value, 7); });
+  }
   // « Autre lieu… » : affiche le champ libre et le rend obligatoire
   const place = form.querySelector(".location-field");
   form.port_id.addEventListener("change", () => {
@@ -933,6 +966,29 @@ picksEl.addEventListener("click", e => {
   if (!btn) return;
   const p = picks.find(x => x.id === holderId(btn));
   if (p) (p.custom ? openCustomDialog(p) : openNoteDialog(p));
+});
+
+// Dupliquer un créneau personnalisé à un autre jour (même heure, lieu, type, intitulé et places ; sans les inscrits)
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=duplicate]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (!p) return;
+  const suggested = addDays(p.date < todayISO() ? todayISO() : p.date, 7);
+  openDialog({
+    title: "Dupliquer le créneau",
+    submitLabel: "Dupliquer",
+    body: `
+      <p class="dialog-hint">${esc(p.note || p.port)}, rendez-vous à ${esc(p.rdv.time)}${p.end_date ? `, séjour de ${spanDays(p)} jours` : ""}. La copie reprend le lieu, l'heure, le type, l'intitulé et les places, sans les inscrits.</p>
+      <label>Nouveau jour <input type="date" name="date" required value="${suggested}"></label>`,
+    onSubmit: async form => {
+      const saved = await Session.api(`/api/selections/${p.id}/duplicate`, { method: "POST", body: { date: form.date.value } });
+      picks = [...picks, saved].sort(byWhen);
+      renderTypeFilter();
+      if (view === "cal") selectDay(saved.date); else render();
+      statusEl.textContent = `Créneau dupliqué au ${formatLong(saved.date)}.`;
+    },
+  });
 });
 
 // Intitulé d'un créneau d'étale : distingue plusieurs créneaux choisis sur la même étale (« Bateau 2 »…)

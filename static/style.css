@@ -1978,6 +1978,9 @@ dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-o
 .account-dialog .att-choice { display: inline-flex; flex-direction: row; align-items: center; gap: 0.25rem; margin: 0;
   font-weight: normal; }
 .account-dialog .att-choice input { width: auto; margin: 0; }
-.reminder-settings { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.4rem 0 1rem; }
-.reminder-settings label.check { display: block; line-height: 2; }
+.reminder-settings { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0.3rem; margin: 0.2rem 0 0.6rem; }
+.reminder-settings label.check { display: block; line-height: 2.1; font-weight: normal; }
 .reminder-settings input[type=number] { width: 4.2rem; margin: 0 0.25rem; }
+.account-dialog .repeat-field { border: 1px solid #d8e8ee; border-radius: 10px; padding: 0.3rem 0.8rem 0.6rem; margin: 0 0 0.8rem; }
+.account-dialog .repeat-field legend { padding: 0 0.3rem; }
+.account-dialog .repeat-field legend label.check { margin: 0; }
