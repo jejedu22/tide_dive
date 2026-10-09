@@ -127,7 +127,9 @@ def check_per_day(extrema: Iterable[tuple], year: int, timezone_name: str) -> Re
     """Étales par jour LOCAL : 2 à 4 (3 ou 4 en pratique ; 2 et 5 sont des cas limites signalés)."""
     report = Report()
     tz = ZoneInfo(timezone_name)
-    per_day = Counter(_parse(ts).astimezone(tz).date() for ts, *_ in extrema)
+    # La série couvre l'année en UTC : une étale du 31/12 après 23 h UTC tombe le 1er janvier suivant en heure
+    # locale, seule sur ce jour hors de l'année. On ne juge que les jours locaux de l'année.
+    per_day = Counter(d for d in (_parse(ts).astimezone(tz).date() for ts, *_ in extrema) if d.year == year)
     days = (date(year + 1, 1, 1) - date(year, 1, 1)).days
     missing = [d for d in (date(year, 1, 1) + timedelta(n) for n in range(days)) if per_day.get(d, 0) == 0]
     if missing:
