@@ -60,6 +60,15 @@ def test_jour_sans_etale_detecte(good):
     assert not checks.validate_year(ex, good[1], YEAR).ok
 
 
+def test_etale_du_31_decembre_au_soir_tombe_l_an_suivant_en_heure_locale(good):
+    # 31/12 23:10 UTC = 1er janvier 00:10 à Paris : seule étale de ce jour-là, qui n'est pas dans l'année
+    ex = [e for e in good[0] if e[0] < f"{YEAR}-12-31T23:00"] + [(f"{YEAR}-12-31T23:10:00+00:00", "BM", 1.0, None)]
+    assert checks.check_per_day(ex, YEAR, "Europe/Paris").ok
+    # dans l'année, un jour à une seule étale reste une erreur
+    one = [e for e in good[0] if not e[0].startswith(f"{YEAR}-03-10")] + [(f"{YEAR}-03-10T12:00:00+00:00", "PM", 9.0, 80.0)]
+    assert any("anormal le 10/03" in e for e in checks.check_per_day(one, YEAR, "Europe/Paris").errors)
+
+
 def test_horaires_solaires_incomplets_ou_desordonnes(good):
     assert any("jours d'horaires" in e for e in checks.check_sun(good[1][:-5], YEAR).errors)
     sun = list(good[1])
