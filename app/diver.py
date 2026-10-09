@@ -94,7 +94,7 @@ def _fr(d: date) -> str:
 def registration_block(member: sqlite3.Row, structure: sqlite3.Row, dive_date: str, *, own: bool = True) -> str | None:
     """Motif de refus d'inscription au créneau du `dive_date` (jour local, dernier jour pour un séjour) si la
     structure vérifie le CACI ; None si l'inscription est permise. own : message adressé au membre lui-même."""
-    if not structure or not structure["caci_check"]:
+    if not structure or not structure["caci_check"] or "divers" in (structure["disabled_features"] or "").split(","):
         return None
     on = date.fromisoformat(dive_date)
     st = caci_state(member, on, structure["caci_validity_months"])

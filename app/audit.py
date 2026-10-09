@@ -101,6 +101,13 @@ LABELS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/admin/users/{user_id}/totp"): "Double authentification d'un compte réinitialisée",
     ("POST", "/api/admin/accounts/merge"): "Comptes fusionnés",
     ("POST", "/api/admin/accounts/purge-inactive"): "Comptes inactifs supprimés",
+    ("POST", "/api/admin/structures/{structure_id}/archive"): "Structure archivée",
+    ("DELETE", "/api/admin/structures/{structure_id}/archive"): "Structure réactivée",
+    ("POST", "/api/admin/structures/{structure_id}/transfer"): "Membres transférés",
+    ("POST", "/api/admin/announcements"): "Bandeau d'annonce créé",
+    ("PUT", "/api/admin/announcements/{announcement_id}"): "Bandeau d'annonce modifié",
+    ("DELETE", "/api/admin/announcements/{announcement_id}"): "Bandeau d'annonce supprimé",
+    ("POST", "/api/admin/broadcast"): "E-mail aux administrateurs de structure",
     ("PUT", "/api/divers/{user_id}"): "Fiche plongeur modifiée",
     ("POST", "/api/divers/{user_id}/caci/validate"): "Certificat médical (CACI) validé",
 }

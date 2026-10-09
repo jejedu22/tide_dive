@@ -154,10 +154,39 @@ def totp_setup_required(row: sqlite3.Row | dict) -> bool:
     return bool(TOTP_REQUIRED_FOR_SUPER_ADMINS and row["is_admin"] and not row["totp_enabled"])
 
 
+# Fonctions activables par structure (réglage des super administrateurs : structures.disabled_features). La
+# recherche par hauteur d'eau a son propre réglage (structures.search_modes), le contrôle du CACI aussi (caci_check,
+# réglé par la structure) : la fonction « divers » les englobe (fiches plongeurs et CACI).
+FEATURES = {
+    "currents": "Courants et sites de plongée",
+    "map": "Carte des ports et des sites",
+    "newsletters": "Newsletters",
+    "divers": "Fiches plongeurs et certificats médicaux (CACI)",
+}
+
+
+def parse_features(disabled: str | None) -> dict[str, bool]:
+    off = {f for f in (disabled or "").split(",") if f}
+    return {f: f not in off for f in FEATURES}
+
+
+def structure_features(row: sqlite3.Row | dict) -> dict[str, bool]:
+    """Fonctions de la structure active du compte (toutes si aucune structure)."""
+    keys = row.keys() if hasattr(row, "keys") else ()
+    return parse_features(row["structure_disabled_features"] if "structure_disabled_features" in keys else "")
+
+
+def structure_archived(row: sqlite3.Row | dict) -> bool:
+    keys = row.keys() if hasattr(row, "keys") else ()
+    return bool(row["structure_archived_at"]) if "structure_archived_at" in keys else False
+
+
 def permissions(row: sqlite3.Row) -> dict:
     """Droits dérivés du compte ; le front s'en sert pour l'affichage, l'API les revérifie."""
     is_super = bool(row["is_admin"])
-    in_structure = row["structure_id"] is not None
+    # structure archivée : plus aucun droit dans la structure, sauf pour un super administrateur
+    in_structure = row["structure_id"] is not None and (is_super or not structure_archived(row))
+    feat = structure_features(row)
     manager = in_structure and (row["structure_role"] == "manager" or is_super)
     return {
         "super_admin": is_super,
@@ -171,11 +200,14 @@ def permissions(row: sqlite3.Row) -> dict:
         "manage_registrations": manager or (in_structure and "inscriptions" in profiles_of(row)),
         # newsletters : profil « gestionnaire » exigé, y compris pour un administrateur
         # (il se l'attribue lui-même s'il en a besoin)
-        "newsletters": in_structure and "gestionnaire" in profiles_of(row),
+        "newsletters": in_structure and feat["newsletters"] and "gestionnaire" in profiles_of(row),
         # certificats médicaux (CACI) des membres : profil « gestionnaire » (ou super administrateur)
-        "validate_caci": is_super or (in_structure and "gestionnaire" in profiles_of(row)),
+        "validate_caci": is_super or (in_structure and feat["divers"] and "gestionnaire" in profiles_of(row)),
         # fiches plongeurs des membres (niveaux, licence, CACI) : administration ou gestionnaire
-        "view_divers": manager or (in_structure and "gestionnaire" in profiles_of(row)),
+        "view_divers": (manager or (in_structure and "gestionnaire" in profiles_of(row))) and feat["divers"],
+        # fonctions activables de la structure (voir FEATURES)
+        "currents": in_structure and feat["currents"],
+        "diver_sheet": in_structure and feat["divers"],
     }
 
 
@@ -224,7 +256,9 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
                               "calibration": bool(row["structure_use_calibration"])},
              # vérification du CACI à l'inscription, et sa durée de validité
              "caci_check": bool(row["structure_caci_check"]),
-             "caci_validity_months": row["structure_caci_validity_months"]}
+             "caci_validity_months": row["structure_caci_validity_months"],
+             "features": structure_features(row),
+             "archived": structure_archived(row)}
             if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],

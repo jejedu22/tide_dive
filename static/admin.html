@@ -41,6 +41,7 @@
         <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
         <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
         <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
+        <button type="button" role="tab" data-tab="communication" data-super aria-selected="false">Communication</button>
         <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
         <button type="button" role="tab" data-tab="sites" aria-selected="false">Sites de plongée</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
@@ -72,6 +73,30 @@
           <h2>Dernières actions <button type="button" class="btn-quiet btn-small" data-goto-tab="journal">Tout le journal</button></h2>
           <ul id="dash-recent" class="journal-list"></ul>
         </div>
+      </section>
+
+      <!-- ============ Communication (super administrateur) ============ -->
+      <section id="tab-communication" class="tab-panel" role="tabpanel" hidden>
+        <div class="panel">
+          <h2>Bandeaux d'annonce</h2>
+          <p class="hint">Un message en haut de toutes les pages, entre deux dates : maintenance prévue, nouveauté… pour tout le monde (visiteurs compris) ou pour les membres de certaines structures. Chacun peut le masquer. Un bandeau terminé depuis un an est supprimé.</p>
+          <p><button type="button" id="announcement-add" class="btn-primary btn-small">+ Nouveau bandeau</button></p>
+          <ul id="announcements-list" class="water-list"></ul>
+        </div>
+        <form id="broadcast-form" class="panel" autocomplete="off">
+          <h2>E-mail aux administrateurs de structure</h2>
+          <p class="hint">Envoyé à chaque compte en <strong>administration</strong> (avec une adresse e-mail, non suspendu) des structures actives choisies, par l'envoi d'e-mails du serveur. Une ligne « Bonjour Prénom, » et votre signature sont ajoutées.</p>
+          <fieldset class="transfer-mode"><legend>Destinataires</legend>
+            <label class="check"><input type="radio" name="scope" value="all" checked> Les administrateurs de toutes les structures</label>
+            <label class="check"><input type="radio" name="scope" value="some"> Ceux de certaines structures :</label>
+            <div id="broadcast-structures"></div>
+          </fieldset>
+          <p id="broadcast-recipients" class="form-status"></p>
+          <label>Objet <input name="subject" required maxlength="150"></label>
+          <label>Message <textarea name="body" rows="8" required maxlength="20000"></textarea></label>
+          <p><button type="submit" class="btn-primary">Envoyer</button></p>
+          <p id="broadcast-status" class="form-status" role="status"></p>
+        </form>
       </section>
 
       <!-- ============ Journal d'activité ============ -->

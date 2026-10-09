@@ -352,6 +352,21 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 
 Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
+### Fonctions, archivage et transfert (super administrateur)
+
+Dans **Administration → Structures**, pour chaque structure :
+
+- **Fonctions…** : courants et sites de plongée, carte, newsletters, fiches plongeurs et CACI peuvent être désactivés (`structures.disabled_features`, `accounts.FEATURES`). Une fonction désactivée disparaît des menus, des pages et de l'API pour les membres et les administrateurs de la structure (le contrôle du CACI à l'inscription aussi) ; ses données sont gardées. La recherche par hauteur d'eau garde son réglage (colonne « Recherche »).
+- **Archiver / Réactiver** : une structure archivée n'est plus accessible à ses membres (ni créneaux, ni administration ; un bandeau le leur dit), n'apparaît plus dans les envois aux administrateurs, mais garde toutes ses données. Le super administrateur y garde accès.
+- **Transférer…** : rattache des membres choisis à une autre structure, avec leur rôle et leurs profils (le rôle le plus élevé l'emporte s'ils en sont déjà membres), en les gardant dans la structure d'origine ou en les **déplaçant** (retirés de l'origine avec leurs inscriptions à ses créneaux).
+
+### Communication (super administrateur)
+
+**Administration → Communication** (`app/communication.py`) :
+
+- **Bandeaux d'annonce** : un message (information, ou « important » en jaune) affiché en haut de toutes les pages entre deux dates, pour tout le monde (visiteurs compris) ou pour les membres de certaines structures. Chacun peut le masquer (retenu par son navigateur). Supprimé un an après sa fin.
+- **E-mail aux administrateurs de structure** : un message envoyé à tous les comptes en administration (avec une adresse, non suspendus) des structures actives, ou de certaines ; la liste des destinataires s'affiche avant l'envoi. Nécessite l'envoi d'e-mails du serveur (`MAIL_BACKEND`).
+
 ### Plusieurs structures par compte
 
 Un compte peut appartenir à **plusieurs structures**, avec un **rôle et des profils propres à chacune** (administrateur d'un club, simple membre d'un autre). Un **sélecteur dans l'en-tête** permet de passer de l'une à l'autre. La structure choisie est celle de **la session** : deux navigateurs peuvent être sur deux structures, et la dernière utilisée est reprise à la connexion suivante. Un super administrateur choisit parmi toutes les structures (ou aucune) et y est en administration, sans en être membre.
@@ -788,6 +803,12 @@ Réservée au super administrateur.
 | `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
 | `GET /api/admin/jobs/{id}` | détail avec journal |
 | `GET /api/admin/dashboard` | tableau de bord (super administrateurs) |
+| `PATCH /api/admin/structures/{id}/settings` | `features: [...]` : fonctions activées (super administrateurs) |
+| `POST` / `DELETE /api/admin/structures/{id}/archive` | archive / réactive une structure |
+| `POST /api/admin/structures/{id}/transfer` | `{to_structure_id, user_ids, move}` : transfert de membres |
+| `GET /api/announcements` | bandeaux en cours pour le visiteur (public) |
+| `GET` / `POST /api/admin/announcements`, `PUT` / `DELETE /api/admin/announcements/{id}` | bandeaux `{message, level: info\|warning, starts_at, ends_at, structure_ids?}` |
+| `GET /api/admin/broadcast/recipients?structure_ids=` / `POST /api/admin/broadcast` | destinataires / envoi `{subject, body, structure_ids?}` d'un e-mail aux administrateurs de structure |
 | `GET /api/admin/audit` | journal d'activité `?structure_id&q&before_id&limit` (administrateur de structure : sa structure) |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
 

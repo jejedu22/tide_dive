@@ -99,12 +99,20 @@ def _now() -> str:
 @router.get("/admin/dive-sites")
 def admin_list_sites(actor: CurrentManager, structure_id: int | None = None):
     """Sites de la structure administrée ; super administrateur sans structure précisée : tous les sites."""
+    _feature(actor)
     sid = scope_structure(actor, structure_id, required=False)
     return [site_out(r) for r in db.list_dive_sites(sid)]
 
 
+def _feature(actor: sqlite3.Row) -> None:
+    """Administrateur de structure : sites refusés si la fonction « courants » est désactivée pour elle."""
+    if not actor["is_admin"]:
+        auth.require_feature(actor, "currents")
+
+
 @router.post("/admin/dive-sites", status_code=201)
 def admin_create_site(body: SiteIn, actor: CurrentManager, structure_id: int | None = None):
+    _feature(actor)
     sid = scope_structure(actor, structure_id)
     try:
         site_id = db.create_dive_site(sid, body.name, round(body.lat, 6), round(body.lon, 6), body.notes, _now())
@@ -122,6 +130,7 @@ def _refresh(site_id: int) -> None:
 
 @router.put("/admin/dive-sites/{site_id}")
 def admin_update_site(site_id: int, body: SiteIn, actor: CurrentManager):
+    _feature(actor)
     _managed_site_or_404(site_id, actor)
     try:
         moved = db.update_dive_site(site_id, body.name, round(body.lat, 6), round(body.lon, 6), body.notes)
@@ -134,6 +143,7 @@ def admin_update_site(site_id: int, body: SiteIn, actor: CurrentManager):
 
 @router.delete("/admin/dive-sites/{site_id}", status_code=204)
 def admin_delete_site(site_id: int, actor: CurrentManager):
+    _feature(actor)
     _managed_site_or_404(site_id, actor)
     db.delete_dive_site(site_id)
 
@@ -160,7 +170,7 @@ def admin_refresh_sites(admin: CurrentSuperAdmin):
 def list_sites(user: OptionalUser = None):
     """Sites de plongée de la structure active du compte, avec l'indication du courant disponible. Les sites
     sont propres à chaque structure : rien pour un visiteur ou un compte sans structure."""
-    if user is None or user["structure_id"] is None:
+    if user is None or user["structure_id"] is None or not auth.accounts.permissions(user)["currents"]:
         return []
     return [site_out(r) for r in db.list_dive_sites(user["structure_id"])]
 
@@ -190,6 +200,7 @@ def _out(c: current_calc.Current | None) -> dict | None:
 def site_currents(site_id: int, user: auth.CurrentUser, start: datetime = Query(...), end: datetime = Query(...)):
     """Courant au site toutes les 15 minutes entre start et end (UTC, 3 jours au plus), l'instant du courant le
     plus faible (étale de courant) et le courant le plus fort."""
+    auth.require_feature(user, "currents")
     site = _site_or_404(site_id, user)
     start = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
     end = end if end.tzinfo else end.replace(tzinfo=timezone.utc)
@@ -281,6 +292,7 @@ def selection_currents(selection_id: int, user: CurrentMember):
     """Courant de tous les sites de la structure autour d'un créneau qu'elle a choisi : étale ± 3 h, plage de
     hauteur d'eau ± 1 h, ou 6 h à partir du RDV d'un créneau personnalisé (heure de Paris pour un lieu libre).
     Pas de courant pour un séjour de plusieurs jours."""
+    auth.require_feature(user, "currents")
     sel = db.get_selection(user["structure_id"], selection_id)
     if sel is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
