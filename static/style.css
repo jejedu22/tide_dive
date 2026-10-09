@@ -1903,3 +1903,21 @@ dialog > .dialog-close {
 }
 dialog > .dialog-close:hover { background: #eef4f7; color: var(--blue-deep); }
 dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* Tableau de bord et journal d'activité (administration) */
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+.kpi { background: white; border-radius: 12px; padding: 0.7rem 0.9rem; box-shadow: 0 1px 3px rgba(7, 59, 76, 0.12); display: flex; flex-direction: column; }
+.kpi strong { font-size: 1.6rem; color: var(--blue-deep); line-height: 1.1; }
+.kpi span { font-size: 0.8rem; color: #4a6572; }
+.dash-table td.dash-issues { white-space: normal; min-width: 14rem; }
+@media (max-width: 700px) { .users td.dash-issues { grid-column: 1 / -1; min-width: 0; } }
+.dash-ports { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
+.dash-ports li.dash-warn strong { color: #b3264a; }
+.tag-quiet { background: #eef4f6; color: #4a6572; font-weight: 500; }
+.tag-error { background: #b3264a; color: white; }
+.journal-list { list-style: none; padding: 0; margin: 0; font-size: 0.88rem; }
+.journal-list li { display: flex; gap: 0.7rem; padding: 0.4rem 0; border-top: 1px solid #e3eef2; }
+.journal-list li:first-child { border-top: 0; }
+.journal-at { color: #4a6572; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#journal-filter input { font: inherit; padding: 0.35rem 0.5rem; border-radius: 8px; border: 1px solid #cfe3ea; min-width: 12rem; }
+@media (max-width: 600px) { .journal-list li { flex-direction: column; gap: 0.1rem; } }

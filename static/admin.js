@@ -79,8 +79,8 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet"];
-const SUPER_TABS = ["structures", "ports", "donnees"];
+const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const SUPER_TABS = ["dashboard", "structures", "ports", "donnees"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
 
@@ -92,6 +92,8 @@ function showTab(name) {
   }
   for (const t of ALL_TABS) $(`tab-${t}`).hidden = t !== name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+  if (name === "dashboard") loadDashboard();
+  if (name === "journal") loadJournal();
   if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "ports" && portsMap) Carte.refresh(portsMap.map);
@@ -106,6 +108,10 @@ document.querySelector(".tabs").addEventListener("click", e => {
   if (btn) showTab(btn.dataset.tab);
 });
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+document.addEventListener("click", e => {
+  const btn = e.target.closest("[data-goto-tab]");
+  if (btn) showTab(btn.dataset.gotoTab);
+});
 flashEl.addEventListener("click", e => {
   const link = e.target.closest("[data-goto]");
   if (link) { e.preventDefault(); showTab(link.dataset.goto); }
@@ -543,6 +549,96 @@ $("requests-list").addEventListener("click", async e => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Tableau de bord (super administrateur)
+// ---------------------------------------------------------------------------
+
+const fmtAgo = iso => {
+  if (!iso) return "jamais";
+  const days = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  return days <= 0 ? "aujourd'hui" : days === 1 ? "hier" : `il y a ${days} jours`;
+};
+
+const journalLine = r => `
+  <li><span class="journal-at">${esc(fmtStamp.format(new Date(r.at)))}</span>
+  <span><strong>${esc(r.actor || "?")}</strong> · ${esc(r.action)}${r.target ? ` : <em>${esc(r.target)}</em>` : ""}${r.structure ? ` <span class="tag">${esc(r.structure)}</span>` : ""}</span></li>`;
+
+async function loadDashboard() {
+  let d;
+  try {
+    d = await Session.api("/api/admin/dashboard");
+  } catch (e) {
+    $("dash-kpis").innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    return;
+  }
+  const kpi = (value, label, title = "") => `<div class="kpi"${title ? ` title="${esc(title)}"` : ""}><strong>${value}</strong><span>${esc(label)}</span></div>`;
+  const withIssues = d.structures.filter(s => s.issues.length).length;
+  $("dash-kpis").innerHTML = [
+    kpi(d.structures.length, "structures", withIssues ? `${withIssues} avec un point d'attention` : ""),
+    kpi(d.users.total, "comptes"),
+    kpi(d.users.active_30d, "actifs sur 30 jours", "connectés au moins une fois depuis 30 jours"),
+    kpi(d.users.pending_invites, "invitations en attente"),
+    kpi(d.selections.upcoming, "créneaux à venir"),
+    kpi(d.selections.registrations_30d, "inscriptions (30 j)"),
+    kpi(d.health.ok ? "✓" : d.health.errors, d.health.ok ? "santé" : "erreurs de santé"),
+  ].join("");
+  $("dash-structures").innerHTML = d.structures.length ? d.structures.map(s => `
+    <tr${s.issues.length ? ' class="dash-warn"' : ""}>
+      <th scope="row">${esc(s.name)}${s.caci_check ? ' <span class="tag" title="Vérification du CACI à l\'inscription">CACI</span>' : ""}</th>
+      <td class="num" data-label="Membres">${s.members}</td><td class="num" data-label="Admin.">${s.managers}</td>
+      <td class="num" data-label="Créneaux à venir">${s.upcoming}</td><td class="num" data-label="Inscriptions (30 j)">${s.registrations_30d}</td>
+      <td class="num" data-label="Sites">${s.sites}</td>
+      <td data-label="Dernière connexion admin.">${esc(fmtAgo(s.last_admin_login))}</td>
+      <td class="dash-issues" data-label="Points d'attention">${s.issues.length ? s.issues.map(i => `<span class="tag tag-warn">${esc(i)}</span>`).join(" ") : '<span class="muted">—</span>'}</td>
+    </tr>`).join("") : `<tr><td colspan="8" class="empty">Aucune structure.</td></tr>`;
+  const year = new Date().getFullYear();
+  $("dash-ports").innerHTML = d.ports.length ? d.ports.map(p => `
+    <li${p.has_current_year ? "" : ' class="dash-warn"'}><strong>${esc(p.name)}</strong>
+    ${p.years.length ? p.years.map(y => `<span class="tag${y === year ? "" : " tag-quiet"}">${y}</span>`).join(" ") : '<span class="muted">aucune année calculée</span>'}
+    ${p.has_current_year ? "" : `<span class="tag tag-warn">${year} manquante</span>`}</li>`).join("")
+    : `<li class="muted">Aucun port.</li>`;
+  $("dash-health").innerHTML = d.health.problems.length ? d.health.problems.map(p => `
+    <li><span><span class="tag ${p.level === "error" ? "tag-error" : "tag-warn"}">${p.level === "error" ? "erreur" : "avertissement"}</span> ${esc(p.message)}</span></li>`).join("")
+    : `<li class="muted">Aucun problème détecté.</li>`;
+  $("dash-recent").innerHTML = d.recent.length ? d.recent.map(journalLine).join("") : `<li class="muted">Aucune action enregistrée.</li>`;
+}
+
+// ---------------------------------------------------------------------------
+// Journal d'activité
+// ---------------------------------------------------------------------------
+
+const JOURNAL_PAGE = 100;
+let journalLast = null;     // id de la dernière ligne affichée (page suivante)
+
+function journalQS(before) {
+  const p = new URLSearchParams({ limit: JOURNAL_PAGE });
+  if (isSuper() && $("journal-structure").value) p.set("structure_id", $("journal-structure").value);
+  const q = $("journal-q").value.trim();
+  if (q) p.set("q", q);
+  if (before) p.set("before_id", before);
+  return p.toString();
+}
+
+async function loadJournal({ more = false } = {}) {
+  const list = $("journal-list");
+  let rows;
+  try {
+    rows = await Session.api(`/api/admin/audit?${journalQS(more ? journalLast : null)}`);
+  } catch (e) {
+    list.innerHTML = `<li class="muted">${esc(e.message)}</li>`;
+    return;
+  }
+  const html = rows.map(journalLine).join("");
+  if (more) list.insertAdjacentHTML("beforeend", html);
+  else list.innerHTML = html || `<li class="muted">Aucune action enregistrée.</li>`;
+  if (rows.length) journalLast = rows[rows.length - 1].id;
+  $("journal-more").hidden = rows.length < JOURNAL_PAGE;
+}
+
+$("journal-filter").addEventListener("submit", e => { e.preventDefault(); loadJournal(); });
+$("journal-structure").addEventListener("change", () => loadJournal());
+$("journal-more").addEventListener("click", () => loadJournal({ more: true }));
+
 // Listes déroulantes de structures (types, création de compte, filtre des comptes)
 function renderStructureSelects() {
   const opts = (selected, extra = "") => extra + structures.map(st =>
@@ -556,6 +652,11 @@ function renderStructureSelects() {
   const sitesSel = $("sites-structure");
   sitesSel.innerHTML = opts(sitesScope ?? keepTypes);
   sitesScope = sitesSel.value ? Number(sitesSel.value) : null;
+
+  const jSel = $("journal-structure");
+  const keepJournal = jSel.value;
+  jSel.innerHTML = `<option value="">Toutes</option>` + opts(null);
+  jSel.value = keepJournal;
 
   const mjSel = $("mailjet-structure");
   mjSel.innerHTML = opts(mailjetScope ?? keepTypes);
