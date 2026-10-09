@@ -301,7 +301,11 @@ API : `GET /api/dive-sites` (sites de la structure active du compte), `GET /api/
 
 ## Administration des données
 
-La page `/admin.html` (administrateurs) comporte trois onglets.
+La page `/admin.html` (administrateurs) comporte plusieurs onglets ; ceux des données (Tableau de bord, Structures, Ports, Données et tâches) sont réservés aux super administrateurs.
+
+**Tableau de bord** (`app/dashboard.py`, `GET /api/admin/dashboard`) : chiffres clés (structures, comptes, comptes actifs sur 30 jours, invitations en attente, créneaux à venir, inscriptions sur 30 jours, santé), tableau des structures avec leurs points d'attention (aucun administrateur, aucun type de créneau proposé, pas de port par défaut, aucun administrateur connecté depuis 90 jours, aucun créneau choisi), années calculées par port (l'année en cours manquante est signalée), problèmes de santé et dernières actions du journal.
+
+**Journal** (`app/audit.py`, `GET /api/admin/audit?structure_id&q&before_id&limit`) : chaque requête qui modifie quelque chose (POST, PUT, PATCH, DELETE réussis d'un compte connecté) est enregistrée avec son auteur, sa date, un libellé lisible (« Inscription au créneau », « Modification d'un compte »…), sa cible (nom du créneau, du membre, du port…) et la structure concernée. Les actions personnelles sans intérêt pour l'administration (connexion, préférences, choix de la structure active…) ne le sont pas. Un administrateur de structure voit le journal de sa structure, le super administrateur tout le journal (filtre par structure, recherche, pagination). Conservation : deux ans (purge automatique).
 
 **Ports** : ajout depuis le catalogue (`app/ports_catalog.py`) ou en saisie libre, modification, suppression (avec toutes les données calculées du port), case « recalcul annuel », années calculées (le modèle utilisé en info-bulle ; une année calculée avec un autre modèle que le modèle actuel est signalée), et bouton **Calculer** par port et par année, ou pour tous les ports annuels d'un coup. Un port sans niveau moyen au-dessus du zéro des cartes peut être enregistré mais pas calculé. La page de recherche ne propose que les ports ayant au moins une année calculée.
 
@@ -743,6 +747,8 @@ Réservée au super administrateur.
 | `GET` / `POST /api/admin/jobs` | liste / mise en file `{kind, params}` ; `kind` : `precompute` (`port_id`, `year`), `calibrate` (`port_id`), `short_term` (`port_id`), `fetch_models` (`model`), `school_holidays`, `currents_atlas` (`zone`) |
 | `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
 | `GET /api/admin/jobs/{id}` | détail avec journal |
+| `GET /api/admin/dashboard` | tableau de bord (super administrateurs) |
+| `GET /api/admin/audit` | journal d'activité `?structure_id&q&before_id&limit` (administrateur de structure : sa structure) |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
 
 ## Exploitation : sauvegarde, surveillance, sécurité

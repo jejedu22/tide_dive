@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import admin, auth, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
+from . import admin, audit, auth, dashboard, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -36,6 +36,7 @@ if security.ALLOWED_ORIGINS:
         CORSMiddleware, allow_origins=security.ALLOWED_ORIGINS, allow_credentials=True,
         allow_methods=["*"], allow_headers=["*"],
     )
+audit.install(app)      # journal d'activité (modifications faites par un compte connecté)
 security.install(app)   # en-têtes de sécurité (CSP…) et contrôle de l'origine des requêtes qui modifient des données
 
 
@@ -75,6 +76,8 @@ app.include_router(memberships.router)
 # Newsletters : rédaction, envoi, suivi, désinscription, événements Mailjet (/api/newsletters, /api/mailjet/events)
 app.include_router(newsletters.router)
 app.include_router(divers.router)
+app.include_router(audit.router)
+app.include_router(dashboard.router)
 
 
 @app.on_event("startup")

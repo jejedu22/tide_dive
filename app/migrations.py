@@ -268,6 +268,14 @@ def _m009_diver_profile(conn: sqlite3.Connection) -> None:
                      "CHECK (caci_validity_months BETWEEN 1 AND 60)")
 
 
+def _m010_audit_log(conn: sqlite3.Connection) -> None:
+    """Journal d'activité (table créée par db.SCHEMA sur toute base) : rien à convertir."""
+    conn.execute("CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, "
+                 "actor_id INTEGER, actor_name TEXT, structure_id INTEGER, method TEXT NOT NULL, route TEXT NOT NULL, "
+                 "action TEXT NOT NULL, target TEXT, status INTEGER NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -278,6 +286,7 @@ MIGRATIONS: list[Migration] = [
     Migration(7, "aperçu des rôles par un super administrateur", _m007_preview),
     Migration(8, "sites de plongée rattachés aux structures", _m008_dive_sites_by_structure),
     Migration(9, "fiche plongeur (niveaux, licence, CACI) et vérification du CACI", _m009_diver_profile),
+    Migration(10, "journal d'activité", _m010_audit_log),
 ]
 
 

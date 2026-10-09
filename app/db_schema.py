@@ -567,6 +567,22 @@ CREATE TABLE IF NOT EXISTS site_currents """ + SITE_CURRENTS_COLUMNS + """;
 
 CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
 
+-- Journal d'activité (audit.py) : chaque modification faite par un compte connecté. Pas de clé étrangère : une
+-- entrée survit à la suppression du compte ou de la structure (le nom de l'auteur est recopié).
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,                -- ISO UTC
+    actor_id INTEGER,
+    actor_name TEXT,
+    structure_id INTEGER,            -- structure concernée (NULL : application entière)
+    method TEXT NOT NULL,
+    route TEXT NOT NULL,             -- motif de la route (ex. /api/admin/users/{user_id})
+    action TEXT NOT NULL,            -- libellé (ex. « Compte modifié »)
+    target TEXT,                     -- objet concerné, lisible (ex. « Alice Test »)
+    status INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id);
+
 -- Plages d'indisponibilité d'une structure (tous lieux) : aucun créneau ne peut y être choisi ou créé.
 -- Du jour start_date (à start_time, sinon dès 00:00) au jour end_date (jusqu'à end_time exclu, sinon toute la
 -- journée), heures locales. Les créneaux déjà choisis dans la plage restent (l'administrateur est prévenu).

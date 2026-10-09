@@ -37,6 +37,7 @@
 
       <!-- data-super : réservé au super administrateur (masqué pour un administrateur de structure) -->
       <div class="tabs" role="tablist" aria-label="Sections">
+        <button type="button" role="tab" data-tab="dashboard" data-super aria-selected="false">Tableau de bord</button>
         <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
         <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
         <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
@@ -44,8 +45,51 @@
         <button type="button" role="tab" data-tab="sites" aria-selected="false">Sites de plongée</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
         <button type="button" role="tab" data-tab="mailjet" aria-selected="false">Mailjet</button>
+        <button type="button" role="tab" data-tab="journal" aria-selected="false">Journal</button>
       </div>
       <p id="flash" class="flash" role="status"></p>
+
+      <!-- ============ Tableau de bord (super administrateur) ============ -->
+      <section id="tab-dashboard" class="tab-panel" role="tabpanel" hidden>
+        <div id="dash-kpis" class="kpis"></div>
+        <div class="panel">
+          <h2>Structures</h2>
+          <p class="hint">Les points d'attention signalent un réglage manquant ou une structure peu active.</p>
+          <div class="table-wrap"><table class="users dash-table">
+            <thead><tr><th>Structure</th><th>Membres</th><th>Admin.</th><th>Créneaux à venir</th><th>Inscriptions (30 j)</th><th>Sites</th><th>Dernière connexion admin.</th><th>Points d'attention</th></tr></thead>
+            <tbody id="dash-structures"></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <h2>Ports et années calculées</h2>
+          <ul id="dash-ports" class="dash-ports"></ul>
+        </div>
+        <div class="panel">
+          <h2>Santé</h2>
+          <ul id="dash-health" class="water-list"></ul>
+        </div>
+        <div class="panel">
+          <h2>Dernières actions <button type="button" class="btn-quiet btn-small" data-goto-tab="journal">Tout le journal</button></h2>
+          <ul id="dash-recent" class="journal-list"></ul>
+        </div>
+      </section>
+
+      <!-- ============ Journal d'activité ============ -->
+      <section id="tab-journal" class="tab-panel" role="tabpanel" hidden>
+        <form id="journal-filter" class="scope-bar" role="search">
+          <label for="journal-structure" data-super>Structure</label>
+          <select id="journal-structure" data-super></select>
+          <label for="journal-q">Rechercher</label>
+          <input id="journal-q" type="search" placeholder="compte, action, cible…">
+          <button type="submit" class="btn-quiet btn-small">Filtrer</button>
+        </form>
+        <div class="panel">
+          <h2>Journal d'activité</h2>
+          <p class="hint">Les modifications faites dans l'administration et sur les créneaux (qui, quoi, quand), conservées deux ans. Un administrateur de structure voit celles de sa structure.</p>
+          <ul id="journal-list" class="journal-list"></ul>
+          <p><button type="button" id="journal-more" class="btn-quiet btn-small" hidden>Plus</button></p>
+        </div>
+      </section>
 
       <!-- ============ Structures ============ -->
       <section id="tab-structures" class="tab-panel" role="tabpanel" hidden>
