@@ -233,7 +233,7 @@ def models_by_port_year() -> dict[int, dict[int, str]]:
 
 
 _CALIBRATION_FIELDS = (
-    "site", "model", "time_shift_min", "amplitude", "harmonics_json", "mean_level_m", "rmse_before_m", "rmse_after_m",
+    "site", "model", "constituents", "time_shift_min", "amplitude", "harmonics_json", "mean_level_m", "rmse_before_m", "rmse_after_m",
     "extrema_dt_before_min", "extrema_dt_after_min", "n_points", "window_start", "window_end", "computed_at",
 )
 

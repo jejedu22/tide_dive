@@ -22,8 +22,7 @@ PREVIMER) dans les ports et zones à géométrie complexe. Avant de faire
 confiance aux horaires calculés pour une vraie sortie, comparez quelques
 valeurs à l'annuaire officiel du SHOM (https://maree.shom.fr) pour le port
 concerné. Le recalage automatique sur api-maree.fr (calibration.py) corrige
-l'essentiel de l'écart, onde par onde, y compris les ondes de petits fonds
-(M4, MS4…) que ce module ne calcule pas.
+l'essentiel de l'écart restant, onde par onde.
 """
 
 from __future__ import annotations
@@ -41,8 +40,15 @@ TIDE_MODEL_NAME = os.environ.get("TIDE_MODEL_NAME", "FES2014")
 TIDE_MODEL_DIRECTORY = os.environ.get("TIDE_MODEL_DIRECTORY", "/data/tide_models")
 
 # Ondes chargées : les 8 principales + 2n2, exigée par pyTMD pour inférer les
-# ondes secondaires (eps2…). Les autres ondes FES ne sont jamais ouvertes.
+# ondes secondaires (eps2…)…
 MAJOR_CONSTITUENTS = ["m2", "s2", "n2", "k2", "k1", "o1", "p1", "q1", "2n2"]
+# … et les ondes de petits fonds (quart-diurnes), fournies par FES2014 et FES2022 : fortes en Manche, elles
+# rendent la courbe dissymétrique (montée rapide, descente lente) et décalent les heures de PM/BM.
+SHALLOW_WATER_CONSTITUENTS = ["m4", "ms4", "mn4"]
+CONSTITUENTS = MAJOR_CONSTITUENTS + SHALLOW_WATER_CONSTITUENTS
+# Ondes calculées, enregistrées avec chaque recalage : un recalage établi sur un autre jeu d'ondes n'est pas
+# appliqué (il corrigerait des ondes que le calcul contient désormais). Avant les ondes de petits fonds : None.
+CONSTITUENTS_KEY = ",".join(CONSTITUENTS)
 
 # Demi-largeur (degrés) de la fenêtre de grille extraite autour du port.
 # Doit dépasser 2 × cutoff d'extrapolation (15 km ≈ 0,27°).
@@ -54,11 +60,11 @@ EXTRAPOLATION_CUTOFF_KM = 15.0
 def _definition_json(model: str) -> str:
     """
     Définition pyTMD du modèle, réduite aux hauteurs d'eau (groupe « z ») et
-    aux seuls fichiers des ondes de MAJOR_CONSTITUENTS.
+    aux seuls fichiers des ondes de CONSTITUENTS.
 
     - pyTMD 3.x vérifie la présence des fichiers de TOUS les groupes (z, u, v) :
       pour FES2014 il exigerait les courants, inutiles ici.
-    - N'ouvrir que 9 fichiers au lieu de 34 réduit d'autant les lectures.
+    - N'ouvrir que 12 fichiers au lieu de 34 réduit d'autant les lectures.
     """
     import pyTMD.io
 
@@ -71,7 +77,7 @@ def _definition_json(model: str) -> str:
     entry.pop("v", None)
     entry.setdefault("name", model)
     z = dict(entry["z"])
-    wanted = set(MAJOR_CONSTITUENTS)
+    wanted = set(CONSTITUENTS)
     z["model_file"] = [
         f for f in z["model_file"]
         if pathlib.Path(f).stem.split("_")[0].lower() in wanted

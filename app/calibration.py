@@ -6,8 +6,9 @@ Principe
 --------
 L'erreur du modèle global FES dans un port n'est pas un simple décalage :
 elle varie d'une marée à l'autre (vives-eaux / mortes-eaux), car chaque onde
-a sa propre erreur, et les ondes de petits fonds (M4, MS4, MN4…), fortes en
-Manche, ne sont pas calculées du tout (voir tide_model.MAJOR_CONSTITUENTS).
+a sa propre erreur, et les ondes de petits fonds sont mal représentées par une
+grille globale (M4, MS4, MN4 sont calculées, voir tide_model.CONSTITUENTS ;
+M6, 2MS6… ne le sont pas).
 
 Or l'écart référence − FES est lui-même une marée : une somme d'ondes de
 fréquences connues. Sur la fenêtre où la référence est disponible
@@ -209,6 +210,7 @@ def calibrate(port: dict, model: str, start: datetime, end: datetime, log=print)
     return {
         "site": site,
         "model": model,
+        "constituents": tide_model.CONSTITUENTS_KEY,
         "time_shift_min": 0.0,
         "amplitude": 1.0,
         "harmonics_json": json.dumps(waves),
@@ -224,6 +226,12 @@ def calibrate(port: dict, model: str, start: datetime, end: datetime, log=print)
     }
 
 
+def applies_to_current(cal) -> bool:
+    """Le recalage a-t-il été établi sur les ondes calculées aujourd'hui ? (avant M4, MS4, MN4 : non)"""
+    keys = cal.keys()
+    return ("constituents" in keys and cal["constituents"]) == tide_model.CONSTITUENTS_KEY
+
+
 def waves_of(cal) -> list[dict]:
     """Ondes d'un recalage enregistré (aucune pour un ancien recalage τ/a)."""
     raw = cal["harmonics_json"] if cal is not None and "harmonics_json" in cal.keys() else None
@@ -232,7 +240,7 @@ def waves_of(cal) -> list[dict]:
 
 def changed(previous, new: dict) -> bool:
     """Le nouveau recalage modifie-t-il sensiblement les hauteurs calculées ?"""
-    if previous is None or previous["model"] != new["model"]:
+    if previous is None or previous["model"] != new["model"] or not applies_to_current(previous):
         return True
     if (previous["time_shift_min"], previous["amplitude"]) != (new["time_shift_min"], new["amplitude"]):
         return True

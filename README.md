@@ -229,7 +229,7 @@ Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) enregist
 
 ### Recalage du calcul FES (long terme)
 
-**Pourquoi une correction onde par onde.** L'erreur de FES dans un port n'est pas un simple décalage horaire : elle varie d'une marée à l'autre, entre vives-eaux et mortes-eaux, car chaque onde (M2, S2, N2…) a sa propre erreur. De plus, seules les ondes principales de FES sont calculées : les ondes de petits fonds (M4, MS4, MN4…), fortes en Manche, manquent. Un décalage et un facteur d'amplitude uniques, ajustés sur deux mois, ne corrigeaient donc que l'erreur moyenne, souvent proche de zéro.
+**Pourquoi une correction onde par onde.** L'erreur de FES dans un port n'est pas un simple décalage horaire : elle varie d'une marée à l'autre, entre vives-eaux et mortes-eaux, car chaque onde (M2, S2, N2…) a sa propre erreur. De plus, les ondes de petits fonds (M4, MS4, MN4…), fortes en Manche, sont mal rendues par une grille globale, et M6, 2MS6… ne sont pas calculées. Un décalage et un facteur d'amplitude uniques, ajustés sur deux mois, ne corrigeaient donc que l'erreur moyenne, souvent proche de zéro.
 
 **Méthode** (`app/calibration.py`) :
 
@@ -962,7 +962,8 @@ FES est un modèle **océanique global** : il est moins précis dans les ports, 
 Choix techniques à connaître :
 
 - **Pourquoi pas une API ?** api-maree.fr limite ses horaires à une fenêtre glissante J−30 / J+30, et les API SHOM ne permettent pas de récupération multi-mois gratuite. Un précalcul annuel exige un calcul local ; api-maree.fr sert seulement à le recaler.
-- **Mémoire** : seules les 8 ondes principales (+ 2N2, requise pour l'inférence des ondes secondaires) sont chargées, sur une fenêtre de grille de ±0,5° autour du port. Charger tout FES provoque des OOM.
+- **Mémoire** : seules 12 ondes sont chargées — les 8 principales, 2N2 (requise pour l'inférence des ondes secondaires) et les ondes de petits fonds M4, MS4, MN4 — sur une fenêtre de grille de ±0,5° autour du port. Charger tout FES provoque des OOM.
+- **Ondes de petits fonds** (M4, MS4, MN4, présentes dans FES2014 et FES2022, téléchargées avec le modèle) : quart-diurnes, fortes en Manche, elles rendent la courbe dissymétrique (montée rapide, descente lente) et décalent les heures de PM/BM de plusieurs minutes. Ajoutées au calcul par la migration n° 22 : un recalage établi avant elles n'est plus appliqué (colonne `tide_calibration.constituents`) ; la mise à jour remet en file le recalage des ports dotés d'un site api-maree.fr (qui relance leurs précalculs) et le précalcul des années à venir des autres ports. Sans clé api-maree.fr, un port recalé garde ses horaires d'avant jusqu'au prochain recalage réussi.
 - **Courants FES2014 non requis** : seul le groupe « z » (hauteurs) est utilisé ; la définition pyTMD est réduite en conséquence.
 - **Heure des étales** : la série est calculée au pas de 10 min, mais chaque PM/BM est affinée par interpolation parabolique sur les trois points qui l'entourent, puis arrondie à la minute. Un pas d'une minute donnerait le même résultat pour ~10 fois plus de calcul et de place en base. Un recalcul qui décale une étale de quelques minutes (≤ 20 min) y recale automatiquement les créneaux choisis.
 - **pyTMD** : l'API bas niveau est utilisée plutôt que `tide_elevations()`, dont le comportement s'est révélé instable.
