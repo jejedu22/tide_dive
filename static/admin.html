@@ -669,6 +669,24 @@
           <p id="users-status" class="form-status" role="status"></p>
           <p class="hint"><strong>Administration</strong> : choisit les créneaux de la structure, gère ses membres et ses types. <strong>Visualisation</strong> : voit la liste des créneaux choisis. Les <strong>profils</strong>, cumulables, s'ajoutent au rôle : <strong>Gestionnaire</strong> ouvre les newsletters de la structure. On se connecte avec son identifiant ou son adresse e-mail.</p>
         </div>
+      
+        <div class="panel" id="duplicates-panel" data-super>
+          <h2>Doublons probables</h2>
+          <p class="hint">Comptes de même prénom et nom (accents et majuscules ignorés), de même numéro de licence ou de même téléphone, par exemple un plongeur inscrit dans deux clubs avec deux comptes. <strong>Fusionner</strong> garde un compte et lui rattache tout ce qui appartient à l'autre (structures avec le rôle le plus élevé, profils, inscriptions, préférences, historique), complète ses champs vides, puis supprime l'autre.</p>
+          <p><button type="button" id="duplicates-load" class="btn-secondary btn-small">Rechercher les doublons</button></p>
+          <div id="duplicates-list"></div>
+        </div>
+
+        <div class="panel" id="inactive-panel" data-super>
+          <h2>Comptes inactifs</h2>
+          <p class="hint">Comptes sans connexion depuis la durée choisie (jamais connectés : créés avant), hors super administrateurs. Les données personnelles ne doivent pas être gardées sans raison : supprimez ceux qui n'ont plus lieu d'être.</p>
+          <p class="inline-form">
+            <label for="inactive-months">Sans connexion depuis</label>
+            <select id="inactive-months"><option value="12">1 an</option><option value="24" selected>2 ans</option><option value="36">3 ans</option></select>
+            <button type="button" id="inactive-load" class="btn-secondary btn-small">Afficher</button>
+          </p>
+          <div id="inactive-list"></div>
+        </div>
       </section>
     </div>
   </main>

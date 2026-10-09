@@ -260,7 +260,16 @@ CREATE TABLE IF NOT EXISTS users (
     -- CACI : date du certificat ; validée par un gestionnaire de structure (sinon en attente)
     caci_date TEXT,
     caci_validated_at TEXT,
-    caci_validated_by TEXT          -- nom de qui l'a validée (le compte peut disparaître)
+    caci_validated_by TEXT,         -- nom de qui l'a validée (le compte peut disparaître)
+    -- Double authentification (twofactor.py) : secret TOTP (chiffré si SECRETS_KEY est définie), activée le,
+    -- codes de secours (SHA-256, JSON), dernier pas de 30 s accepté (un code ne sert qu'une fois)
+    totp_secret TEXT,
+    totp_enabled_at TEXT,
+    totp_recovery TEXT,
+    totp_last_step INTEGER,
+    -- Suspension (super administrateur) : connexion refusée, sessions fermées
+    suspended_at TEXT,
+    suspended_reason TEXT
 );
 
 -- Jetons à usage unique envoyés par e-mail : invitation (définir son premier
@@ -286,6 +295,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- aperçu d'un super administrateur (voir l'application avec un autre rôle) ; NULL : pas d'aperçu
     preview_role TEXT CHECK (preview_role IN ('manager', 'viewer', 'none')),
     preview_profiles TEXT           -- profils de l'aperçu, séparés par des virgules
+);
+
+-- Connexion en deux temps (double authentification) : après le mot de passe, un jeton à usage unique attend
+-- le code de l'application d'authentification (5 minutes, 5 essais). Seul le SHA-256 du jeton est stocké.
+CREATE TABLE IF NOT EXISTS login_challenges (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0
 );
 
 -- Appartenance d'un compte à une structure, avec son rôle DANS cette structure : un compte peut appartenir

@@ -145,6 +145,15 @@ def profiles_of(row: sqlite3.Row) -> list[str]:
     return sorted(p for p in (raw or "").split(",") if p in PROFILES)
 
 
+# Double authentification obligatoire pour les super administrateurs (TOTP_SUPER_ADMINS=0 : facultative pour tous)
+TOTP_REQUIRED_FOR_SUPER_ADMINS = os.environ.get("TOTP_SUPER_ADMINS", "1").lower() not in ("0", "false", "no")
+
+
+def totp_setup_required(row: sqlite3.Row | dict) -> bool:
+    """Super administrateur sans double authentification alors qu'elle est obligatoire."""
+    return bool(TOTP_REQUIRED_FOR_SUPER_ADMINS and row["is_admin"] and not row["totp_enabled"])
+
+
 def permissions(row: sqlite3.Row) -> dict:
     """Droits dérivés du compte ; le front s'en sert pour l'affichage, l'API les revérifie."""
     is_super = bool(row["is_admin"])
@@ -228,6 +237,9 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
         "created_at": row["created_at"],
         "last_login_at": row["last_login_at"],
         "password_changed_at": row["password_changed_at"],
+        "totp_enabled": bool(row["totp_enabled"]),
+        "totp_setup_required": totp_setup_required(row),
+        "suspended": {"at": row["suspended_at"], "reason": row["suspended_reason"]} if row["suspended_at"] else None,
         # aperçu d'un super administrateur (rôle simulé, lecture seule) : None hors aperçu
         "preview": {"role": row["preview_role"]} if "preview_role" in row.keys() else None,
     }

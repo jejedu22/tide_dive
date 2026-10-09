@@ -115,7 +115,7 @@
         <li>Identité et contact : identifiant, nom, prénom, adresse e-mail et, s'il est renseigné, numéro de téléphone ;</li>
         <li>Rattachement : structure et rôle (visualisation ou administration) ;</li>
         <li>Fiche plongeur, si vous la remplissez ou si votre structure la remplit : niveau de plongeur et d'encadrement, autres qualifications, numéro de licence FFESSM et lien de sa fiche fédérale (QR code), <strong>date de votre certificat médical de non contre-indication (CACI)</strong>, et qui l'a validée. Seule la date est enregistrée, jamais le certificat ni aucune information médicale ;</li>
-        <li>Connexion : mot de passe (conservé sous forme hachée, jamais en clair), date de création du compte et de dernière connexion, sessions ouvertes ;</li>
+        <li>Connexion : mot de passe (conservé sous forme hachée, jamais en clair), date de création du compte et de dernière connexion, sessions ouvertes ; si vous activez la double authentification, la clé de votre application d'authentification et vos codes de secours (hachés) ; le cas échéant, la suspension du compte et son motif ;</li>
         <li>Usage : préférences de recherche enregistrées, créneaux de plongée choisis par votre structure et inscriptions à ces créneaux (avec, le cas échéant, le membre qui vous a inscrit) ;</li>
         <li>Newsletters de votre structure : envois reçus et leur suivi (remise, ouverture, clics, rebond, désinscription), et votre éventuelle désinscription ;</li>
         <li>Journal d'activité : pour chaque modification faite par un administrateur ou un membre (créneau, inscription, compte, réglage…), son auteur, sa date, l'action et sa cible (par exemple le nom du membre inscrit) ;</li>
@@ -157,14 +157,19 @@
         l'éditeur. Le suivi d'une newsletter (destinataires et événements de réception) est conservé avec elle, jusqu'à sa suppression par un gestionnaire de la structure ; une désinscription, tant que le compte ou la structure existe. Une demande de création de structure est conservée jusqu'à son
         traitement, puis un an au plus. Les sessions expirent automatiquement et les journaux
         techniques sont effacés par rotation automatique au bout de quelques
-        semaines au plus. Le journal d'activité est conservé deux ans. Les sauvegardes de la base sont conservées 14 jours.
+        semaines au plus. Le journal d'activité est conservé deux ans ; la
+        suppression d'un compte y efface son nom. Les comptes restés sans
+        connexion pendant une longue période (deux ans en règle générale)
+        peuvent être supprimés. Les sauvegardes de la base sont conservées 14 jours.
       </p>
 
       <h3>Sécurité</h3>
       <p>
         Le site n'est accessible qu'en HTTPS. Les mots de passe sont hachés,
-        les connexions sont limitées en nombre de tentatives, et la base de
-        données est sauvegardée régulièrement.
+        les connexions sont limitées en nombre de tentatives, la double
+        authentification est proposée à tous (obligatoire pour les
+        administrateurs du site), et la base de données est sauvegardée
+        régulièrement.
       </p>
 
       <h3>Vos droits</h3>
@@ -174,7 +179,9 @@
         vos données. Pour les exercer, écrivez à
         jerome@chuletas.fr
         ou adressez-vous à l'administrateur de votre structure. Nous répondons
-        dans un délai d'un mois.
+        dans un délai d'un mois. Vous pouvez aussi télécharger vous-même
+        toutes vos données depuis le menu de votre compte, « Sécurité et
+        données » → « Télécharger mes données ».
       </p>
       <p>
         Si vous estimez, après nous avoir contactés, que vos droits ne sont pas

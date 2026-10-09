@@ -40,6 +40,7 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
            u.diver_level, u.instructor_level, u.qualifications, u.licence_number, u.licence_url,
            u.caci_date, u.caci_validated_at, u.caci_validated_by,
            u.must_change_password, u.password_changed_at,
+           u.totp_enabled_at IS NOT NULL AS totp_enabled, u.suspended_at, u.suspended_reason,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
            (SELECT MAX(t.expires_at) FROM user_tokens t
              WHERE t.user_id = u.id AND t.purpose = 'invite') AS invite_expires_at,
