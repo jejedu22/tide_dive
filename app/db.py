@@ -61,6 +61,8 @@ from .db_schema import (  # noqa: F401
     _migrate,
 )
 from .db_tides import (  # noqa: F401
+    get_weather_cache,
+    save_weather_cache,
     _SQL_INSERT_HEIGHTS,
     _SQL_INSERT_EXTREMA,
     _SQL_INSERT_SUN,

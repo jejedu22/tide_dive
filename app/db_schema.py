@@ -687,6 +687,13 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
 
+-- Météo marine (weather.py) : dernières prévisions d'Open-Meteo par port
+CREATE TABLE IF NOT EXISTS weather_cache (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    fetched_at TEXT NOT NULL,
+    data TEXT NOT NULL                   -- JSON : prévisions horaires (UTC) de vent et de houle
+);
+
 -- Rappels déjà envoyés (reminders.py) : un seul envoi par créneau, ou par date de CACI, et par compte.
 CREATE TABLE IF NOT EXISTS reminders_sent (
     kind TEXT NOT NULL,          -- slot, low_fill, caci

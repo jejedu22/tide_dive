@@ -178,6 +178,29 @@ const removeButton = () => (canPick() ? `<button type="button" class="btn-danger
 const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
 // Dupliquer : créneau personnalisé seulement (un créneau d'étale suit la marée de son jour)
 const duplicateButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="duplicate" title="Copier ce créneau à un autre jour">Dupliquer…</button>` : "");
+// Météo marine indicative (Open-Meteo) des créneaux des 7 prochains jours, chargée après les créneaux
+let weatherBySel = {};
+let weatherAttribution = "";
+const fmt1 = n => String(Math.round(n * 10) / 10).replace(".", ",");
+function weatherLine(p) {
+  const w = weatherBySel[p.id];
+  if (!w) return "";
+  const wave = w.wave != null ? ` · 🌊 ${fmt1(w.wave)} m${w.period ? ` (${Math.round(w.period)} s)` : ""}` : "";
+  const strong = w.gust >= 25 || w.wind >= 20 || (w.wave ?? 0) >= 2;
+  return `<span class="slot-weather${strong ? " weather-strong" : ""}" title="Prévision indicative à l'heure de l'étale (sinon du RDV) : vent ${Math.round(w.wind)} nœuds de ${compass(w.wind_dir)}, rafales ${Math.round(w.gust)} nœuds${w.wave != null ? `, houle ${fmt1(w.wave)} m de ${compass(w.wave_dir)}` : ""}. ${esc(weatherAttribution)}">💨 ${Math.round(w.wind)} nd ${compass(w.wind_dir)}${w.gust > w.wind + 4 ? ` (raf. ${Math.round(w.gust)})` : ""}${wave}</span>`;
+}
+
+async function loadWeather() {
+  try {
+    const r = await Session.api("/api/weather/selections");
+    weatherBySel = r.selections || {};
+    weatherAttribution = r.attribution || "";
+  } catch {
+    return;
+  }
+  if (Object.keys(weatherBySel).length) render();
+}
+
 // Partager : lien direct vers le créneau (membres de la structure, connectés)
 const shareButton = p => `<button type="button" class="btn-quiet btn-small" data-act="share" title="Copier le lien de ce créneau, pour le partager avec un membre de la structure">Partager</button>`;
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
@@ -210,6 +233,7 @@ function slotCard(p) {
       ${p.note ? `<p>${noteLine(p)}</p>` : ""}
       ${p.end_date ? `<p>${spanLine(p)}</p>` : ""}
       ${p.water ? `<p class="slot-water">${esc(p.water.label)}</p>` : ""}
+      ${weatherLine(p) ? `<p class="slot-weather-line">${weatherLine(p)}</p>` : ""}
       <p class="slot-tide">
         <span>${tideMark(p)}</span>
         ${!p.kind ? "" : `<span title="Hauteur d'eau à l'étale">${fmtHeight(p.height_m)} m</span>
@@ -498,7 +522,7 @@ function renderTable(list) {
         <tr data-id="${p.id}" class="${[i === 0 ? "day-start" : "", day < today ? "past" : ""].join(" ").trim()}">
           ${i === 0 ? `<th scope="row" rowspan="${items.length}" class="c-date">${formatDay(day)}</th>` : ""}
           <td class="c-rdv">${veilleMark(p)}${p.rdv.time}</td>
-          <td class="c-port">${esc(p.port)}${noteLine(p)}${spanLine(p)}</td>
+          <td class="c-port">${esc(p.port)}${noteLine(p)}${spanLine(p)}${weatherLine(p)}</td>
           <td class="c-tide">${tideMark(p)}</td>
           <td class="num">${fmtHeight(p.height_m)}</td>
           <td class="num"><span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></td>
@@ -669,6 +693,7 @@ async function load() {
   renderUnavNote();
   render();
   followHash();
+  loadWeather();
 }
 
 // Lien direct : #creneau-<id> montre ce créneau ; #carnet ouvre le carnet de plongées

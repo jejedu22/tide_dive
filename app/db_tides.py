@@ -586,3 +586,18 @@ def school_holidays_coverage(academy: str) -> tuple[int, str | None]:
             (academy,),
         ).fetchone()
     return row["n"], row["last"]
+
+
+# ---------------------------------------------------------------------------
+# Météo marine (weather.py)
+# ---------------------------------------------------------------------------
+
+def get_weather_cache(port_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM weather_cache WHERE port_id = ?", (port_id,)).fetchone()
+
+
+def save_weather_cache(port_id: int, fetched_at: str, data: str) -> None:
+    with get_conn() as conn:
+        conn.execute("INSERT INTO weather_cache (port_id, fetched_at, data) VALUES (?, ?, ?) ON CONFLICT (port_id) "
+                     "DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data", (port_id, fetched_at, data))

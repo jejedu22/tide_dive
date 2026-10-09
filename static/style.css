@@ -2051,3 +2051,9 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .logbook-dialog { width: min(44rem, 96vw); }
 .logbook-kpis { margin: 0.6rem 0; }
 .logbook-wrap { max-height: 45vh; overflow: auto; }
+
+/* Météo marine des créneaux */
+.slot-weather { display: inline-block; font-size: 0.8rem; color: #2f5d6e; white-space: nowrap; }
+.c-port .slot-weather { display: block; }
+.slot-weather.weather-strong { color: #a3471b; font-weight: 600; }
+.slot-weather-line { margin: 0.15rem 0; }

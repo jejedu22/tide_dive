@@ -451,6 +451,19 @@ def _m020_push(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)")
 
 
+WEATHER_TABLE = """
+CREATE TABLE IF NOT EXISTS weather_cache (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    fetched_at TEXT NOT NULL,
+    data TEXT NOT NULL                   -- JSON : prévisions horaires (UTC) de vent et de houle
+)"""
+
+
+def _m021_weather(conn: sqlite3.Connection) -> None:
+    """Cache des prévisions de météo marine par port (weather.py)."""
+    conn.execute(WEATHER_TABLE)
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -472,6 +485,7 @@ MIGRATIONS: list[Migration] = [
     Migration(18, "niveau de plongeur minimal des types et des créneaux", _m018_min_level),
     Migration(19, "commentaire et covoiturage des inscriptions", _m019_registration_notes),
     Migration(20, "notifications push", _m020_push),
+    Migration(21, "cache de la météo marine", _m021_weather),
 ]
 
 
