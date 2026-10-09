@@ -292,6 +292,18 @@ def _m011_account_security(conn: sqlite3.Connection) -> None:
                  "REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)")
 
 
+def _m012_structure_features(conn: sqlite3.Connection) -> None:
+    """Fonctions activables et archivage des structures ; bandeaux d'annonce (table créée par db.SCHEMA)."""
+    existing = _columns(conn, "structures")
+    if "disabled_features" not in existing:
+        conn.execute("ALTER TABLE structures ADD COLUMN disabled_features TEXT NOT NULL DEFAULT ''")
+    if "archived_at" not in existing:
+        conn.execute("ALTER TABLE structures ADD COLUMN archived_at TEXT")
+    conn.execute("CREATE TABLE IF NOT EXISTS announcements (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, "
+                 "level TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'warning')), starts_at TEXT NOT NULL, "
+                 "ends_at TEXT NOT NULL, structure_ids TEXT, created_by_name TEXT, created_at TEXT NOT NULL)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -304,6 +316,7 @@ MIGRATIONS: list[Migration] = [
     Migration(9, "fiche plongeur (niveaux, licence, CACI) et vérification du CACI", _m009_diver_profile),
     Migration(10, "journal d'activité", _m010_audit_log),
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
+    Migration(12, "fonctions activables, archivage des structures, bandeaux d'annonce", _m012_structure_features),
 ]
 
 

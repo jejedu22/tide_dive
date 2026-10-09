@@ -79,8 +79,8 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet", "journal"];
-const SUPER_TABS = ["dashboard", "structures", "ports", "donnees"];
+const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const SUPER_TABS = ["dashboard", "structures", "ports", "donnees", "communication"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
 
@@ -94,6 +94,7 @@ function showTab(name) {
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "dashboard") loadDashboard();
   if (name === "journal") loadJournal();
+  if (name === "communication") { loadAnnouncements(); loadBroadcastRecipients(); }
   if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "ports" && portsMap) Carte.refresh(portsMap.map);
@@ -407,7 +408,8 @@ function renderStructures() {
     const members = st.managers + st.viewers;
     return `
       <tr data-id="${st.id}">
-        <th scope="row">${esc(st.name)}</th>
+        <th scope="row">${esc(st.name)}${st.archived_at ? ` <span class="tag tag-warn" title="Archivée le ${stamp(st.archived_at)}">archivée</span>` : ""}
+          ${featureTags(st)}</th>
         <td class="num" data-label="Administration">${st.managers || `<span class="tag job-failed" title="Personne ne peut choisir de créneaux ni gérer cette structure">aucun</span>`}</td>
         <td class="num" data-label="Visualisation">${st.viewers}</td>
         <td class="num" data-label="Types">${st.types}</td>
@@ -421,7 +423,10 @@ function renderStructures() {
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="members">Membres</button>
           <button type="button" class="btn-quiet" data-act="types">Types</button>
+          <button type="button" class="btn-quiet" data-act="features" title="Fonctions proposées à la structure">Fonctions…</button>
+          <button type="button" class="btn-quiet" data-act="transfer" title="Rattacher des membres à une autre structure">Transférer…</button>
           <button type="button" class="btn-quiet" data-act="rename">Renommer</button>
+          <button type="button" class="btn-quiet" data-act="${st.archived_at ? "unarchive" : "archive"}">${st.archived_at ? "Réactiver" : "Archiver"}</button>
           <button type="button" class="btn-danger" data-act="delete" ${members ? `disabled title="Encore ${members} membre(s)"` : ""}>Supprimer</button>
         </td>
       </tr>`;
@@ -604,6 +609,144 @@ async function loadDashboard() {
 }
 
 // ---------------------------------------------------------------------------
+// Communication (super administrateur) : bandeaux d'annonce, e-mail aux administrateurs de structure
+// ---------------------------------------------------------------------------
+
+let announcements = [];
+const toLocalInput = iso => {           // ISO UTC → valeur d'un <input type=datetime-local> (heure locale)
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+const structureNames = ids => ids?.length
+  ? ids.map(id => structures.find(s => s.id === id)?.name || `#${id}`).join(", ") : "tout le monde";
+
+async function loadAnnouncements() {
+  try {
+    announcements = await Session.api("/api/admin/announcements");
+  } catch (e) {
+    $("announcements-list").innerHTML = `<li class="muted">${esc(e.message)}</li>`;
+    return;
+  }
+  const now = new Date();
+  $("announcements-list").innerHTML = announcements.length ? announcements.map(a => {
+    const state = new Date(a.ends_at) <= now ? "terminé" : new Date(a.starts_at) > now ? "à venir" : "en cours";
+    return `<li data-id="${a.id}">
+      <span><span class="tag${state === "en cours" ? "" : " tag-quiet"}">${state}</span>
+        ${a.level === "warning" ? '<span class="tag tag-warn">important</span>' : ""} ${esc(a.message)}<br>
+        <span class="muted">du ${stamp(a.starts_at)} au ${stamp(a.ends_at)} · ${esc(structureNames(a.structure_ids))}</span></span>
+      <span><button type="button" class="btn-quiet btn-small" data-ann="edit">Modifier</button>
+        <button type="button" class="btn-danger btn-small" data-ann="delete">Supprimer</button></span>
+    </li>`;
+  }).join("") : `<li class="muted">Aucun bandeau.</li>`;
+}
+
+function structureChecks(selected = []) {
+  return `<div class="transfer-list">${structures.filter(s => !s.archived_at).map(s => `
+    <label class="check"><input type="checkbox" name="structure" value="${s.id}"${selected.includes(s.id) ? " checked" : ""}> ${esc(s.name)}</label>`).join("")}</div>`;
+}
+
+function editAnnouncement(a = null) {
+  const start = a ? toLocalInput(a.starts_at) : toLocalInput(new Date().toISOString());
+  const end = a ? toLocalInput(a.ends_at) : toLocalInput(new Date(Date.now() + 7 * 86400000).toISOString());
+  openDialog({
+    title: a ? "Modifier le bandeau" : "Nouveau bandeau d'annonce",
+    body: `
+      <label>Message <textarea name="message" rows="3" maxlength="500" required>${esc(a?.message ?? "")}</textarea></label>
+      <label>Style <select name="level"><option value="info">Information</option>
+        <option value="warning"${a?.level === "warning" ? " selected" : ""}>Important (jaune)</option></select></label>
+      <div class="inline-form">
+        <label>Du <input name="starts_at" type="datetime-local" required value="${start}"></label>
+        <label>au <input name="ends_at" type="datetime-local" required value="${end}"></label>
+      </div>
+      <fieldset class="transfer-mode"><legend>Pour</legend>
+        <label class="check"><input type="radio" name="scope" value="all"${a?.structure_ids?.length ? "" : " checked"}> Tout le monde (visiteurs compris)</label>
+        <label class="check"><input type="radio" name="scope" value="some"${a?.structure_ids?.length ? " checked" : ""}> Les membres de certaines structures :</label>
+        ${structureChecks(a?.structure_ids || [])}
+      </fieldset>`,
+    onSubmit: async form => {
+      const ids = [...form.querySelectorAll("[name=structure]:checked")].map(c => Number(c.value));
+      const some = form.scope.value === "some";
+      if (some && !ids.length) throw new Error("Cochez au moins une structure.");
+      const body = {
+        message: form.message.value, level: form.level.value,
+        starts_at: new Date(form.starts_at.value).toISOString(), ends_at: new Date(form.ends_at.value).toISOString(),
+        structure_ids: some ? ids : null,
+      };
+      await Session.api(a ? `/api/admin/announcements/${a.id}` : "/api/admin/announcements", { method: a ? "PUT" : "POST", body });
+      loadAnnouncements();
+      Session.init();     // bandeau de cette page
+    },
+  });
+}
+
+$("announcement-add").addEventListener("click", () => editAnnouncement());
+$("announcements-list").addEventListener("click", async e => {
+  const act = e.target.closest("[data-ann]")?.dataset.ann;
+  if (!act) return;
+  const a = announcements.find(x => x.id === Number(e.target.closest("li").dataset.id));
+  if (act === "edit") editAnnouncement(a);
+  if (act === "delete" && confirm("Supprimer ce bandeau ?")) {
+    try {
+      await Session.api(`/api/admin/announcements/${a.id}`, { method: "DELETE" });
+      loadAnnouncements();
+      Session.init();
+    } catch (err) {
+      flash(esc(err.message));
+    }
+  }
+});
+
+// E-mail aux administrateurs de structure
+const broadcastForm = $("broadcast-form");
+const broadcastIds = () => broadcastForm.scope.value === "some"
+  ? [...broadcastForm.querySelectorAll("[name=structure]:checked")].map(c => Number(c.value)) : [];
+
+async function loadBroadcastRecipients() {
+  if (!$("broadcast-structures").dataset.ready) {
+    $("broadcast-structures").innerHTML = structureChecks();
+    $("broadcast-structures").dataset.ready = "1";
+  }
+  const ids = broadcastIds();
+  const status = $("broadcast-recipients");
+  if (broadcastForm.scope.value === "some" && !ids.length) {
+    status.textContent = "Cochez au moins une structure.";
+    return;
+  }
+  try {
+    const r = await Session.api(`/api/admin/broadcast/recipients${ids.length ? "?" + ids.map(i => `structure_ids=${i}`).join("&") : ""}`);
+    status.innerHTML = r.mail_enabled
+      ? `<strong>${r.recipients.length}</strong> destinataire(s) : ${r.recipients.map(x => `<span title="${esc(x.email)} · ${esc(x.structures)}">${esc(x.name)}</span>`).join(", ") || "aucun"}.`
+      : `<span class="warn">Envoi d'e-mails non configuré sur le serveur (${esc(r.mail_disabled_reason || "")}).</span>`;
+    broadcastForm.querySelector("[type=submit]").disabled = !r.mail_enabled || !r.recipients.length;
+  } catch (e) {
+    status.textContent = e.message;
+  }
+}
+
+broadcastForm.addEventListener("change", e => { if (e.target.name === "scope" || e.target.name === "structure") loadBroadcastRecipients(); });
+broadcastForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const status = $("broadcast-status");
+  status.textContent = "";
+  if (!confirm("Envoyer cet e-mail maintenant ?")) return;
+  const btn = broadcastForm.querySelector("[type=submit]");
+  btn.disabled = true;
+  try {
+    const ids = broadcastIds();
+    const r = await Session.api("/api/admin/broadcast", {
+      method: "POST", body: { subject: broadcastForm.subject.value.trim(), body: broadcastForm.body.value, structure_ids: ids.length ? ids : null },
+    });
+    status.textContent = `Envoyé à ${r.sent} administrateur(s)` + (r.failed.length ? ` ; échec pour ${r.failed.map(f => f.email).join(", ")}.` : ".");
+    broadcastForm.subject.value = "";
+    broadcastForm.body.value = "";
+  } catch (err) {
+    status.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Journal d'activité
 // ---------------------------------------------------------------------------
 
@@ -702,6 +845,81 @@ structureForm.addEventListener("submit", async e => {
 // Recherche proposée aux membres de chaque structure (super administrateurs)
 const SEARCH_MODES = { tides: "Par étale", heights: "Par hauteur d'eau", both: "Les deux" };
 
+// Fonctions activables par structure (accounts.FEATURES)
+const FEATURES = {
+  currents: "Courants et sites de plongée",
+  map: "Carte des ports et des sites",
+  newsletters: "Newsletters",
+  divers: "Fiches plongeurs et certificats médicaux (CACI)",
+};
+const FEATURE_SHORT = { currents: "courants", map: "carte", newsletters: "newsletters", divers: "fiches plongeurs" };
+
+function featureTags(st) {
+  const off = Object.keys(FEATURES).filter(f => st.features && !st.features[f]);
+  return off.length ? `<br><span class="muted feature-off" title="Fonctions désactivées">sans ${off.map(f => FEATURE_SHORT[f]).join(", ")}</span>` : "";
+}
+
+function editFeatures(st) {
+  openDialog({
+    title: `Fonctions de ${st.name}`,
+    body: `<p class="hint">Les fonctions décochées disparaissent pour les membres et les administrateurs de la structure
+        (menus, pages, API) ; leurs données sont conservées. La recherche par hauteur d'eau se règle dans la colonne
+        « Recherche » ; le contrôle du CACI, par la structure elle-même.</p>
+      ${Object.entries(FEATURES).map(([f, label]) => `
+        <label class="check"><input type="checkbox" name="feature" value="${f}"${st.features?.[f] !== false ? " checked" : ""}> ${esc(label)}</label>`).join("")}`,
+    onSubmit: async form => {
+      const features = [...form.querySelectorAll("[name=feature]:checked")].map(c => c.value);
+      await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body: { features } });
+      flash(`Fonctions de « ${esc(st.name)} » enregistrées.`);
+      loadStructures();
+      if (st.id === Session.user.structure?.id) Session.init();
+    },
+  });
+}
+
+async function transferMembers(st) {
+  let members;
+  try {
+    members = await Session.api(`/api/admin/users?structure_id=${st.id}`);
+  } catch (err) {
+    flash(esc(err.message));
+    return;
+  }
+  members = members.filter(u => u.role);
+  const others = structures.filter(x => x.id !== st.id);
+  if (!others.length || !members.length) {
+    flash(!members.length ? `« ${esc(st.name)} » n'a aucun membre.` : "Aucune autre structure.");
+    return;
+  }
+  const form = openDialog({
+    title: `Transférer des membres de ${st.name}`,
+    submitLabel: "Transférer",
+    body: `
+      <label>Vers <select name="to">${others.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label>
+      <fieldset class="transfer-mode">
+        <label class="check"><input type="radio" name="mode" value="copy" checked> Ajouter à l'autre structure (ils restent aussi membres de ${esc(st.name)})</label>
+        <label class="check"><input type="radio" name="mode" value="move"> Déplacer (retirés de ${esc(st.name)}, avec leurs inscriptions à ses créneaux)</label>
+      </fieldset>
+      <p><label class="check"><input type="checkbox" data-all> Tout cocher (${members.length})</label></p>
+      <div class="transfer-list">${members.map(u => `
+        <label class="check"><input type="checkbox" name="user" value="${u.id}"> ${esc(u.display_name)}
+          <span class="muted">${u.role === "manager" ? "administration" : "visualisation"}</span></label>`).join("")}</div>
+      <p class="hint">Rôle et profils sont gardés ; s'ils sont déjà membres de l'autre structure, le rôle le plus élevé l'emporte.</p>`,
+    onSubmit: async f => {
+      const user_ids = [...f.querySelectorAll("[name=user]:checked")].map(c => Number(c.value));
+      if (!user_ids.length) throw new Error("Cochez au moins un membre.");
+      const r = await Session.api(`/api/admin/structures/${st.id}/transfer`, {
+        method: "POST", body: { to_structure_id: Number(f.to.value), user_ids, move: f.mode.value === "move" },
+      });
+      flash(`${r.transferred} membre(s) ${f.mode.value === "move" ? "déplacé(s)" : "ajouté(s)"} vers « ${esc(r.to.name)} ».`);
+      loadStructures();
+    },
+  });
+  form.querySelector("[data-all]").addEventListener("change", e => {
+    for (const c of form.querySelectorAll("[name=user]")) c.checked = e.target.checked;
+  });
+}
+
 structuresBody.addEventListener("change", async e => {
   if (e.target.dataset.act !== "search-modes") return;
   const st = structures.find(x => x.id === Number(e.target.closest("tr").dataset.id));
@@ -731,6 +949,23 @@ structuresBody.addEventListener("click", async e => {
       typesScope = st.id;
       $("types-structure").value = String(st.id);
       showTab("types");
+      break;
+    case "features":
+      editFeatures(st);
+      break;
+    case "transfer":
+      transferMembers(st);
+      break;
+    case "archive":
+    case "unarchive":
+      if (btn.dataset.act === "archive" && !confirm(`Archiver « ${st.name} » ? Ses membres n'y auront plus accès (créneaux, administration) ; ses données sont gardées et elle peut être réactivée.`)) return;
+      try {
+        await Session.api(`/api/admin/structures/${st.id}/archive`, { method: btn.dataset.act === "archive" ? "POST" : "DELETE" });
+        flash(`« ${esc(st.name)} » ${btn.dataset.act === "archive" ? "archivée" : "réactivée"}.`);
+        loadStructures();
+      } catch (err) {
+        flash(esc(err.message));
+      }
       break;
     case "rename":
       openDialog({
@@ -2736,7 +2971,14 @@ async function onSessionChange(user) {
   }
   const sup = isSuper();
   TABS = sup ? ALL_TABS : ALL_TABS.filter(t => !SUPER_TABS.includes(t));
+  // fonctions désactivées pour la structure (réglage des super administrateurs)
+  const feat = user.structure?.features || {};
+  if (!sup && feat.currents === false) TABS = TABS.filter(t => t !== "sites");
+  if (!sup && feat.newsletters === false) TABS = TABS.filter(t => t !== "mailjet");
   for (const el of document.querySelectorAll("[data-super]")) el.hidden = !sup;
+  for (const btn of document.querySelectorAll(".tabs [role=tab]")) {
+    if (!btn.hasAttribute("data-super")) btn.hidden = !TABS.includes(btn.dataset.tab);
+  }
   $("worker-banner").hidden = true;
   // administrateur de structure : sa structure, sans choix possible
   $("types-structure").hidden = !sup;

@@ -218,7 +218,26 @@ CREATE TABLE IF NOT EXISTS structures (
     search_modes TEXT NOT NULL DEFAULT 'tides' CHECK (search_modes IN ('tides', 'heights', 'both')),
     -- certificat médical (CACI) : 1 = inscription refusée sans CACI valable le jour du créneau ; durée de validité
     caci_check INTEGER NOT NULL DEFAULT 0,
-    caci_validity_months INTEGER NOT NULL DEFAULT 12 CHECK (caci_validity_months BETWEEN 1 AND 60)
+    caci_validity_months INTEGER NOT NULL DEFAULT 12 CHECK (caci_validity_months BETWEEN 1 AND 60),
+    -- fonctions désactivées par les super administrateurs (accounts.FEATURES, séparées par des virgules) ;
+    -- vide : toutes actives
+    disabled_features TEXT NOT NULL DEFAULT '',
+    -- structure archivée : ses membres n'y ont plus accès, ses données sont conservées ; NULL : active
+    archived_at TEXT
+);
+
+-- Bandeaux d'annonce (super administrateurs) : affichés en haut de toutes les pages entre deux dates, à tous
+-- (structure_ids NULL, visiteurs compris) ou aux membres de certaines structures (identifiants séparés par
+-- des virgules)
+CREATE TABLE IF NOT EXISTS announcements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    level TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'warning')),
+    starts_at TEXT NOT NULL,        -- ISO8601 UTC
+    ends_at TEXT NOT NULL,
+    structure_ids TEXT,
+    created_by_name TEXT,
+    created_at TEXT NOT NULL
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
