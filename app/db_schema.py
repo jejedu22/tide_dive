@@ -639,6 +639,9 @@ CREATE TABLE IF NOT EXISTS slot_registrations (
     created_at TEXT NOT NULL,
     registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     registered_by_name TEXT,
+    -- feuille de présence (après la sortie) : present, absent, excused ; NULL : pas encore pointé
+    attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
+    attendance_at TEXT,
     PRIMARY KEY (selection_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);

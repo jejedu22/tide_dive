@@ -209,7 +209,7 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
     """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription (confirmés d'abord,
     puis file d'attente : voir selections.split_registrations)."""
     sql = """
-        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, u.username,
+        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, r.attendance, u.username,
                COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                    AS display_name
         FROM slot_registrations r
@@ -245,6 +245,15 @@ def update_selection_capacity(structure_id: int, selection_id: int, max_registra
             "UPDATE slot_selections SET max_registrations = ? WHERE id = ? AND structure_id = ?",
             (max_registrations, selection_id, structure_id),
         ).rowcount > 0
+
+
+def set_attendance(selection_id: int, entries: dict[int, str | None], now: str) -> int:
+    """Feuille de présence : {compte: present | absent | excused | None (effacé)} ; renvoie le nombre d'inscriptions
+    mises à jour (un compte non inscrit est ignoré)."""
+    with get_conn() as conn:
+        return sum(conn.execute(
+            "UPDATE slot_registrations SET attendance = ?, attendance_at = ? WHERE selection_id = ? AND user_id = ?",
+            (value, now if value else None, selection_id, uid)).rowcount for uid, value in entries.items())
 
 
 def delete_registration(selection_id: int, user_id: int) -> bool:

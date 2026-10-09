@@ -292,6 +292,20 @@ def _m011_account_security(conn: sqlite3.Connection) -> None:
                  "REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)")
 
 
+def _m012_attendance(conn: sqlite3.Connection) -> None:
+    """Feuille de présence : présent, absent ou excusé, pour chaque inscription (vide : pas encore pointé)."""
+    existing = _columns(conn, "slot_registrations")
+    for col, ddl in ATTENDANCE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_registrations ADD COLUMN {col} {ddl}")
+
+
+ATTENDANCE_COLUMNS = {
+    "attendance": "TEXT CHECK (attendance IN ('present', 'absent', 'excused'))",
+    "attendance_at": "TEXT",
+}
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -304,6 +318,7 @@ MIGRATIONS: list[Migration] = [
     Migration(9, "fiche plongeur (niveaux, licence, CACI) et vérification du CACI", _m009_diver_profile),
     Migration(10, "journal d'activité", _m010_audit_log),
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
+    Migration(12, "feuille de présence des créneaux", _m012_attendance),
 ]
 
 

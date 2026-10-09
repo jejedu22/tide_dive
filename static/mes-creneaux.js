@@ -128,7 +128,11 @@ function registrationsCell(p) {
   const places = !p.past && canPick()
     ? `<button type="button" class="btn-quiet btn-small" data-act="capacity" title="Nombre de places de ce créneau">Places…</button>`
     : "";
-  return `<div class="regs">${count}${mine}${button}${others}${places}</div>`;
+  const marked = p.registrations.filter(r => r.attendance).length;
+  const presence = p.attendance_open && canRegisterOthers() && p.registrations.length
+    ? `<button type="button" class="btn-quiet btn-small" data-act="attendance" title="Feuille de présence : qui est venu">Présences${marked ? ` (${marked}/${p.registrations.length})` : "…"}</button>`
+    : "";
+  return `<div class="regs">${count}${mine}${button}${others}${places}${presence}</div>`;
 }
 
 // Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
@@ -244,7 +248,8 @@ function renderPop() {
       : "";
     const by = r.registered_by ? `<span class="reg-by">inscrit par ${esc(r.registered_by)}</span>` : "";
     const rank = r.waiting ? `<span class="reg-rank">${r.position}.</span> ` : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${by}</span>${remove}</li>`;
+    const att = r.attendance ? ` <span class="att att-${r.attendance}">${ATTENDANCE[r.attendance]}</span>` : "";
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${att}${by}</span>${remove}</li>`;
   };
   const confirmed = p.registrations.filter(r => !r.waiting);
   const waiting = p.registrations.filter(r => r.waiting);
@@ -756,6 +761,51 @@ picksEl.addEventListener("click", e => {
   if (p) openRegisterOthers(p);
 });
 
+// ---- Feuille de présence (à partir du jour du créneau ; administration ou profil « Inscriptions ») ----
+
+const ATTENDANCE = { present: "présent", absent: "absent", excused: "excusé" };
+
+function openAttendance(p) {
+  const row = r => `
+    <li class="att-row">
+      <span>${esc(r.display_name)}${r.waiting ? ` <span class="muted">(file d'attente)</span>` : ""}</span>
+      <span class="att-choices" role="radiogroup" aria-label="Présence de ${esc(r.display_name)}">
+        ${["present", "absent", "excused"].map(v => `
+        <label class="att-choice"><input type="radio" name="att-${r.user_id}" value="${v}"${r.attendance === v ? " checked" : ""}> ${ATTENDANCE[v]}</label>`).join("")}
+      </span>
+    </li>`;
+  const form = openDialog({
+    title: "Feuille de présence",
+    body: `
+      <p class="dialog-hint">Créneau du ${esc(formatLong(p.date))}, ${esc(p.note || p.port)}. Pointez qui est venu : les présences alimentent les statistiques de la structure.</p>
+      <p><button type="button" class="btn-quiet btn-small" data-all-present>Tous présents</button></p>
+      <ul class="att-list">${p.registrations.map(row).join("")}</ul>`,
+    onSubmit: async form => {
+      const entries = p.registrations.map(r => ({
+        user_id: r.user_id,
+        attendance: form.querySelector(`[name="att-${r.user_id}"]:checked`)?.value ?? null,
+      }));
+      const updated = await Session.api(`/api/selections/${p.id}/attendance`, { method: "PUT", body: { entries } });
+      picks = picks.map(x => (x.id === p.id ? updated : x));
+      render();
+      statusEl.textContent = "Présences enregistrées.";
+    },
+  });
+  form.querySelector("[data-all-present]").addEventListener("click", () => {
+    for (const r of p.registrations.filter(x => !x.waiting)) {
+      const box = form.querySelector(`[name="att-${r.user_id}"][value=present]`);
+      if (!form.querySelector(`[name="att-${r.user_id}"]:checked`)) box.checked = true;
+    }
+  });
+}
+
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=attendance]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openAttendance(p);
+});
+
 // ---- Créneaux personnalisés (administration) : ajout et modification ----
 
 function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
@@ -986,6 +1036,10 @@ const EXPORT_COLUMNS = [
     r.display_name + (r.registered_by ? ` (inscrit par ${r.registered_by})` : "")).join(", ") },
   { header: "File d'attente", width: 40, value: p => p.registrations.filter(r => r.waiting).map(r =>
     `${r.position}. ${r.display_name}`).join(", ") },
+  { header: "Présents", type: "int", width: 9, value: p => (p.registrations.some(r => r.attendance)
+    ? p.registrations.filter(r => r.attendance === "present").length : null) },
+  { header: "Absents / excusés", width: 30, value: p => p.registrations.filter(r => r.attendance && r.attendance !== "present")
+    .map(r => `${r.display_name} (${ATTENDANCE[r.attendance]})`).join(", ") },
   { header: "Inscrit (moi)", width: 12, value: p => (p.my_status === "waiting" ? `file d'attente n° ${p.my_position}` : p.registered ? "oui" : "") },
   { header: "Choisi / ajouté par", width: 18, value: p => p.picked_by || "compte supprimé" },
 ];

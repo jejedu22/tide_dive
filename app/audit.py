@@ -61,6 +61,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/selections/{selection_id}/registration"): "Désinscription",
     ("POST", "/api/selections/{selection_id}/registrations"): "Membres inscrits par un tiers",
     ("DELETE", "/api/selections/{selection_id}/registrations/{user_id}"): "Inscription d'un membre retirée",
+    ("PUT", "/api/selections/{selection_id}/attendance"): "Présences pointées",
     ("POST", "/api/admin/slot-types"): "Type de créneau créé",
     ("PUT", "/api/admin/slot-types/order"): "Types de créneaux réordonnés",
     ("PATCH", "/api/admin/slot-types/{type_id}"): "Type de créneau modifié",

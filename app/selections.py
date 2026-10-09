@@ -45,6 +45,8 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import accounts, db, diver, mailer
@@ -268,7 +270,8 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
         out.setdefault(r["selection_id"], []).append(
             {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
              "created_at": r["created_at"],
-             "registered_by": r["registered_by_name"]}   # inscrit par un tiers, sinon None
+             "registered_by": r["registered_by_name"],   # inscrit par un tiers, sinon None
+             "attendance": r["attendance"]}               # present, absent, excused ; None : pas pointé
         )
     return out
 
@@ -328,6 +331,8 @@ def _selection_out(
         "my_status": None if mine is None else ("waiting" if mine["waiting"] else "confirmed"),
         "my_position": mine["position"] if mine else None,
         "past": (row["end_date"] or row["local_date"]) < _today(),
+        # feuille de présence : à partir du jour du créneau
+        "attendance_open": row["local_date"] <= _today(),
         "register_until": reg_until,
         "can_register": _today() <= reg_until,
         "unregister_until": unreg_until,
@@ -876,6 +881,38 @@ def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar
     _, waiting_before = _status(sid, selection_id)
     db.delete_registration(selection_id, user_id)
     _notify_promotions(background, sid, selection_id, waiting_before)
+    return _one_out(sid, selection_id, actor["id"])
+
+
+# ---------------------------------------------------------------------------
+# Feuille de présence : à partir du jour du créneau, l'administration ou le profil « Inscriptions » pointe qui est
+# venu (présent), absent ou excusé. Sert aux statistiques de la structure.
+# ---------------------------------------------------------------------------
+
+Attendance = Literal["present", "absent", "excused"]
+
+
+class AttendanceEntry(BaseModel):
+    user_id: int
+    attendance: Attendance | None    # None : efface le pointage
+
+
+class AttendanceIn(BaseModel):
+    entries: list[AttendanceEntry] = Field(min_length=1, max_length=500)
+
+
+@router.put("/selections/{selection_id}/attendance")
+def set_attendance(selection_id: int, body: AttendanceIn, actor: CurrentRegistrar):
+    sid = actor["structure_id"]
+    row = db.get_selection(sid, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["local_date"] > _today():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Les présences se pointent à partir du jour du créneau")
+    registered = {r["user_id"] for r in db.list_registrations(sid, selection_id)}
+    if any(e.user_id not in registered for e in body.entries):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ce membre n'est pas inscrit sur ce créneau")
+    db.set_attendance(selection_id, {e.user_id: e.attendance for e in body.entries}, _now_iso())
     return _one_out(sid, selection_id, actor["id"])
 
 
