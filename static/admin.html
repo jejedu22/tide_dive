@@ -574,6 +574,10 @@
             <label for="type-color">Couleur</label>
             <input id="type-color" name="color" type="color" value="#118ab2">
           </div>
+          <div class="field">
+            <label for="type-min-level">Niveau minimal</label>
+            <select id="type-min-level" name="min_level" data-levels><option value="">Aucun</option></select>
+          </div>
           <label class="check"><input type="checkbox" name="active" checked> Proposé</label>
           <button type="submit" class="btn-primary">Ajouter</button>
           <p id="type-form-status" class="form-status" role="status"></p>
@@ -587,6 +591,7 @@
                 <tr>
                   <th scope="col">Ordre</th>
                   <th scope="col">Libellé</th>
+                  <th scope="col">Niveau minimal</th>
                   <th scope="col">Proposé</th>
                   <th scope="col" class="num">Utilisé</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>

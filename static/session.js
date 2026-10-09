@@ -3,6 +3,17 @@
 // changement de mot de passe (y compris forcé après un mot de passe provisoire),
 // liste de contrôle de la politique de mot de passe, encart « compte » de l'en-tête.
 
+// Thème choisi sur cet appareil (« Auto » : celui du système) ; appliqué dès le chargement du script
+const THEMES = { auto: "Auto", light: "Clair", dark: "Sombre" };
+function currentTheme() {
+  try { return localStorage.getItem("theme") || "auto"; } catch { return "auto"; }
+}
+function applyTheme(theme) {
+  if (theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+}
+applyTheme(currentTheme());
+
 const Session = (() => {
   let user = null;
   const listeners = [];
@@ -964,6 +975,135 @@ const Session = (() => {
       <p class="dialog-hint">Lien personnel : ne le partagez pas.</p>`;
   }
 
+  // Notifications push sur cet appareil (service worker sw.js, serveur app/push.py)
+  const b64ToBytes = b64 => {
+    const raw = atob((b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, c => c.charCodeAt(0));
+  };
+
+  async function setupPush(el, info) {
+    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    if (!supported) {
+      el.innerHTML = `<p class="dialog-hint">Ce navigateur ne reçoit pas les notifications. Sur iPhone, installez d'abord
+        l'application sur l'écran d'accueil (Partager → « Sur l'écran d'accueil »), puis ouvrez-la.</p>`;
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const render = async (msg = "") => {
+      const sub = await reg.pushManager.getSubscription();
+      const denied = Notification.permission === "denied";
+      el.innerHTML = `
+        <p class="dialog-hint">Place libérée, créneau annulé ou modifié, rappels : selon vos choix ci-dessus.
+          ${info.devices ? `${info.devices} appareil(s) abonné(s) sur votre compte.` : ""}</p>
+        ${denied ? `<p class="dialog-hint">Les notifications sont bloquées pour ce site dans les réglages du navigateur.</p>` : ""}
+        <p class="form-actions">
+          ${sub ? `<button type="button" class="btn-secondary btn-small" data-push="off">Désactiver sur cet appareil</button>
+                   <button type="button" class="btn-quiet btn-small" data-push="test">M'envoyer un test</button>`
+                : `<button type="button" class="btn-primary btn-small" data-push="on"${denied ? " disabled" : ""}>Activer sur cet appareil</button>`}
+        </p>
+        <p class="form-status" role="status">${esc(msg)}</p>`;
+    };
+    el.addEventListener("click", async e => {
+      const act = e.target.closest("[data-push]")?.dataset.push;
+      if (!act) return;
+      try {
+        if (act === "on") {
+          if (await Notification.requestPermission() !== "granted") return render("Autorisation refusée.");
+          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(info.public_key) });
+          info = await api("/api/me/push", { method: "POST", body: sub.toJSON() });
+          return render("Notifications activées sur cet appareil.");
+        }
+        if (act === "off") {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) {
+            info = await api("/api/me/push", { method: "DELETE", body: { endpoint: sub.endpoint } });
+            await sub.unsubscribe();
+          }
+          return render("Notifications désactivées sur cet appareil.");
+        }
+        if (act === "test") {
+          await api("/api/me/push/test", { method: "POST" });
+          return render("Notification de test envoyée.");
+        }
+      } catch (err) {
+        render(err.message);
+      }
+    });
+    render();
+  }
+
+  // « Mes notifications » : e-mails de rappel et de changement, récapitulatif des nouveaux créneaux, push
+  async function openNotifications() {
+    const d = document.createElement("dialog");
+    d.className = "account-dialog notifications-dialog";
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>Mes notifications</h2>
+        <div class="notif-body"><p class="muted">Chargement…</p></div>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn-quiet" value="cancel">Fermer</button>
+          <button type="submit" class="btn-primary" hidden>Enregistrer</button>
+        </div>
+      </form>`;
+    document.body.append(d);
+    d.addEventListener("close", () => d.remove());
+    d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+    const form = d.querySelector("form");
+    const body = d.querySelector(".notif-body");
+    const errEl = d.querySelector(".dialog-error");
+    d.showModal();
+    let n;
+    try {
+      n = await api("/api/me/notifications");
+    } catch (err) {
+      body.innerHTML = "";
+      errEl.textContent = err.message;
+      return;
+    }
+    const dg = n.digest;
+    body.innerHTML = `
+      <fieldset class="notif-group">
+        <legend>Par e-mail</legend>
+        ${n.mail ? "" : `<p class="dialog-hint">L'envoi d'e-mails n'est pas disponible (pas d'adresse sur votre compte, ou serveur non configuré).</p>`}
+        <label class="check"><input type="checkbox" name="changes"${n.changes ? " checked" : ""}>
+          Quand un de mes créneaux est annulé ou modifié</label>
+        <label class="check"><input type="checkbox" name="reminders"${n.reminders ? " checked" : ""}>
+          Rappels avant mes créneaux et avant l'échéance de mon certificat médical (si ma structure les envoie)</label>
+        ${dg.available ? `
+        <label class="check"><input type="checkbox" name="digest"${dg.enabled ? " checked" : ""}>
+          Récapitulatif hebdomadaire des nouveaux créneaux de ma structure</label>
+        <div class="notif-types"${dg.enabled ? "" : " hidden"}>
+          <p class="dialog-hint">Types de créneaux (aucun coché : tous)</p>
+          ${dg.slot_types.map(t => `<label class="check"><input type="checkbox" name="digest_type" value="${t.id}"${dg.types.includes(t.id) ? " checked" : ""}>
+            <span class="type-pill" style="--type-color:${esc(t.color)}">${esc(t.label)}</span></label>`).join("")}
+        </div>` : ""}
+        <p class="dialog-hint">Une place libérée qui vous confirme sur un créneau vous est toujours annoncée. Les newsletters se règlent dans « Mon compte ».</p>
+      </fieldset>
+      <fieldset class="notif-group notif-push"${n.push.available ? "" : " hidden"}>
+        <legend>Sur cet appareil</legend>
+        <div class="push-state"></div>
+      </fieldset>`;
+    form.querySelector("[type=submit]").hidden = false;
+    form.digest?.addEventListener("change", () => { form.querySelector(".notif-types").hidden = !form.digest.checked; });
+    if (n.push.available && typeof setupPush === "function") setupPush(form.querySelector(".push-state"), n.push);
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      errEl.textContent = "";
+      const payload = { reminders: form.reminders.checked, changes: form.changes.checked };
+      if (form.digest) {
+        payload.digest_enabled = form.digest.checked;
+        payload.digest_types = [...form.querySelectorAll("[name=digest_type]:checked")].map(b => Number(b.value));
+      }
+      try {
+        await api("/api/me/notifications", { method: "PUT", body: payload });
+        d.close();
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    });
+  }
+
   async function openAgenda() {
     const d = document.createElement("dialog");
     d.className = "account-dialog calendar-dialog";
@@ -1122,6 +1262,10 @@ const Session = (() => {
             title="Voir l'application comme un autre rôle (lecture seule)">${icon("eye")}<span>Voir comme…</span></button>` : ""}
           ${u.structures?.length || u.structure ? `<button type="button" class="account-item" data-act="agenda"
             title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
+          ${u.can.view_selections ? `<a class="account-item" href="mes-creneaux.html#carnet"
+            title="Vos plongées passées, pointées par l'encadrement">${icon("wave")}<span>Mon carnet de plongées</span></a>` : ""}
+          <button type="button" class="account-item" data-act="notifications"
+            title="E-mails de rappel, nouveaux créneaux, notifications sur ce téléphone">${icon("mail")}<span>Mes notifications</span></button>
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
             : ` <span class="account-dot" title="Profil à compléter">!</span>`}</span></button>
           ${u.can.diver_sheet ? `<button type="button" class="account-item" data-act="diver"
@@ -1129,6 +1273,7 @@ const Session = (() => {
             ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
           <button type="button" class="account-item" data-act="security"
             title="Double authentification, sessions ouvertes, export de vos données">${icon("lock")}<span>Sécurité et données</span></button>
+          <button type="button" class="account-item" data-act="theme" title="Clair, sombre, ou comme le système de l'appareil">${icon("eye")}<span>Thème : <span data-theme-label>${THEMES[currentTheme()]}</span></span></button>
           <button type="button" class="account-item" data-act="logout">${icon("logout")}<span>Se déconnecter</span></button>
         </div>`;
     };
@@ -1144,6 +1289,14 @@ const Session = (() => {
         } else closeMenu();
         return;
       }
+      if (act === "theme") {     // Auto → Clair → Sombre → Auto, sans fermer le menu
+        const order = Object.keys(THEMES);
+        const next = order[(order.indexOf(currentTheme()) + 1) % order.length];
+        try { localStorage.setItem("theme", next); } catch { /* navigation privée : le temps de la page */ }
+        applyTheme(next);
+        el.querySelector("[data-theme-label]").textContent = THEMES[next];
+        return;
+      }
       if (act && act !== "structure") closeMenu();
       if (act === "login") openLogin();
       if (act === "profile") openProfile();
@@ -1153,6 +1306,7 @@ const Session = (() => {
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
       if (act === "agenda") openAgenda();
+      if (act === "notifications") openNotifications();
     });
     document.addEventListener("click", e => { if (!el.contains(e.target)) closeMenu(); });
     document.addEventListener("keydown", e => {

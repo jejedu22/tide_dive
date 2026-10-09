@@ -38,6 +38,34 @@ INSTRUCTOR_LEVELS = {
     "e4": "Moniteur fédéral 2e degré (E4)",
 }
 
+# Rang de chaque niveau, pour le niveau minimal d'un créneau : PE (encadré) et PA (autonome) d'une même
+# profondeur se valent ici ; un encadrant compte au moins pour le niveau que son brevet suppose.
+LEVEL_RANK = {"debutant": 0, "n1": 1, "pe40": 2, "pa20": 2, "n2": 3, "pa40": 4, "pe60": 4, "n3": 5, "n4": 6, "n5": 7}
+INSTRUCTOR_RANK = {"e1": 3, "e2": 6, "e3": 6, "e4": 7}
+
+
+def level_rank(row) -> int | None:
+    """Rang du plongeur (le plus haut de son niveau et de son encadrement) ; None sans niveau renseigné."""
+    ranks = [r for r in (LEVEL_RANK.get(_field(row, "diver_level")), INSTRUCTOR_RANK.get(_field(row, "instructor_level")))
+             if r is not None]
+    return max(ranks) if ranks else None
+
+
+def level_block(member, required: str | None, *, own: bool = True) -> str | None:
+    """Motif de refus si le membre n'a pas le niveau `required` ; None sinon."""
+    if not required or required not in LEVEL_RANK:
+        return None
+    rank = level_rank(member)
+    if rank is not None and rank >= LEVEL_RANK[required]:
+        return None
+    label = DIVER_LEVELS[required]
+    if own:
+        return (f"Inscription impossible : ce créneau demande le niveau {label} au moins. "
+                + ("Renseignez votre niveau dans « Ma fiche plongeur » (menu du compte), ou " if rank is None else "")
+                + "contactez un encadrant de votre structure.")
+    return f"{_name(member)} n'a pas le niveau {label} demandé pour ce créneau."
+
+
 DEFAULT_VALIDITY_MONTHS = 12
 
 
@@ -84,6 +112,7 @@ def diver_out(row) -> dict:
         "qualifications": _field(row, "qualifications"),
         "licence_number": _field(row, "licence_number"),
         "licence_url": _field(row, "licence_url"),
+        "rank": level_rank(row),     # pour comparer au niveau minimal d'un créneau
     }
 
 

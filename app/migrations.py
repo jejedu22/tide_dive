@@ -394,6 +394,76 @@ def _m016_structure_profile(conn: sqlite3.Connection) -> None:
         conn.execute(sql)
 
 
+MAIL_PREFERENCE_COLUMNS = {
+    # e-mails au membre : rappels (créneau, certificat médical) ; changements de ses créneaux (annulation,
+    # modification, nouvelle heure de rendez-vous). 1 : reçus (défaut)
+    "mail_reminders": "INTEGER NOT NULL DEFAULT 1",
+    "mail_changes": "INTEGER NOT NULL DEFAULT 1",
+}
+
+
+def _m017_mail_preferences(conn: sqlite3.Connection) -> None:
+    """Préférences d'e-mails des comptes et récapitulatif des nouveaux créneaux, par structure (désactivé)."""
+    existing = _columns(conn, "users")
+    for col, ddl in MAIL_PREFERENCE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+    if "digest_types" not in _columns(conn, "memberships"):
+        conn.execute("ALTER TABLE memberships ADD COLUMN digest_types TEXT")
+
+
+def _m018_min_level(conn: sqlite3.Connection) -> None:
+    """Niveau de plongeur minimal d'un type de créneau, et d'un créneau (sinon celui de son type)."""
+    for table in ("slot_types", "slot_selections"):
+        if "min_level" not in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN min_level TEXT")
+
+
+REGISTRATION_NOTE_COLUMNS = {
+    "comment": "TEXT",
+    "carpool": "TEXT CHECK (carpool IS NULL OR carpool IN ('offer', 'need'))",
+    "carpool_seats": "INTEGER CHECK (carpool_seats IS NULL OR carpool_seats BETWEEN 1 AND 8)",
+}
+
+
+def _m019_registration_notes(conn: sqlite3.Connection) -> None:
+    """Commentaire et covoiturage (places proposées, place cherchée) de chaque inscription."""
+    existing = _columns(conn, "slot_registrations")
+    for col, ddl in REGISTRATION_NOTE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_registrations ADD COLUMN {col} {ddl}")
+
+
+PUSH_TABLE = """
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY,           -- adresse du service push du navigateur (une par appareil)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,                -- clés de chiffrement de l'appareil (base64url)
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+)"""
+
+
+def _m020_push(conn: sqlite3.Connection) -> None:
+    """Abonnements aux notifications push (un par appareil)."""
+    conn.execute(PUSH_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)")
+
+
+WEATHER_TABLE = """
+CREATE TABLE IF NOT EXISTS weather_cache (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    fetched_at TEXT NOT NULL,
+    data TEXT NOT NULL                   -- JSON : prévisions horaires (UTC) de vent et de houle
+)"""
+
+
+def _m021_weather(conn: sqlite3.Connection) -> None:
+    """Cache des prévisions de météo marine par port (weather.py)."""
+    conn.execute(WEATHER_TABLE)
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -411,6 +481,11 @@ MIGRATIONS: list[Migration] = [
     Migration(14, "feuille de présence des créneaux", _m014_attendance),
     Migration(15, "rappels et alertes par e-mail", _m015_reminders),
     Migration(16, "fiche de la structure, logo et demandes d'adhésion", _m016_structure_profile),
+    Migration(17, "préférences d'e-mails et récapitulatif des nouveaux créneaux", _m017_mail_preferences),
+    Migration(18, "niveau de plongeur minimal des types et des créneaux", _m018_min_level),
+    Migration(19, "commentaire et covoiturage des inscriptions", _m019_registration_notes),
+    Migration(20, "notifications push", _m020_push),
+    Migration(21, "cache de la météo marine", _m021_weather),
 ]
 
 

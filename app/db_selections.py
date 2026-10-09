@@ -49,7 +49,7 @@ def create_slot_type(structure_id: int, label: str, color: str, active: bool) ->
         return cur.lastrowid
 
 
-_SLOT_TYPE_FIELDS = {"label", "color", "active"}
+_SLOT_TYPE_FIELDS = {"label", "color", "active", "min_level"}
 
 
 def update_slot_type(type_id: int, **fields) -> None:
@@ -79,7 +79,7 @@ def delete_slot_type(type_id: int) -> None:
 
 _SELECTION_SQL = """
     SELECT s.*, COALESCE(p.name, s.location) AS port_name,  -- lieu affiché : port, ou lieu libre
-           t.label AS type_label, t.color AS type_color, t.active AS type_active,
+           t.label AS type_label, t.color AS type_color, t.active AS type_active, t.min_level AS type_min_level,
            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                AS picked_by_name
     FROM slot_selections s
@@ -117,6 +117,12 @@ def update_selection_tide(selection_id: int, ts_utc: str, snapshot: dict) -> Non
             (ts_utc, snapshot["kind"], snapshot["date"], snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"],
              snapshot["height_m"], snapshot["coefficient"], selection_id),
         )
+
+
+def update_selection_min_level(structure_id: int, selection_id: int, min_level: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE slot_selections SET min_level = ? WHERE id = ? AND structure_id = ?",
+                     (min_level, selection_id, structure_id))
 
 
 def update_selection_rdvs(rdvs: list[tuple[str, str, int]]) -> None:
@@ -209,7 +215,8 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
     """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription (confirmés d'abord,
     puis file d'attente : voir selections.split_registrations)."""
     sql = """
-        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, r.attendance, u.username,
+        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, r.attendance, r.comment, r.carpool,
+               r.carpool_seats, u.username,
                COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                    AS display_name
         FROM slot_registrations r
@@ -245,6 +252,15 @@ def update_selection_capacity(structure_id: int, selection_id: int, max_registra
             "UPDATE slot_selections SET max_registrations = ? WHERE id = ? AND structure_id = ?",
             (max_registrations, selection_id, structure_id),
         ).rowcount > 0
+
+
+def set_registration_note(selection_id: int, user_id: int, comment: str | None, carpool: str | None,
+                          carpool_seats: int | None) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE slot_registrations SET comment = ?, carpool = ?, carpool_seats = ? WHERE selection_id = ? "
+            "AND user_id = ?", (comment, carpool, carpool_seats if carpool == "offer" else None, selection_id,
+                                user_id)).rowcount > 0
 
 
 def set_attendance(selection_id: int, entries: dict[int, str | None], now: str) -> int:

@@ -69,6 +69,8 @@ SLOT_SELECTIONS_COLUMNS = """(
     -- places : au-delà, les inscriptions passent en file d'attente (par ordre d'inscription). NULL : illimité.
     -- Copiée de structures.default_max_registrations à la création du créneau, puis modifiable.
     max_registrations INTEGER CHECK (max_registrations IS NULL OR max_registrations BETWEEN 1 AND 500),
+    -- niveau de plongeur minimal pour s'inscrire (diver.DIVER_LEVELS) ; NULL : celui du type
+    min_level TEXT,
     -- étale : tous ses champs ; personnalisé : aucun
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
            AND (ts_utc IS NULL) = (height_m IS NULL)),
@@ -335,7 +337,10 @@ CREATE TABLE IF NOT EXISTS users (
     totp_last_step INTEGER,
     -- Suspension (super administrateur) : connexion refusée, sessions fermées
     suspended_at TEXT,
-    suspended_reason TEXT
+    suspended_reason TEXT,
+    -- e-mails au membre (member_prefs.py) : rappels ; changements de ses créneaux. 1 : reçus
+    mail_reminders INTEGER NOT NULL DEFAULT 1,
+    mail_changes INTEGER NOT NULL DEFAULT 1
 );
 
 -- Jetons à usage unique envoyés par e-mail : invitation (définir son premier
@@ -382,6 +387,9 @@ CREATE TABLE IF NOT EXISTS memberships (
     structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE RESTRICT,
     role TEXT NOT NULL CHECK (role IN ('viewer', 'manager')),
     created_at TEXT NOT NULL,
+    -- récapitulatif des nouveaux créneaux (reminders.py) : NULL désactivé, '' tous les types, sinon les
+    -- identifiants des types retenus séparés par des virgules
+    digest_types TEXT,
     PRIMARY KEY (user_id, structure_id)
 );
 CREATE INDEX IF NOT EXISTS idx_memberships_structure ON memberships(structure_id, role);
@@ -616,6 +624,7 @@ CREATE TABLE IF NOT EXISTS slot_types (
     color TEXT NOT NULL DEFAULT '#118ab2',  -- #rrggbb, pastille dans les listes
     position INTEGER NOT NULL DEFAULT 0,    -- ordre d'affichage
     active INTEGER NOT NULL DEFAULT 1,      -- 0 : plus proposé, mais conservé sur les choix existants
+    min_level TEXT,                         -- niveau de plongeur minimal (diver.DIVER_LEVELS) ; NULL : aucun
     UNIQUE (structure_id, label)
 );
 
@@ -667,6 +676,24 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id);
 
+-- Notifications push (push.py) : abonnements des appareils des membres
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY,           -- adresse du service push du navigateur (une par appareil)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,                -- clés de chiffrement de l'appareil (base64url)
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+-- Météo marine (weather.py) : dernières prévisions d'Open-Meteo par port
+CREATE TABLE IF NOT EXISTS weather_cache (
+    port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
+    fetched_at TEXT NOT NULL,
+    data TEXT NOT NULL                   -- JSON : prévisions horaires (UTC) de vent et de houle
+);
+
 -- Rappels déjà envoyés (reminders.py) : un seul envoi par créneau, ou par date de CACI, et par compte.
 CREATE TABLE IF NOT EXISTS reminders_sent (
     kind TEXT NOT NULL,          -- slot, low_fill, caci
@@ -717,6 +744,11 @@ CREATE TABLE IF NOT EXISTS slot_registrations (
     -- feuille de présence (après la sortie) : present, absent, excused ; NULL : pas encore pointé
     attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
     attendance_at TEXT,
+    -- commentaire du membre (« j'arriverai en retard »…) et covoiturage : offer (propose carpool_seats places)
+    -- ou need (cherche une place)
+    comment TEXT,
+    carpool TEXT CHECK (carpool IS NULL OR carpool IN ('offer', 'need')),
+    carpool_seats INTEGER CHECK (carpool_seats IS NULL OR carpool_seats BETWEEN 1 AND 8),
     PRIMARY KEY (selection_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);

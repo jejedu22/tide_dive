@@ -49,7 +49,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import accounts, db, diver, mailer
+from . import accounts, db, diver, mailer, push
 from .auth import (
     CurrentManager, CurrentMember, CurrentPicker, CurrentRegistrar, CurrentUser, can_manage_structure, scope_structure,
 )
@@ -76,10 +76,22 @@ def _clean_label(v: str) -> str:
     return v
 
 
+def _check_level(v: str | None) -> str | None:
+    if v and v not in diver.DIVER_LEVELS:
+        raise ValueError("niveau inconnu")
+    return v or None
+
+
 class SlotTypeIn(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     color: str = Field("#118ab2", pattern=COLOR_PATTERN)
     active: bool = True
+    min_level: str | None = None     # niveau de plongeur minimal (diver.DIVER_LEVELS)
+
+    @field_validator("min_level")
+    @classmethod
+    def _level(cls, v: str | None) -> str | None:
+        return _check_level(v)
 
     @field_validator("label")
     @classmethod
@@ -91,6 +103,12 @@ class SlotTypePatch(BaseModel):
     label: str | None = Field(None, min_length=1, max_length=40)
     color: str | None = Field(None, pattern=COLOR_PATTERN)
     active: bool | None = None
+    min_level: str | None = None     # null : aucun
+
+    @field_validator("min_level")
+    @classmethod
+    def _level(cls, v: str | None) -> str | None:
+        return _check_level(v)
 
     @field_validator("label")
     @classmethod
@@ -240,6 +258,13 @@ class SelectionPatch(BaseModel):
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # tout créneau ; 0 ou null : illimité
     # créneau personnalisé déplacé (jour, heure, lieu) : prévenir ses inscrits par e-mail
     notify: bool = True
+    # niveau de plongeur minimal de ce créneau ; null : celui de son type
+    min_level: str | None = None
+
+    @field_validator("min_level")
+    @classmethod
+    def _level(cls, v: str | None) -> str | None:
+        return _check_level(v)
 
     @field_validator("note")
     @classmethod
@@ -265,6 +290,7 @@ def _type_out(row: sqlite3.Row) -> dict:
         "position": row["position"],
         "active": bool(row["active"]),
         "uses": row["uses"],
+        "min_level": row["min_level"],
     }
 
 
@@ -304,7 +330,9 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
             {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
              "created_at": r["created_at"],
              "registered_by": r["registered_by_name"],   # inscrit par un tiers, sinon None
-             "attendance": r["attendance"]}               # present, absent, excused ; None : pas pointé
+             "attendance": r["attendance"],               # present, absent, excused ; None : pas pointé
+             # commentaire et covoiturage (offer : propose des places, need : cherche une place)
+             "comment": r["comment"], "carpool": r["carpool"], "carpool_seats": r["carpool_seats"]}
         )
     return out
 
@@ -353,6 +381,9 @@ def _selection_out(
             "color": row["type_color"],
             "active": bool(row["type_active"]),
         },
+        # niveau minimal : celui du créneau, sinon celui de son type ; own : fixé sur le créneau lui-même
+        "min_level": _level_out(row["min_level"] or row["type_min_level"]),
+        "min_level_own": row["min_level"],
         "picked_by": row["picked_by_name"],   # None : compte supprimé depuis
         "created_at": row["created_at"],
         "registrations": registrations,       # par ordre d'inscription : les confirmés, puis la file d'attente
@@ -362,6 +393,9 @@ def _selection_out(
         "waiting_count": len(waiting),
         "full": capacity is not None and len(confirmed) >= capacity,
         "my_status": None if mine is None else ("waiting" if mine["waiting"] else "confirmed"),
+        # covoiturage : places proposées et personnes qui en cherchent une, parmi les inscrits
+        "carpool": {"seats": sum(r["carpool_seats"] or 0 for r in registrations if r["carpool"] == "offer"),
+                    "needs": sum(1 for r in registrations if r["carpool"] == "need")},
         "my_position": mine["position"] if mine else None,
         "past": (row["end_date"] or row["local_date"]) < _today(),
         # feuille de présence : à partir du jour du créneau
@@ -372,6 +406,11 @@ def _selection_out(
         # le délai protège les places confirmées ; un membre en file d'attente n'en occupe aucune : il peut la quitter
         "can_unregister": _today() <= unreg_until or (mine is not None and mine["waiting"]),
     }
+
+
+def _level_out(key: str | None) -> dict | None:
+    return {"key": key, "label": diver.DIVER_LEVELS[key], "rank": diver.LEVEL_RANK[key]} \
+        if key in diver.DIVER_LEVELS else None
 
 
 def _one_out(structure_id: int, selection_id: int, me_id: int) -> dict:
@@ -600,6 +639,8 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         db.update_selection_type(sid, selection_id, body.type_id)
     if "note" in sent and not sent & custom_fields:   # sinon déjà enregistré avec les champs du créneau personnalisé
         db.update_selection_note(sid, selection_id, body.note)
+    if "min_level" in sent:
+        db.update_selection_min_level(sid, selection_id, body.min_level)
     if "max_registrations" in sent:
         # plus de places : les premiers de la file sont confirmés (et prévenus) ; moins de places : les derniers
         # inscrits repassent en file d'attente
@@ -619,12 +660,17 @@ def delete_selection(selection_id: int, user: CurrentPicker, background: Backgro
     sid = user["structure_id"]
     row = db.get_selection(sid, selection_id)   # filtré par structure : impossible de retirer celui d'une autre
     members = _members_to_notify(sid, row) if row is not None and warn else []
+    pushed = _push_targets(sid, row) if row is not None and warn else []
     if not db.delete_selection(sid, selection_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    reason = " ".join(reason.split()) if reason else None
     if members:
-        reason = " ".join(reason.split()) if reason else None
         by = accounts.display_name(user)
         background.add_task(notify, [cancelled_message(m, row, by, reason) for m in members])
+    if pushed:
+        background.add_task(push.send_to_users, pushed, "Créneau annulé",
+                            f"{when(row)}, {place(row)}" + (f" — {reason}" if reason else ""), "mes-creneaux.html",
+                            f"slot-{row['id']}")
 
 
 # ---------------------------------------------------------------------------
@@ -676,35 +722,86 @@ def _status(structure_id: int, selection_id: int) -> tuple[list[int], list[int]]
 
 
 def _notify_promotions(background: BackgroundTasks, structure_id: int, selection_id: int, waiting_before: list[int]) -> None:
-    """Prévient par e-mail les membres qui attendaient et sont désormais confirmés (place libérée, places ajoutées)."""
-    if not mailer.enabled() or not waiting_before:
+    """Prévient (e-mail, push) les membres qui attendaient et sont désormais confirmés (place libérée, ajoutée)."""
+    if not waiting_before:
         return
     row = db.get_selection(structure_id, selection_id)
     if row is None or (row["end_date"] or row["local_date"]) < _today():
         return   # créneau passé (retrait ou places changées après coup) : il n'y a plus de place à annoncer
-    can_unregister = _today() <= open_until(row["local_date"], db.get_lock_days(structure_id)["unregister_lock_days"])
     confirmed_now, _ = _status(structure_id, selection_id)
+    promoted = [uid for uid in waiting_before if uid in confirmed_now]
+    if promoted:
+        background.add_task(push.send_to_users, promoted, "Une place s'est libérée",
+                            f"Vous êtes inscrit(e) : {when(row)}, {place(row)}.", _slot_url(row), f"slot-{row['id']}")
+    if not mailer.enabled():
+        return
+    can_unregister = _today() <= open_until(row["local_date"], db.get_lock_days(structure_id)["unregister_lock_days"])
     messages = []
-    for uid in waiting_before:
-        if uid in confirmed_now:
-            member = db.get_user(uid, structure_id)
-            if member is not None and member["email"]:
-                messages.append(promoted_message(member, row, can_unregister))
+    for uid in promoted:
+        member = db.get_user(uid, structure_id)
+        if member is not None and member["email"]:
+            messages.append(promoted_message(member, row, can_unregister))
     if messages:
         background.add_task(notify, messages)
 
 
+class RegistrationNoteIn(BaseModel):
+    """Commentaire et covoiturage d'une inscription (champ absent : inchangé ; null : effacé)."""
+    comment: str | None = Field(None, max_length=200)
+    carpool: Literal["offer", "need"] | None = None
+    carpool_seats: int | None = Field(None, ge=1, le=8)
+
+    @field_validator("comment")
+    @classmethod
+    def _comment(cls, v: str | None) -> str | None:
+        return _clean_note(v)
+
+    @model_validator(mode="after")
+    def _seats(self):
+        if self.carpool == "offer" and not self.carpool_seats:
+            raise ValueError("indiquez le nombre de places proposées")
+        return self
+
+
+def _save_note(selection_id: int, user_id: int, body: RegistrationNoteIn | None, current=None) -> None:
+    if body is None or not body.model_fields_set:
+        return
+    get = lambda k: getattr(body, k) if k in body.model_fields_set else (current[k] if current else None)  # noqa: E731
+    db.set_registration_note(selection_id, user_id, get("comment"), get("carpool"), get("carpool_seats"))
+
+
+@router.patch("/selections/{selection_id}/registration")
+def update_my_registration(selection_id: int, body: RegistrationNoteIn, user: CurrentMember):
+    """Commentaire et covoiturage de sa propre inscription (créneau du jour ou à venir)."""
+    sid = user["structure_id"]
+    row = db.get_selection(sid, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if (row["end_date"] or row["local_date"]) < _today():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est passé")
+    current = next((r for r in db.list_registrations(sid, selection_id) if r["user_id"] == user["id"]), None)
+    if current is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Vous n'êtes pas inscrit sur ce créneau")
+    _save_note(selection_id, user["id"], body, current)
+    return _one_out(sid, selection_id, user["id"])
+
+
 @router.post("/selections/{selection_id}/registration")
-def register(selection_id: int, user: CurrentMember):
+def register(selection_id: int, user: CurrentMember, body: RegistrationNoteIn | None = None):
     """S'inscrire sur un créneau à venir de sa structure (tout membre, y compris en visualisation)."""
     sid = user["structure_id"]
     row = _upcoming_selection_or_error(sid, selection_id)
     _check_open(row, db.get_lock_days(sid)["register_lock_days"], "Inscriptions closes")
-    _check_caci(db.get_user(user["id"], sid), row)
+    member = db.get_user(user["id"], sid)
+    _check_caci(member, row)
+    msg = diver.level_block(member, row["min_level"] or row["type_min_level"])
+    if msg:
+        raise HTTPException(status.HTTP_409_CONFLICT, msg)
     try:
         db.add_registration(selection_id, user["id"], _now_iso())
     except sqlite3.IntegrityError:
         pass  # déjà inscrit (double clic, deux onglets) : l'état voulu est atteint
+    _save_note(selection_id, user["id"], body)
     return _one_out(sid, selection_id, user["id"])
 
 
@@ -833,7 +930,20 @@ def _members_to_notify(structure_id: int, row: sqlite3.Row) -> list[sqlite3.Row]
     if not mailer.enabled() or (row["end_date"] or row["local_date"]) < _today():
         return []
     members = (db.get_user(r["user_id"], structure_id) for r in db.list_registrations(structure_id, row["id"]))
-    return [m for m in members if m is not None and m["email"]]
+    # le membre peut refuser ces e-mails (« Mes notifications »)
+    return [m for m in members if m is not None and m["email"] and m["mail_changes"]]
+
+
+def _push_targets(structure_id: int, row: sqlite3.Row) -> list[int]:
+    """Inscrits d'un créneau à venir qui acceptent les notifications de changement (push)."""
+    if (row["end_date"] or row["local_date"]) < _today():
+        return []
+    members = (db.get_user(r["user_id"], structure_id) for r in db.list_registrations(structure_id, row["id"]))
+    return [m["id"] for m in members if m is not None and m["mail_changes"]]
+
+
+def _slot_url(row: sqlite3.Row) -> str:
+    return f"mes-creneaux.html#creneau-{row['id']}"
 
 
 def cancelled_message(member: sqlite3.Row, row: sqlite3.Row, by: str, reason: str | None) -> tuple[str, str, str]:
@@ -882,6 +992,10 @@ def _notify_moved(background: BackgroundTasks, structure_id: int, selection_id: 
     messages = [moved_message(m, row, before_when, before_place) for m in _members_to_notify(structure_id, row)]
     if messages:
         background.add_task(notify, messages)
+    targets = _push_targets(structure_id, row)
+    if targets:
+        background.add_task(push.send_to_users, targets, "Créneau modifié", f"Désormais : {when(row)}, {place(row)}.",
+                            _slot_url(row), f"slot-{row['id']}")
 
 
 def notify_rdv_changes(structure_id: int, before: dict[int, str]) -> list[tuple[str, str, str]]:
@@ -1026,6 +1140,8 @@ def admin_create_type(body: SlotTypeIn, actor: CurrentManager, structure_id: int
     sid = scope_structure(actor, structure_id)
     try:
         type_id = db.create_slot_type(sid, body.label, body.color.lower(), body.active)
+        if body.min_level:
+            db.update_slot_type(type_id, min_level=body.min_level)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Le type « {body.label} » existe déjà")
     return _type_out(db.get_slot_type(type_id))
@@ -1045,7 +1161,7 @@ def admin_reorder_types(body: SlotTypeOrder, actor: CurrentManager, structure_id
 @router.patch("/admin/slot-types/{type_id}")
 def admin_update_type(type_id: int, body: SlotTypePatch, actor: CurrentManager):
     _managed_type_or_404(actor, type_id)
-    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None or k == "min_level"}
     if "color" in fields:
         fields["color"] = fields["color"].lower()
     try:

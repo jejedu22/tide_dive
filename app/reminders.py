@@ -3,6 +3,9 @@ Rappels et alertes par e-mail, réglés par chaque structure (administration →
 Tous sont désactivés par défaut.
 
 - Rappel de créneau : chaque inscrit (confirmé) reçoit un rappel N jours avant le créneau (1 : la veille).
+- Récapitulatif des nouveaux créneaux : chaque membre qui l'a demandé (« Mes notifications ») reçoit, au plus une
+  fois par semaine, les créneaux à venir ajoutés depuis son dernier récapitulatif, de tous les types ou de certains.
+  Les rappels respectent aussi le choix du membre de ne pas les recevoir.
 - Créneau peu rempli : les administrateurs de la structure sont prévenus N jours avant un créneau qui n'a aucun
   inscrit, ou moins de la moitié de ses places confirmées.
 - Certificat médical : le membre dont le CACI expire dans les N jours est prévenu (une fois par certificat).
@@ -24,8 +27,10 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from . import accounts, db, diver, mailer
+from .member_prefs import parse_types
 
 LOW_FILL = 0.5
+DIGEST_EVERY = timedelta(days=7)    # récapitulatif des nouveaux créneaux : une fois par semaine au plus
 KEEP = timedelta(days=400)      # rappels envoyés gardés en mémoire
 
 
@@ -126,7 +131,7 @@ def collect(today: date | None = None, record: bool = True) -> list[tuple[tuple[
                     for uid in confirmed:
                         member = db.get_user(uid, sid)
                         key = ("slot", str(row["id"]), uid)
-                        if member and member["email"] and _claim(conn, key, record):
+                        if member and member["email"] and member["mail_reminders"] and _claim(conn, key, record):
                             out.append((slot_reminder(member, row, name), [key]))
             if st["alert_low_fill_days"]:
                 low = [r for r in _upcoming(conn, sid, today, today + timedelta(days=st["alert_low_fill_days"]))
@@ -140,17 +145,84 @@ def collect(today: date | None = None, record: bool = True) -> list[tuple[tuple[
                 limit = today + timedelta(days=st["remind_caci_days"])
                 for member in db.list_users(sid):
                     state = diver.caci_state(member, today, st["caci_validity_months"])
-                    if state["state"] not in ("valid", "pending") or not member["email"]:
+                    if state["state"] not in ("valid", "pending") or not member["email"] or not member["mail_reminders"]:
                         continue
                     key = ("caci", state["date"], member["id"])
                     if date.fromisoformat(state["valid_until"]) <= limit and _claim(conn, key, record):
                         out.append((caci_reminder(member, state["valid_until"], name), [key]))
+            for member in db.list_users(sid):
+                if member["digest_types"] is None or not member["email"]:
+                    continue
+                last = conn.execute("SELECT MAX(sent_at) FROM reminders_sent WHERE kind = 'digest' AND ref LIKE ? "
+                                    "AND user_id = ?", (f"{sid}:%", member["id"])).fetchone()[0]
+                now = datetime.now(timezone.utc)
+                if last and last > (now - DIGEST_EVERY + timedelta(hours=12)).isoformat(timespec="seconds"):
+                    continue    # récapitulatif de moins d'une semaine
+                rows = _new_slots(conn, sid, last or (now - DIGEST_EVERY).isoformat(timespec="seconds"), today,
+                                  parse_types(member["digest_types"]))
+                key = ("digest", f"{sid}:{today.isoformat()}", member["id"])
+                if rows and _claim(conn, key, record):
+                    out.append((digest_message(member, rows, name), [key]))
+    return out
+
+
+def _new_slots(conn: sqlite3.Connection, structure_id: int, since: str, today: date,
+               types: list[int]) -> list[sqlite3.Row]:
+    """Créneaux à venir de la structure ajoutés depuis `since`, des types retenus ([] : tous)."""
+    sql = ("""SELECT s.*, COALESCE(p.name, s.location) AS port_name, t.label AS type_label,
+                    (SELECT COUNT(*) FROM slot_registrations r WHERE r.selection_id = s.id) AS regs
+             FROM slot_selections s JOIN slot_types t ON t.id = s.type_id LEFT JOIN ports p ON p.id = s.port_id
+             WHERE s.structure_id = ? AND s.created_at > ? AND COALESCE(s.end_date, s.local_date) >= ?""")
+    params: list = [structure_id, since, today.isoformat()]
+    if types:
+        sql += f" AND s.type_id IN ({','.join('?' * len(types))})"
+        params += types
+    return conn.execute(sql + " ORDER BY s.local_date, s.rdv_time", params).fetchall()
+
+
+def digest_message(member, rows: list, structure_name: str) -> tuple[str, str, str]:
+    from .selections import place, when
+
+    def line(r) -> str:
+        cap = r["max_registrations"]
+        left = f", {max(cap - r['regs'], 0)} place(s) libre(s)" if cap else ""
+        return f"- {when(r)} : {place(r)} ({r['type_label']}{left})"
+    listing = "\n".join(line(r) for r in rows)
+    body = (f"{accounts.greeting(member)}\n\nNouveaux créneaux de {structure_name} :\n\n{listing}\n\n"
+            f"Pour vous inscrire :\n{mailer.link('mes-creneaux.html')}\n\nCe récapitulatif se règle dans "
+            f"« Mes notifications » (menu du compte).\n" + _footer())
+    return member["email"], f"{mailer.APP_NAME} : {len(rows)} nouveau(x) créneau(x) ({structure_name})", body
+
+
+def collect_push(today: date | None = None, record: bool = True) -> list[tuple[int, str, str, str, Key]]:
+    """Rappels de créneau par notification push (comptes ayant un appareil abonné et acceptant les rappels) :
+    [(compte, titre, texte, adresse, envoi)]."""
+    from .selections import place, when
+    today = today or _today()
+    out = []
+    with db.get_conn() as conn:
+        for st in db.list_structures():
+            if st["archived_at"] or not st["remind_slot_days"]:
+                continue
+            for row in _upcoming(conn, st["id"], today + timedelta(days=1), today + timedelta(days=st["remind_slot_days"])):
+                regs = [r["user_id"] for r in db.list_registrations(st["id"], row["id"])]
+                for uid in regs[:row["max_registrations"]] if row["max_registrations"] else regs:
+                    member = db.get_user(uid, st["id"])
+                    key = ("slot_push", str(row["id"]), uid)
+                    if (member and member["mail_reminders"] and db.count_push_subscriptions(uid)
+                            and _claim(conn, key, record)):
+                        out.append((uid, f"Rappel : {row['type_label']}", f"{when(row)}, {place(row)}.",
+                                    f"mes-creneaux.html#creneau-{row['id']}", key))
     return out
 
 
 def send_due(today: date | None = None) -> tuple[int, list[str]]:
-    """Envoie les rappels du jour ; renvoie (envoyés, erreurs). Les envois en échec seront retentés."""
-    due = collect(today)
+    """Envoie les rappels du jour ; renvoie (e-mails envoyés, erreurs). Les envois en échec seront retentés.
+    Les rappels par notification push partent aussi (un échec n'est pas retenté)."""
+    from . import push
+    for uid, title, text, url, _ in collect_push(today):
+        push.send_to_users([uid], title, text, url, "rappel")
+    due = collect(today) if mailer.enabled() else []
     if not due:
         return 0, []
     errors = mailer.send_many([m for m, _ in due])
@@ -192,8 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{to} : {subject}")
         return 0
     if not mailer.enabled():
-        print(f"Rappels non envoyés : {mailer.disabled_reason()}.", file=sys.stderr)
-        return 0
+        print(f"Rappels par e-mail non envoyés : {mailer.disabled_reason()}.", file=sys.stderr)
     sent, errors = send_due()
     for e in errors:
         print(f"[rappels] e-mail non envoyé à {e}", file=sys.stderr)

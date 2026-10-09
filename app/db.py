@@ -61,6 +61,8 @@ from .db_schema import (  # noqa: F401
     _migrate,
 )
 from .db_tides import (  # noqa: F401
+    get_weather_cache,
+    save_weather_cache,
     _SQL_INSERT_HEIGHTS,
     _SQL_INSERT_EXTREMA,
     _SQL_INSERT_SUN,
@@ -135,6 +137,13 @@ from .db_structures import (  # noqa: F401
     delete_structure,
 )
 from .db_users import (  # noqa: F401
+    save_push_subscription,
+    delete_push_subscription,
+    list_push_subscriptions,
+    count_push_subscriptions,
+    touch_push_subscription,
+    set_mail_preferences,
+    set_digest_types,
     _user_query,
     _ORDER_USERS,
     UNUSABLE_PASSWORD,
@@ -230,12 +239,14 @@ from .db_selections import (  # noqa: F401
     create_custom_selection,
     update_custom_selection,
     update_selection_note,
+    update_selection_min_level,
     update_selection_type,
     delete_selection,
     list_registrations,
     add_registration,
     delete_registration,
     set_attendance,
+    set_registration_note,
     update_selection_capacity,
 )
 from .db_unavailabilities import (  # noqa: F401

@@ -67,3 +67,28 @@ self.addEventListener("fetch", event => {
   if (bypass(event.request)) return;
   event.respondWith(networkFirst(event.request));
 });
+
+// Notifications push (app/push.py) : le message chiffré est déchiffré par le navigateur ; on l'affiche, et un
+// clic ouvre (ou ramène au premier plan) la page indiquée
+self.addEventListener("push", event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data?.text() }; }
+  event.waitUntil(self.registration.showNotification(data.title || "Calendive", {
+    body: data.body || "",
+    icon: "icon-192.png",
+    badge: "icon-192.png",
+    tag: data.tag || undefined,
+    data: { url: data.url || "mes-creneaux.html" },
+  }));
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "mes-creneaux.html", self.registration.scope).href;
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const same = all.find(c => c.url.split("#")[0] === url.split("#")[0]);
+    if (same) { await same.focus(); return same.navigate(url); }
+    return self.clients.openWindow(url);
+  })());
+});
