@@ -9,7 +9,7 @@ from app import db
 
 APP = Path(__file__).resolve().parent.parent / "app"
 MODULES = sorted(p for p in APP.glob("db_*.py"))
-INTERNAL = {"db_path"}   # détail de db_core, volontairement non réexporté
+INTERNAL = {"db_path", "_local", "_open", "_file_id", "_thread_conn"}   # détails de db_core, volontairement non réexportés
 
 
 def _top_level_names(path: Path) -> set[str]:

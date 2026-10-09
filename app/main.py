@@ -11,6 +11,8 @@ autour de l'étale, type de lumière du jour requis).
 from __future__ import annotations
 
 import mimetypes
+import sys
+import threading
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -19,6 +21,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -39,6 +42,9 @@ if security.ALLOWED_ORIGINS:
 audit.install(app)      # journal d'activité (modifications faites par un compte connecté)
 ops.install(app)        # mode maintenance : lecture seule sauf pour les super administrateurs
 security.install(app)   # en-têtes de sécurité (CSP…) et contrôle de l'origine des requêtes qui modifient des données
+# Compression des réponses (JSON, JS, CSS) : la liste des créneaux d'une structure active pèse des centaines de Ko,
+# une dizaine une fois compressée ; zlib travaille hors du verrou de Python
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.middleware("http")
@@ -95,6 +101,17 @@ app.include_router(quality.router)
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+    # contrôles des années de marée (santé, tableau de bord) préparés en arrière-plan : le premier affichage
+    # de l'administration n'attend pas leur calcul
+    threading.Thread(target=_warm_health, name="warm-health", daemon=True).start()
+
+
+def _warm_health() -> None:
+    from . import health
+    try:
+        health.collect()
+    except Exception as exc:   # jamais bloquant : la page la recalculera
+        print(f"[santé] préparation impossible : {exc}", file=sys.stderr, flush=True)
 
 
 @app.get("/healthz", include_in_schema=False)

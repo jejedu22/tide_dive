@@ -41,6 +41,7 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "plongee.db"
 
 # Réexportations : après DB_PATH, que db_core relit à chaque appel (get_conn)
 from .db_core import (  # noqa: F401
+    fetch_all,
     get_conn,
     get_setting,
     set_setting,
@@ -108,6 +109,7 @@ from .db_tides import (  # noqa: F401
     short_term_windows,
     clear_port_data,
     years_available,
+    stored_year_fingerprint,
     insert_heights,
     insert_extrema,
     insert_sun_times,

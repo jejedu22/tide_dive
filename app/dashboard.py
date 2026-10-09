@@ -4,7 +4,7 @@ Tableau de bord du super administrateur : l'application en un coup d'œil.
 - Par structure : membres, administrateurs, créneaux à venir, inscriptions des 30 derniers jours, sites, dernière
   connexion d'un administrateur, et les réglages manquants (pas d'administrateur, pas de type de créneau, pas de
   port par défaut…).
-- Global : comptes, comptes actifs (30 jours), ports et années calculées, santé (health.collect), dernières
+- Global : comptes, comptes actifs (30 jours), ports et années calculées, dernières
   actions du journal.
 
 Route : GET /api/admin/dashboard (super administrateurs).
@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter
 
-from . import db, health
+from . import db
 from .auth import CurrentSuperAdmin
 from .structure_home import setting_issues
 
@@ -70,7 +70,8 @@ def dashboard(admin: CurrentSuperAdmin):
         regs = conn.execute("SELECT COUNT(*) FROM slot_registrations WHERE created_at >= ?", (since,)).fetchone()[0]
     ports = db.list_ports()
     years = db.years_by_port()
-    problems = health.collect()
+    # la santé (contrôles des données, plus longs) se lit à part : GET /api/admin/health, chargé par la page en
+    # même temps, pour que le tableau de bord s'affiche tout de suite
     return {
         "users": {"total": users["n"], "active_30d": users["active"] or 0, "super_admins": users["supers"] or 0,
                   "pending_invites": users["pending"] or 0},
@@ -78,7 +79,6 @@ def dashboard(admin: CurrentSuperAdmin):
         "ports": [{"id": p["id"], "name": p["name"], "years": years.get(p["id"], []),
                    "has_current_year": today.year in years.get(p["id"], [])} for p in ports],
         "structures": _structures(today, since),
-        "health": health.summary(problems),
         "recent": [{"at": r["at"], "actor": r["actor_name"], "structure": r["structure_name"], "action": r["action"],
                     "target": r["target"]} for r in db.list_audit(limit=10)],
     }
