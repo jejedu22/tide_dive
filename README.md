@@ -2,7 +2,7 @@
 
 Application web qui croise, pour un port donné, les **marées** (horaires, hauteurs, coefficients) et la **lumière du jour** (crépuscule nautique, lever/coucher civil) pour proposer des créneaux de plongée autour de l'étale, selon des critères réglables.
 
-Tout est **précalculé une fois par an** et stocké dans une base SQLite locale : l'API ne fait aucun calcul de marée ni d'astronomie à la volée, et ne dépend d'aucun service externe à l'exécution.
+Tout est **précalculé une fois par an** et stocké dans une base SQLite locale : l'API ne fait aucun calcul de marée ni d'astronomie à la volée, et ne dépend d'aucun service externe à l'exécution (seule la météo marine indicative des créneaux, facultative, interroge Open-Meteo).
 
 - Marées : [pyTMD](https://pytmd.readthedocs.io/) + modèle harmonique global **FES2014 / FES2022** (CNES/LEGOS/Noveltis, via AVISO+)
 - Soleil : [astral](https://astral.readthedocs.io/), calcul local (crépuscule nautique = soleil à 12° sous l'horizon)
@@ -103,6 +103,8 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 |---|---|---|
 | `AVISO_USERNAME`, `AVISO_PASSWORD` | — | Identifiants AVISO+ |
 | `API_MAREE_KEY` | — | Clé [api-maree.fr](https://api-maree.fr) pour le recalage du modèle (facultative : sans clé, hauteurs FES brutes) |
+| `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | —, expéditeur des e-mails | Notifications push : clé VAPID (générée et gardée en base si absente) et contact (voir [Notifications push](#notifications-push)) |
+| `WEATHER` | `1` | `0` : pas de météo marine (aucun appel à Open-Meteo) |
 | `SECRETS_KEY` | — | Clé de chiffrement des clés Mailjet des structures (voir [Connexion Mailjet](#connexion-mailjet)) ; sans elle, Mailjet ne peut pas être connecté |
 | `BACKUP_KEEP` | `14` | Sauvegardes quotidiennes conservées dans `data/backups/` |
 | `ALERT_EMAIL` | — | Destinataires des alertes (séparés par des virgules) ; vide : les super administrateurs ayant une adresse e-mail |
@@ -496,6 +498,27 @@ Réglés par chaque structure dans **`/admin.html` → Créneaux → Rappels et 
 | Certificat médical qui expire dans N jours (1 à 90) | le membre, une fois par certificat |
 
 `python -m app.reminders` (planificateur, chaque jour à 07:20 ; `--dry-run` pour voir ce qui partirait) envoie les rappels dus, **une seule fois chacun** (table `reminders_sent`) ; un envoi en échec est retenté au passage suivant. Sans envoi d'e-mails configuré, rien ne part.
+
+### Côté membres
+
+- **Accueil** (« Créneaux choisis ») : *Mes prochains créneaux* et *Places libres cette semaine* (à venir dans les 7 jours, où le membre peut s'inscrire), d'un clic vers le créneau ; la fiche de la structure en bas de page.
+- **Mes notifications** (menu du compte) : e-mails quand un de ses créneaux est annulé ou modifié, rappels (créneau, certificat médical), **récapitulatif hebdomadaire des nouveaux créneaux** de la structure, de tous les types ou de certains (désactivé par défaut ; `memberships.digest_types`), et [notifications push](#notifications-push) sur l'appareil. Une place libérée qui confirme le membre lui est toujours annoncée. Migration n° 17 (`users.mail_reminders`, `users.mail_changes`).
+- **Niveau minimal** d'un type de créneau (administration → Créneaux → types) ou d'un créneau (bouton *Places…*) : l'inscription d'un membre dont la fiche plongeur n'a pas ce niveau est refusée, avec le motif ; un encadrant qui inscrit le membre n'est pas bloqué. Rangs : `diver.LEVEL_RANK` (PE et PA d'une même profondeur se valent ; un encadrant compte pour le niveau que son brevet suppose). Migration n° 18.
+- **Mon inscription…** : commentaire (200 caractères) et **covoiturage** (« je propose N places », « je cherche une place ») sur son inscription, visibles des membres dans la liste des inscrits, résumés sur le créneau (« 🚗 3 places · 1 cherche ») et repris dans l'export Excel (`PATCH /api/selections/{id}/registration`). Migration n° 19.
+- **Mon carnet de plongées** (menu du compte, ou accueil) : ses créneaux passés dans toutes ses structures, avec la présence pointée ; nombre de plongées, par année, dernière plongée, lieux fréquents, export Excel (`GET /api/me/logbook`).
+- **Partager** un créneau : lien `mes-creneaux.html#creneau-<id>` (copié, ou partage du téléphone) qui ouvre le calendrier sur ce créneau, mis en évidence.
+- **Deux plongées dans la journée** : un jour qui a plusieurs créneaux ouverts propose *S'inscrire aux N créneaux du jour* ; dans la recherche, le filtre de jour *Deux plongées* garde les jours où au moins deux étales restent affichées avec les autres filtres.
+- **Météo marine** indicative sur les créneaux des 7 prochains jours dans un port : vent (nœuds, rafales, direction) et houle à l'heure de l'étale (sinon du RDV), en orange quand elle est forte. Source [Open-Meteo](https://open-meteo.com) (CC BY 4.0, citée dans l'info-bulle), mise en cache 3 h par port (table `weather_cache`, migration n° 21) ; une panne n'affiche simplement rien ; `WEATHER=0` la coupe (`GET /api/weather/selections`).
+- **Mode sombre** : suit le réglage du système, ou le choix *Thème : Auto / Clair / Sombre* du menu du compte (mémorisé sur l'appareil). Les couleurs de `style.css` sont des variables (`--surface`, `--line`, `--muted`…) redéfinies en mode sombre.
+
+### Notifications push
+
+Sur chaque appareil (téléphone, ordinateur ; sur iPhone, l'application doit être installée sur l'écran d'accueil), **Mes notifications → Activer sur cet appareil** demande l'autorisation du navigateur et enregistre l'abonnement (table `push_subscriptions`, migration n° 20). Envois (`app/push.py`), selon les mêmes choix que les e-mails : place libérée qui confirme le membre, créneau annulé ou modifié, rappel avant le créneau (tâche `app.reminders`). Un clic ouvre le créneau.
+
+- Protocole Web Push sans dépendance supplémentaire : chiffrement RFC 8291 (aes128gcm) et authentification VAPID (RFC 8292, ES256) avec `cryptography`.
+- Clé VAPID : `VAPID_PRIVATE_KEY`, sinon générée au premier usage et gardée en base ; en changer oblige à réactiver les notifications sur chaque appareil.
+- Seuls les services push des navigateurs (Google, Mozilla, Apple, Microsoft) sont acceptés comme adresse d'abonnement ; un abonnement expiré (404/410) est supprimé.
+- `POST /api/me/push` (abonnement), `DELETE /api/me/push`, `POST /api/me/push/test`, `GET /api/push/key`.
 
 ### Aide en ligne
 
@@ -994,6 +1017,10 @@ app/
   structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
   user_bulk.py      actions groupées sur les comptes d'une structure
   reminders.py      rappels et alertes par e-mail (planificateur)
+  member_prefs.py   préférences de notification des membres (e-mails, récapitulatif des nouveaux créneaux)
+  logbook.py        carnet de plongées d'un membre
+  push.py           notifications push (Web Push : VAPID, chiffrement aes128gcm)
+  weather.py        météo marine indicative des créneaux (Open-Meteo, en cache)
   mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
   mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test, activation du suivi
   newsletters.py    newsletters : brouillons, audiences, test, envoi, programmation, rapport, désinscription, événements Mailjet
@@ -1048,8 +1075,6 @@ Les fichiers FES sont soumis à la licence AVISO+ (indépendante de la licence d
 - Renseigner les `offset_zh_m` manquants depuis les RAM du Shom.
 - Intégrer l'atlas régional Ifremer/PREVIMER ([accès sur demande](https://marc.ifremer.fr/produits/atlas_de_composantes_harmoniques)) : format non lu nativement par pyTMD, seul `tide_model.py` serait à adapter.
 - Courant des sites dans les newsletters et la recherche.
-- Mode « deux plongées dans la journée ».
-- Notifications push (place libérée, nouveau créneau) pour l'application installée.
 
 ## Contribuer
 
