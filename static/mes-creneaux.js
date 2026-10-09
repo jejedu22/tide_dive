@@ -1078,7 +1078,7 @@ function currentChart(s, mark) {
 function siteCurrentBlock(s, mark) {
   const name = `<h3>${esc(s.site.name)}</h3>${s.site.notes ? `<p class="dialog-hint">${esc(s.site.notes)}</p>` : ""}`;
   if (!s.available) {
-    return `<section class="cur-site">${name}<p class="dialog-hint">Courant inconnu pour ce créneau (site hors des atlas, ou marées du port de référence non calculées).</p></section>`;
+    return `<section class="cur-site">${name}<p class="dialog-hint">Courant inconnu pour ce créneau : ${esc(s.reason || "raison inconnue")}.</p></section>`;
   }
   return `<section class="cur-site">${name}
     <p class="cur-summary">

@@ -228,11 +228,18 @@ def site_period(site: sqlite3.Row, start: datetime, end: datetime, tz) -> dict:
     """Courant d'un site toutes les 15 minutes sur la période, étale de courant et courant le plus fort."""
     out = {"site": {"id": site["id"], "name": site["name"], "lat": site["lat"], "lon": site["lon"],
                     "notes": site["notes"]},
-           "available": False, "series": [], "slack": None, "max": None}
+           "available": False, "reason": None, "series": [], "slack": None, "max": None}
     points = current_calc.as_points(db.get_site_currents(site["id"]))
     if not points or site["current_ref_port_id"] is None:
+        out["reason"] = site["current_status"] or "pas de courant extrait des atlas pour ce site"
         return out
     hws = high_waters(site["current_ref_port_id"], start, end, site["current_ref_kind"] or "PM")
+    if not hws:
+        # la série du site suit les pleines mers du port de référence : sans elles, pas de courant
+        year = start.astimezone(tz).year
+        out["reason"] = (f"marées de {site['current_ref_port']} (port de référence de l'atlas) non calculées "
+                         f"pour cette date : calculez son année {year} (Administration → Ports)")
+        return out
     # série calée sur les quarts d'heure, débordant un peu la période
     t = start - timedelta(minutes=start.minute % 15, seconds=start.second, microseconds=start.microsecond)
     while t < end + CURVE_STEP:

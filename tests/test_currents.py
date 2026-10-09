@@ -162,6 +162,7 @@ def test_courants_d_un_creneau_choisi(setup, make_structure, make_user, new_clie
     assert "10.17183/ATLASCOURANTS2D_NETCDF" in data["attribution"]
     by_name = {s["site"]["name"]: s for s in data["sites"]}
     assert by_name["Sans atlas"]["available"] is False and by_name["Sans atlas"]["series"] == []
+    assert by_name["Sans atlas"]["reason"]
     m = by_name["Le Moulin"]
     # toutes les 15 min, calé sur les quarts d'heure : 11:15 → 17:30
     assert m["available"] and len(m["series"]) == 26 and (m["series"][0]["time"], m["series"][-1]["time"]) == ("11:15", "17:30")
@@ -177,6 +178,12 @@ def test_courants_d_un_creneau_choisi(setup, make_structure, make_user, new_clie
                                                      "type_id": boat}).json()
     assert bob.get(f"/api/selections/{away['id']}/currents").json() == {
         "port": None, "period": None, "sites": [], "attribution": data["attribution"]}
+
+    # marées du port de référence non calculées pour la date : la raison le dit
+    late = bob.post("/api/selections/custom", json={"port_id": setup["port"], "date": "2099-07-03", "time": "13:00",
+                                                     "type_id": boat}).json()
+    gone = {s["site"]["name"]: s for s in bob.get(f"/api/selections/{late['id']}/currents").json()["sites"]}["Le Moulin"]
+    assert gone["available"] is False and "marées de Brest" in gone["reason"] and "2099" in gone["reason"]
 
     # créneau d'une autre structure : introuvable
     assert _client(new_client, "eve").get(f"/api/selections/{tide['id']}/currents").status_code == 404
