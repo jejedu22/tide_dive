@@ -22,7 +22,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_selections.py  types de créneaux, créneaux choisis, inscriptions
   db_unavailabilities.py plages d'indisponibilité des structures
   db_water.py       hauteurs d'eau des ports, créneaux de hauteur d'eau
-  db_currents.py    sites de plongée, courant de marée à chaque site (atlas du SHOM)
+  db_currents.py    sites de plongée des structures, courant de marée à chaque site (atlas du SHOM)
   db_requests.py    demandes de création de structure
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
 Les évolutions nouvelles du schéma : migrations.py.
@@ -41,6 +41,8 @@ from .db_core import (  # noqa: F401
     set_setting,
 )
 from .db_schema import (  # noqa: F401
+    DIVE_SITES_COLUMNS,
+    SITE_CURRENTS_COLUMNS,
     SLOT_SELECTIONS_COLUMNS,
     TIDE_HEIGHTS_COLUMNS,
     TIDE_EXTREMA_COLUMNS,

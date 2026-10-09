@@ -664,7 +664,7 @@ const defaultYear = new Date().getMonth() >= 10 ? new Date().getFullYear() + 1 :
 $("annual-year").value = defaultYear;
 
 let waterThresholds = [];   // hauteurs d'eau de tous les ports (recherche par hauteur d'eau)
-let diveSites = [];         // sites de plongée de tous les ports (courants de marée)
+let diveSites = [];         // sites de plongée de toutes les structures (carte des ports, super administrateur)
 
 async function loadPorts() {
   try {
@@ -765,7 +765,6 @@ function renderPorts() {
           <button type="button" class="btn-quiet" data-act="short_term" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Reprendre maintenant les horaires de J−1 à J+29 depuis api-maree.fr (fait chaque jour à 5 h)"`}>30 jours</button>
           <button type="button" class="btn-quiet" data-act="calibrate" ${calibrateBlock(p) ? `disabled title="${esc(calibrateBlock(p))}"` : `title="Recaler le calcul FES (long terme) sur api-maree.fr"`}>Recaler</button>
           <button type="button" class="btn-quiet" data-act="water" title="Hauteurs d'eau de la recherche par hauteur d'eau">Hauteurs d'eau${waterCount(p) ? ` (${waterCount(p)})` : ""}</button>
-          <button type="button" class="btn-quiet" data-act="sites" title="Sites de plongée du port : position précise, courant de marée">Sites${siteCount(p) ? ` (${siteCount(p)})` : ""}</button>
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
@@ -843,8 +842,6 @@ portsBody.addEventListener("click", async e => {
     case "water":
       openWaterThresholds(port);
       break;
-    case "sites":
-      openDiveSites(port);
       break;
     case "edit":
       editPort(port);
@@ -910,10 +907,6 @@ $("currents-refresh").addEventListener("click", async () => {
   }
 });
 
-// ---- Sites de plongée d'un port : position GPS précise (le courant de marée y est extrait de l'atlas du SHOM) ----
-
-const siteCount = p => diveSites.filter(x => x.port_id === p.id).length;
-
 // ---- Carte des ports et des sites (onglet Ports) ----
 
 let portsMap = null;   // { map, layer, fitted }
@@ -929,13 +922,11 @@ function renderPortsMap() {
   layer.clearLayers();
   const points = [];
   for (const p of ports) {
-    const n = diveSites.filter(s => s.port_id === p.id).length;
-    Carte.portMarker(p).bindPopup(`<strong>${esc(p.name)}</strong><br>${n} site(s) de plongée<br>
-      <button type="button" class="btn-quiet btn-small" data-map-sites="${p.id}">Sites…</button>`).addTo(layer);
+    Carte.portMarker(p).bindPopup(`<strong>${esc(p.name)}</strong>`).addTo(layer);
     points.push([p.latitude, p.longitude]);
   }
   for (const s of diveSites) {
-    Carte.siteMarker(s).bindPopup(`<strong>${esc(s.name)}</strong> (${esc(s.port)})<br>`
+    Carte.siteMarker(s).bindPopup(`<strong>${esc(s.name)}</strong> (${esc(s.structure)})<br>`
       + (s.current ? `Courant : ${esc(s.current.atlas)}` : `<span class="muted">${esc(s.current_status || "pas encore de courant")}</span>`)).addTo(layer);
     points.push([s.lat, s.lon]);
   }
@@ -946,20 +937,15 @@ function renderPortsMap() {
   Carte.refresh(map);
 }
 
-$("ports-map").addEventListener("click", e => {
-  const btn = e.target.closest("[data-map-sites]");
-  const port = btn && ports.find(p => p.id === Number(btn.dataset.mapSites));
-  if (port) openDiveSites(port);
-});
-
-// Carte de saisie d'un site : le port, ses autres sites, et le marqueur du site placé d'un clic
-// (remplit latitude / longitude ; il se déplace aussi par glisser-déposer ou en tapant les coordonnées)
-function mountPickMap(el, form, list, editing) {
+// Carte de saisie d'un site : les ports, les autres sites de la structure, et le marqueur du site placé d'un clic
+// (remplit latitude / longitude ; il se déplace aussi par glisser-déposer ou en tapant les coordonnées).
+// Cadrage : les sites existants, à défaut le port par défaut de la structure.
+function mountPickMap(el, form, list, editing, { mapPorts = [], homePort = null } = {}) {
   if (!el) return;
   const map = Carte.create(el);
-  const port = ports.find(p => p.id === Number(el.closest("dialog").dataset.portId));
+  for (const p of mapPorts) Carte.portMarker(p).addTo(map);
   const points = [];
-  if (port) { Carte.portMarker(port).addTo(map); points.push([port.latitude, port.longitude]); }
+  if (!list.length && homePort) points.push([homePort.latitude, homePort.longitude]);
   for (const x of list) {
     if (editing && x.id === editing.id) continue;
     Carte.siteMarker(x).addTo(map);
@@ -988,30 +974,67 @@ function mountPickMap(el, form, list, editing) {
   Carte.refresh(map);
 }
 
-function openDiveSites(port) {
+// ---- Sites de plongée de la structure (onglet Créneaux) : position GPS précise, courant de l'atlas du SHOM ----
+
+let structureSites = [];   // sites de la structure affichée
+let publicPorts = null;    // ports de la recherche, pour situer les sites (chargés une fois)
+const sitesQS = () => (isSuper() && typesScope ? `?structure_id=${typesScope}` : "");
+const siteCurrentNote = x => (x.current
+  ? `<span class="tag" title="Atlas ${esc(x.current.atlas)}, port de référence ${esc(x.current.ref_port || "?")}">courant ✓</span>`
+  : `<span class="muted">${esc(x.current_status || "pas encore de courant")}</span>`);
+
+async function loadSites() {
+  const panel = $("sites-panel");
+  panel.hidden = isSuper() && !typesScope;
+  if (panel.hidden) return;
+  try {
+    structureSites = await Session.api(`/api/admin/dive-sites${sitesQS()}`);
+  } catch (e) {
+    $("sites-list").innerHTML = `<li class="muted">${esc(e.message)}</li>`;
+    return;
+  }
+  renderSitesPanel();
+}
+
+function renderSitesPanel() {
+  $("sites-list").innerHTML = structureSites.length ? structureSites.map(x => `
+    <li><span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${siteCurrentNote(x)}</span></li>`).join("")
+    : `<li class="muted">Aucun site de plongée pour l'instant.</li>`;
+}
+
+$("sites-manage").addEventListener("click", async () => {
+  if (publicPorts === null) publicPorts = await Session.api("/api/ports").catch(() => []);
+  openDiveSites();
+});
+
+function openDiveSites() {
   const d = document.createElement("dialog");
   d.className = "account-dialog water-dialog";
-  d.dataset.portId = port.id;
+  const structureName = isSuper() ? $("types-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
+  const defaultPortId = Number($("default-port").value) || null;
+  const homePort = (publicPorts || []).find(p => p.id === defaultPortId) || null;
   document.body.append(d);
   d.addEventListener("close", () => d.remove());
   let editing = null;   // site en cours de modification
 
-  const currentNote = x => (x.current
-    ? `<span class="tag" title="Atlas ${esc(x.current.atlas)}, port de référence ${esc(x.current.ref_port || "?")}">courant ✓</span>`
-    : `<span class="muted">${esc(x.current_status || "pas encore de courant")}</span>`);
+  const currentNote = siteCurrentNote;
+  const refresh = async () => {
+    structureSites = await Session.api(`/api/admin/dive-sites${sitesQS()}`);
+    renderSitesPanel();
+  };
   const render = () => {
-    const list = diveSites.filter(x => x.port_id === port.id);
+    const list = structureSites;
     const t = editing;
     d.innerHTML = `
       <form method="dialog">
-        <h2>Sites de plongée — ${esc(port.name)}</h2>
-        <p class="dialog-hint">Position GPS précise de chaque site (degrés décimaux, ex. 48.6612 / -2.7845) : le courant de marée change beaucoup d'un point à l'autre. Il est extrait de l'atlas de courants du SHOM au point le plus proche ; déplacer un site efface son courant, à réimporter.</p>
+        <h2>Sites de plongée${structureName ? ` — ${esc(structureName)}` : ""}</h2>
+        <p class="dialog-hint">Position GPS précise de chaque site (degrés décimaux, ex. 48.6612 / -2.7845) : le courant de marée change beaucoup d'un point à l'autre. Il est extrait de l'atlas de courants du SHOM au point le plus proche ; déplacer un site le recalcule.</p>
         <ul class="water-list">${list.length ? list.map(x => `
           <li data-id="${x.id}">
             <span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${currentNote(x)}${x.notes ? `<br><span class="muted">${esc(x.notes)}</span>` : ""}</span>
             <span><button type="button" class="btn-quiet btn-small" data-site="edit">Modifier</button>
             <button type="button" class="btn-danger btn-small" data-site="delete">Supprimer</button></span>
-          </li>`).join("") : `<li class="muted">Aucun site de plongée pour ce port.</li>`}
+          </li>`).join("") : `<li class="muted">Aucun site de plongée pour l'instant.</li>`}
         </ul>
         ${typeof L === "undefined" ? "" : `<div class="map map-pick" role="region" aria-label="Carte : cliquez pour placer le site"></div>
         <p class="map-hint">Cliquez sur la carte (fond « Photo aérienne » pour repérer roches et épaves) pour placer le site : la latitude et la longitude se remplissent. Le marqueur se déplace aussi en le faisant glisser.</p>`}
@@ -1031,7 +1054,7 @@ function openDiveSites(port) {
       </form>`;
     const form = d.querySelector("form");
     const err = d.querySelector(".dialog-error");
-    mountPickMap(d.querySelector(".map-pick"), form, list, t);
+    mountPickMap(d.querySelector(".map-pick"), form, list, t, { mapPorts: publicPorts || [], homePort });
     d.querySelector("[value=close]").addEventListener("click", () => d.close());
     d.querySelector("[value=cancel-edit]")?.addEventListener("click", () => { editing = null; render(); });
     form.addEventListener("submit", async e => {
@@ -1042,12 +1065,11 @@ function openDiveSites(port) {
       if (t && t.current && (t.lat !== body.lat || t.lon !== body.lon)
           && !confirm("Déplacer le site efface son courant (il valait pour l'ancienne position). Continuer ?")) return;
       try {
-        await Session.api(t ? `/api/admin/dive-sites/${t.id}` : `/api/admin/ports/${port.id}/dive-sites`,
+        await Session.api(t ? `/api/admin/dive-sites/${t.id}` : `/api/admin/dive-sites${sitesQS()}`,
           { method: t ? "PUT" : "POST", body });
-        diveSites = await Session.api("/api/admin/dive-sites");
+        await refresh();
         editing = null;
         render();
-        renderPorts();
       } catch (e2) {
         err.textContent = e2.message;
       }
@@ -1055,15 +1077,14 @@ function openDiveSites(port) {
     d.querySelector(".water-list").addEventListener("click", async e => {
       const btn = e.target.closest("[data-site]");
       if (!btn) return;
-      const x = diveSites.find(w => w.id === Number(btn.closest("li").dataset.id));
+      const x = structureSites.find(w => w.id === Number(btn.closest("li").dataset.id));
       if (btn.dataset.site === "edit") { editing = x; render(); d.querySelector("[name=name]").focus(); return; }
       if (!confirm(`Supprimer le site « ${x.name} » ?`)) return;
       try {
         await Session.api(`/api/admin/dive-sites/${x.id}`, { method: "DELETE" });
-        diveSites = await Session.api("/api/admin/dive-sites");
+        await refresh();
         if (editing?.id === x.id) editing = null;
         render();
-        renderPorts();
       } catch (e2) {
         err.textContent = e2.message;
       }
@@ -1413,6 +1434,7 @@ async function loadTypes() {
   typeForm.hidden = noStructure;
   loadSettings();
   loadUnavailabilities();
+  loadSites();
   if (noStructure) {
     slotTypes = [];
     typesBody.innerHTML = `<tr><td colspan="5" class="empty">Créez d'abord une structure (onglet « Structures »).</td></tr>`;

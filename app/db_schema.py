@@ -82,6 +82,33 @@ SLOT_SELECTIONS_COLUMNS = """(
 )"""
 
 
+# Sites de plongée (par structure) et courant extrait à chaque site : aussi utilisés par la migration n° 8
+DIVE_SITES_COLUMNS = """(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    lat REAL NOT NULL CHECK (lat BETWEEN -90 AND 90),
+    lon REAL NOT NULL CHECK (lon BETWEEN -180 AND 180),
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    current_atlas TEXT,             -- zone de l'atlas (ex. « Bretagne Nord »)
+    current_ref_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL,  -- port de référence de l'atlas
+    current_ref_kind TEXT CHECK (current_ref_kind IS NULL OR current_ref_kind IN ('PM', 'BM')),
+    current_status TEXT,            -- pourquoi le site n'a pas de courant (hors atlas, port de référence absent…)
+    current_lat REAL,               -- point de grille retenu
+    current_lon REAL,
+    current_imported_at TEXT,
+    UNIQUE (structure_id, name)
+)"""
+
+SITE_CURRENTS_COLUMNS = """(
+    site_id INTEGER NOT NULL REFERENCES dive_sites(id) ON DELETE CASCADE,
+    offset_min INTEGER NOT NULL,
+    u45 REAL NOT NULL, v45 REAL NOT NULL,
+    u95 REAL NOT NULL, v95 REAL NOT NULL,
+    PRIMARY KEY (site_id, offset_min)
+)"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -515,36 +542,14 @@ CREATE TABLE IF NOT EXISTS water_thresholds (
     UNIQUE (port_id, label)
 );
 
--- Sites de plongée d'un port (saisis par les super administrateurs) : position GPS précise, le courant changeant
--- beaucoup d'un point à l'autre. Les colonnes current_* décrivent l'atlas de courants de marée du SHOM dont le
--- courant du site est extrait (série dans site_currents) ; NULL : pas encore de courant pour ce site.
-CREATE TABLE IF NOT EXISTS dive_sites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    lat REAL NOT NULL CHECK (lat BETWEEN -90 AND 90),
-    lon REAL NOT NULL CHECK (lon BETWEEN -180 AND 180),
-    notes TEXT,
-    created_at TEXT NOT NULL,
-    current_atlas TEXT,             -- zone de l'atlas (ex. « Bretagne Nord »)
-    current_ref_port_id INTEGER REFERENCES ports(id) ON DELETE SET NULL,  -- port de référence de l'atlas
-    current_ref_kind TEXT CHECK (current_ref_kind IS NULL OR current_ref_kind IN ('PM', 'BM')),
-    current_status TEXT,            -- pourquoi le site n'a pas de courant (hors atlas, port de référence absent…)
-    current_lat REAL,               -- point de grille retenu
-    current_lon REAL,
-    current_imported_at TEXT,
-    UNIQUE (port_id, name)
-);
+-- Sites de plongée d'une structure (saisis par ses administrateurs, vus par ses seuls membres) : position GPS
+-- précise, le courant changeant beaucoup d'un point à l'autre. Les colonnes current_* décrivent l'atlas de courants
+-- de marée du SHOM dont le courant du site est extrait (série dans site_currents) ; NULL : pas encore de courant.
+CREATE TABLE IF NOT EXISTS dive_sites """ + DIVE_SITES_COLUMNS + """;
 
 -- Courant de marée au site, sur un cycle : décalage (minutes) par rapport à la pleine mer du port de référence,
 -- composantes est (u) et nord (v) en m/s pour un coefficient 45 (morte-eau moyenne) et 95 (vive-eau moyenne).
-CREATE TABLE IF NOT EXISTS site_currents (
-    site_id INTEGER NOT NULL REFERENCES dive_sites(id) ON DELETE CASCADE,
-    offset_min INTEGER NOT NULL,
-    u45 REAL NOT NULL, v45 REAL NOT NULL,
-    u95 REAL NOT NULL, v95 REAL NOT NULL,
-    PRIMARY KEY (site_id, offset_min)
-);
+CREATE TABLE IF NOT EXISTS site_currents """ + SITE_CURRENTS_COLUMNS + """;
 
 CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
 

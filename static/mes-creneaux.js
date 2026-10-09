@@ -147,11 +147,11 @@ const pickedBy = p => (p.picked_by ? esc(p.picked_by) : `<span class="muted">com
 // Ajouter ce créneau au calendrier du téléphone ou de l'ordinateur (fichier .ics d'un seul créneau)
 const agendaLink = p => `<a class="btn-quiet btn-small slot-agenda" href="/api/selections/${p.id}.ics" download
   title="Ajouter ce créneau à mon agenda (calendrier du téléphone ou de l'ordinateur)">${Session.icon("calendar", 15)}<span>Agenda</span></a>`;
-// Courants : ports dont au moins un site de plongée a son courant (atlas du SHOM) ; pas pour un séjour
-let currentPorts = new Set();
-const currentsButton = p => (p.port_id != null && !p.end_date && currentPorts.has(p.port_id)
+// Courants : la structure a au moins un site de plongée dont le courant est connu (atlas du SHOM) ; pas pour un séjour
+let hasCurrentSites = false;
+const currentsButton = p => (!p.end_date && hasCurrentSites
   ? `<button type="button" class="btn-quiet btn-small slot-currents" data-act="currents"
-      title="Courant de marée aux sites de plongée du port, autour du créneau">${Session.icon("wave", 15)}<span>Courants</span></button>`
+      title="Courant de marée aux sites de plongée de la structure, autour du créneau">${Session.icon("wave", 15)}<span>Courants</span></button>`
   : "");
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
 // Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
@@ -545,7 +545,7 @@ async function load() {
       Session.api("/api/unavailabilities"),
       Session.api("/api/dive-sites").catch(() => []),   // sans les sites, pas de bouton Courants
     ]);
-    currentPorts = new Set(sites.filter(x => x.current).map(x => x.port_id));
+    hasCurrentSites = sites.some(x => x.current);
   } catch (e) {
     statusEl.textContent = e.message;
     return;
@@ -1089,7 +1089,7 @@ function siteCurrentBlock(s, mark) {
   </section>`;
 }
 
-// Petite carte : le port et ses sites, nommés, avec le courant le plus fort de la période
+// Petite carte : le port du créneau (s'il y en a un) et les sites de la structure, nommés
 function sitesMap(el, data) {
   if (!el) return;
   const map = Carte.create(el);
@@ -1128,7 +1128,7 @@ async function openCurrents(p) {
     const data = await Session.api(`/api/selections/${p.id}/currents`);
     const sites = data.sites;
     if (!data.period || !sites.length) {
-      body.innerHTML = `<p class="dialog-hint">Aucun site de plongée avec courant pour ce créneau.</p>`;
+      body.innerHTML = `<p class="dialog-hint">Aucun site de plongée pour ce créneau.</p>`;
       return;
     }
     body.innerHTML = `

@@ -160,7 +160,7 @@
 
         <div class="panel" id="currents-panel">
           <h2>Courants de marée (atlas du SHOM)</h2>
-          <p class="hint">Le courant de chaque site de plongée (bouton « Sites » d'un port) vient des atlas de courants de marée 2D du SHOM : téléchargez les zones utiles. Le courant d'un site se calcule à partir de la pleine mer du <strong>port de référence</strong> de l'atlas, qui doit figurer ci-dessus avec ses marées calculées (même sans site de plongée).</p>
+          <p class="hint">Le courant de chaque site de plongée (saisi par chaque structure, onglet « Créneaux ») vient des atlas de courants de marée 2D du SHOM : téléchargez les zones utiles. Le courant d'un site se calcule à partir de la pleine mer du <strong>port de référence</strong> de l'atlas, qui doit figurer ci-dessus avec ses marées calculées (même sans site de plongée).</p>
           <div class="table-wrap">
             <table class="users">
               <thead><tr><th scope="col">Zone</th><th scope="col">Port de référence</th><th scope="col">État</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
@@ -307,6 +307,13 @@
               <tbody id="unav-body"></tbody>
             </table>
           </div>
+        </div>
+
+        <div id="sites-panel" class="panel">
+          <h2>Sites de plongée</h2>
+          <p class="hint">Les sites de votre structure, visibles par ses seuls membres (page Carte, fenêtre « Courants » des créneaux choisis). Position GPS précise : le courant de marée change beaucoup d'un point à l'autre ; il est extrait automatiquement de l'atlas de courants du SHOM au point le plus proche.</p>
+          <ul id="sites-list" class="water-list"></ul>
+          <p><button type="button" id="sites-manage" class="btn-primary btn-small">Ajouter ou modifier des sites…</button></p>
         </div>
 
         <form id="type-form" class="panel type-form" autocomplete="off">

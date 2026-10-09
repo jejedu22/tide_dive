@@ -1,5 +1,5 @@
 """
-Sites de plongée des ports et courant de marée à chaque site (atlas du SHOM, voir currents.py).
+Sites de plongée des structures et courant de marée à chaque site (atlas du SHOM, voir currents.py).
 
 Regroupé dans `app.db` (façade) : le reste du code continue d'écrire `db.fonction(...)`.
 """
@@ -11,20 +11,20 @@ import sqlite3
 from .db_core import get_conn
 
 _SITE_SQL = """
-    SELECT d.*, p.name AS port_name, r.name AS current_ref_port,
+    SELECT d.*, s.name AS structure_name, r.name AS current_ref_port,
            (SELECT COUNT(*) FROM site_currents c WHERE c.site_id = d.id) AS current_points
-    FROM dive_sites d JOIN ports p ON p.id = d.port_id LEFT JOIN ports r ON r.id = d.current_ref_port_id
+    FROM dive_sites d JOIN structures s ON s.id = d.structure_id LEFT JOIN ports r ON r.id = d.current_ref_port_id
 """
 
 
-def list_dive_sites(port_id: int | None = None) -> list[sqlite3.Row]:
-    """Sites de plongée d'un port (ou de tous), par port puis par nom."""
+def list_dive_sites(structure_id: int | None = None) -> list[sqlite3.Row]:
+    """Sites de plongée d'une structure (ou de toutes), par structure puis par nom."""
     sql, params = _SITE_SQL, []
-    if port_id is not None:
-        sql += " WHERE d.port_id = ?"
-        params.append(port_id)
+    if structure_id is not None:
+        sql += " WHERE d.structure_id = ?"
+        params.append(structure_id)
     with get_conn() as conn:
-        return conn.execute(sql + " ORDER BY p.name, d.name COLLATE NOCASE", params).fetchall()
+        return conn.execute(sql + " ORDER BY s.name COLLATE NOCASE, d.name COLLATE NOCASE", params).fetchall()
 
 
 def get_dive_site(site_id: int) -> sqlite3.Row | None:
@@ -32,18 +32,18 @@ def get_dive_site(site_id: int) -> sqlite3.Row | None:
         return conn.execute(_SITE_SQL + " WHERE d.id = ?", (site_id,)).fetchone()
 
 
-def create_dive_site(port_id: int, name: str, lat: float, lon: float, notes: str | None, now: str) -> int:
-    """Lève sqlite3.IntegrityError si le nom existe déjà pour ce port."""
+def create_dive_site(structure_id: int, name: str, lat: float, lon: float, notes: str | None, now: str) -> int:
+    """Lève sqlite3.IntegrityError si le nom existe déjà pour cette structure."""
     with get_conn() as conn:
         return conn.execute(
-            "INSERT INTO dive_sites (port_id, name, lat, lon, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (port_id, name, lat, lon, notes, now),
+            "INSERT INTO dive_sites (structure_id, name, lat, lon, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (structure_id, name, lat, lon, notes, now),
         ).lastrowid
 
 
 def update_dive_site(site_id: int, name: str, lat: float, lon: float, notes: str | None) -> bool:
     """Renvoie True si la position a changé : le courant extrait à l'ancienne position est alors effacé.
-    Lève sqlite3.IntegrityError si le nom existe déjà pour ce port."""
+    Lève sqlite3.IntegrityError si le nom existe déjà pour cette structure."""
     with get_conn() as conn:
         old = conn.execute("SELECT lat, lon FROM dive_sites WHERE id = ?", (site_id,)).fetchone()
         moved = old is not None and (old["lat"], old["lon"]) != (lat, lon)
