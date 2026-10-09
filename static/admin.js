@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["structures", "ports", "donnees", "types", "utilisateurs", "mailjet"];
+const ALL_TABS = ["structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet"];
 const SUPER_TABS = ["structures", "ports", "donnees"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -96,6 +96,7 @@ function showTab(name) {
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "ports" && portsMap) Carte.refresh(portsMap.map);
   if (name === "types") loadTypes();
+  if (name === "sites") loadSites();
   if (name === "utilisateurs") loadUsers();
   if (name === "mailjet") loadMailjet();
 }
@@ -552,6 +553,10 @@ function renderStructureSelects() {
   typesSel.innerHTML = opts(keepTypes);
   typesScope = typesSel.value ? Number(typesSel.value) : null;
 
+  const sitesSel = $("sites-structure");
+  sitesSel.innerHTML = opts(sitesScope ?? keepTypes);
+  sitesScope = sitesSel.value ? Number(sitesSel.value) : null;
+
   const mjSel = $("mailjet-structure");
   mjSel.innerHTML = opts(mailjetScope ?? keepTypes);
   mailjetScope = mjSel.value ? Number(mjSel.value) : null;
@@ -977,17 +982,34 @@ function mountPickMap(el, form, list, editing, { mapPorts = [], homePort = null 
 // ---- Sites de plongée de la structure (onglet Créneaux) : position GPS précise, courant de l'atlas du SHOM ----
 
 let structureSites = [];   // sites de la structure affichée
+let sitesScope = null;     // structure choisie (super administrateur)
 let publicPorts = null;    // ports de la recherche, pour situer les sites (chargés une fois)
-const sitesQS = () => (isSuper() && typesScope ? `?structure_id=${typesScope}` : "");
+let sitesMap = null;       // { map, layer } : carte de l'onglet
+const sitesQS = () => (isSuper() && sitesScope ? `?structure_id=${sitesScope}` : "");
+
+$("sites-structure").addEventListener("change", e => {
+  sitesScope = Number(e.target.value) || null;
+  if (sitesMap) sitesMap.fitted = false;
+  loadSites();
+});
+
+// Port par défaut de la structure affichée : cadre la carte quand elle n'a pas encore de site
+function sitesHomePort() {
+  const sid = isSuper() ? sitesScope : Session.user?.structure?.id;
+  const st = structures.find(x => x.id === sid);
+  const portId = st?.default_port_id ?? (sid === Session.user?.structure?.id ? Session.user?.structure?.default_port_id : null);
+  return (publicPorts || []).find(p => p.id === portId) || null;
+}
 const siteCurrentNote = x => (x.current
   ? `<span class="tag" title="Atlas ${esc(x.current.atlas)}, port de référence ${esc(x.current.ref_port || "?")}">courant ✓</span>`
   : `<span class="muted">${esc(x.current_status || "pas encore de courant")}</span>`);
 
 async function loadSites() {
   const panel = $("sites-panel");
-  panel.hidden = isSuper() && !typesScope;
+  panel.hidden = isSuper() && !sitesScope;
   if (panel.hidden) return;
   try {
+    if (publicPorts === null) publicPorts = await Session.api("/api/ports").catch(() => []);
     structureSites = await Session.api(`/api/admin/dive-sites${sitesQS()}`);
   } catch (e) {
     $("sites-list").innerHTML = `<li class="muted">${esc(e.message)}</li>`;
@@ -1000,6 +1022,29 @@ function renderSitesPanel() {
   $("sites-list").innerHTML = structureSites.length ? structureSites.map(x => `
     <li><span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${siteCurrentNote(x)}</span></li>`).join("")
     : `<li class="muted">Aucun site de plongée pour l'instant.</li>`;
+  renderSitesMap();
+}
+
+function renderSitesMap() {
+  if (typeof L === "undefined") return;   // Leaflet absent : la liste suffit
+  if (!sitesMap) {
+    const map = Carte.create($("sites-map"));
+    sitesMap = { map, layer: L.layerGroup().addTo(map), fitted: false };
+  }
+  const { map, layer } = sitesMap;
+  layer.clearLayers();
+  for (const p of publicPorts || []) Carte.portMarker(p).addTo(layer);
+  const points = structureSites.map(x => [x.lat, x.lon]);
+  for (const x of structureSites) {
+    Carte.siteMarker(x).bindPopup(`<strong>${esc(x.name)}</strong><br>${siteCurrentNote(x)}`).addTo(layer);
+  }
+  if (!sitesMap.fitted) {   // cadrage initial : les sites, à défaut le port par défaut
+    const home = sitesHomePort();
+    if (points.length) Carte.fit(map, points, { zoom: 13, maxZoom: 13 });
+    else if (home) map.setView([home.latitude, home.longitude], 11);
+    sitesMap.fitted = true;
+  }
+  Carte.refresh(map);
 }
 
 $("sites-manage").addEventListener("click", async () => {
@@ -1010,9 +1055,8 @@ $("sites-manage").addEventListener("click", async () => {
 function openDiveSites() {
   const d = document.createElement("dialog");
   d.className = "account-dialog water-dialog";
-  const structureName = isSuper() ? $("types-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
-  const defaultPortId = Number($("default-port").value) || null;
-  const homePort = (publicPorts || []).find(p => p.id === defaultPortId) || null;
+  const structureName = isSuper() ? $("sites-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
+  const homePort = sitesHomePort();
   document.body.append(d);
   d.addEventListener("close", () => d.remove());
   let editing = null;   // site en cours de modification
@@ -1434,7 +1478,6 @@ async function loadTypes() {
   typeForm.hidden = noStructure;
   loadSettings();
   loadUnavailabilities();
-  loadSites();
   if (noStructure) {
     slotTypes = [];
     typesBody.innerHTML = `<tr><td colspan="5" class="empty">Créez d'abord une structure (onglet « Structures »).</td></tr>`;
@@ -2436,6 +2479,11 @@ async function onSessionChange(user) {
   $("types-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
   $("types-structure").previousElementSibling.hidden = !sup;
   $("types-structure-name").hidden = sup;
+
+  $("sites-structure").hidden = !sup;
+  $("sites-structure").previousElementSibling.hidden = !sup;
+  $("sites-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("sites-structure-name").hidden = sup;
 
   $("mailjet-structure").hidden = !sup;
   $("mailjet-structure").previousElementSibling.hidden = !sup;
