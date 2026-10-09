@@ -637,21 +637,51 @@ picksEl.addEventListener("click", async e => {
   const btn = e.target.closest("button[data-act=remove]");
   if (!btn) return;
   const id = holderId(btn);
-  const n = picks.find(p => p.id === id)?.registrations.length || 0;
-  if (n && !confirm(`${n} membre(s) inscrit(s) sur ce créneau : le retirer annule leur inscription. Continuer ?`)) return;
-  btn.disabled = true;
-  try {
-    await Session.api(`/api/selections/${id}`, { method: "DELETE" });
-  } catch (err) {
-    if (err.status !== 404) {
+  const p = picks.find(x => x.id === id);
+  const n = p?.registrations.length || 0;
+  const removed = () => {
+    picks = picks.filter(x => x.id !== id);
+    renderTypeFilter();
+    render();
+  };
+  const remove = async query => {
+    try {
+      await Session.api(`/api/selections/${id}${query}`, { method: "DELETE" });
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+    removed();
+  };
+  if (!n || p.past) {   // personne à prévenir
+    btn.disabled = true;
+    try {
+      await remove("?notify=false");
+    } catch (err) {
       statusEl.textContent = `Retrait impossible : ${err.message}`;
       btn.disabled = false;
-      return;
     }
+    return;
   }
-  picks = picks.filter(p => p.id !== id);
-  renderTypeFilter();
-  render();
+  const mail = Session.config.password_reset;   // envoi d'e-mails configuré
+  openDialog({
+    title: "Retirer le créneau",
+    submitLabel: "Retirer le créneau",
+    body: `
+      <p class="dialog-hint">${n} membre(s) inscrit(s) sur ce créneau du ${esc(formatLong(p.date))} (${esc(p.note || p.port)}) : le retirer annule leur inscription.</p>
+      ${mail ? `
+      <label class="check"><input type="checkbox" name="notify" checked> Prévenir les inscrits par e-mail</label>
+      <label>Motif <span class="field-hint">(facultatif, repris dans l'e-mail)</span>
+        <textarea name="reason" maxlength="300" rows="2" placeholder="ex. météo défavorable, bateau en panne"></textarea></label>`
+      : `<p class="muted">L'envoi d'e-mails n'est pas configuré : pensez à prévenir les inscrits.</p>`}`,
+    onSubmit: async form => {
+      const notify = mail && form.notify.checked;
+      const reason = mail ? form.reason.value.trim() : "";
+      const q = new URLSearchParams({ notify: String(notify) });
+      if (notify && reason) q.set("reason", reason);
+      await remove(`?${q}`);
+      statusEl.textContent = notify ? `Créneau retiré : ${n} inscrit(s) prévenu(s) par e-mail.` : "Créneau retiré.";
+    },
+  });
 });
 
 // ---- Inscrire d'autres membres (administration ou profil « Inscriptions ») ----
@@ -799,6 +829,8 @@ async function openCustomDialog(p = null) {
       ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
       <label>Intitulé <span class="field-hint">(facultatif)</span>
         <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>
+      ${p && !p.past && p.registrations.length && Session.config.password_reset ? `
+      <label class="check"><input type="checkbox" name="notify" checked> Prévenir les ${p.registrations.length} inscrit(s) par e-mail si le jour, l'heure ou le lieu change</label>` : ""}
       ${p ? "" : `<label>Places <span class="field-hint">(vide : illimité)</span>
         <input type="number" name="max_registrations" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité"
           value="${Session.user?.structure?.default_max_registrations ?? ""}"></label>`}`,
@@ -813,6 +845,7 @@ async function openCustomDialog(p = null) {
         time: f.get("time").slice(0, 5),
         note: f.get("note").trim() || null,
       };
+      if (p) body.notify = !form.notify || form.notify.checked;
       if (!p) {
         body.type_id = Number(f.get("type_id"));
         const places = String(f.get("max_registrations") ?? "").trim();

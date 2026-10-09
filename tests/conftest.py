@@ -91,3 +91,21 @@ def login(client, username):
     r = client.post("/api/auth/login", json={"username": username, "password": PASSWORD})
     assert r.status_code == 200, r.text
     return r.json()["user"]
+
+
+@pytest.fixture()
+def mail_outbox(monkeypatch):
+    """Envoi d'e-mails activé et capturé : liste des (destinataire, sujet, corps) envoyés."""
+    from app import mailer
+
+    sent = []
+    monkeypatch.setattr(mailer, "enabled", lambda: True)
+    monkeypatch.setattr(mailer, "BASE_URL", "https://exemple.test")
+
+    def send_many(messages):
+        messages = list(messages)
+        sent.extend(messages)
+        return [None] * len(messages)
+
+    monkeypatch.setattr(mailer, "send_many", send_many)
+    return sent

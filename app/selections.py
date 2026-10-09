@@ -44,7 +44,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import accounts, db, diver, mailer
@@ -203,6 +203,8 @@ class SelectionPatch(BaseModel):
     time: str | None = Field(None, pattern=TIME_PATTERN)
     note: str | None = Field(None, max_length=80)
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # tout créneau ; 0 ou null : illimité
+    # créneau personnalisé déplacé (jour, heure, lieu) : prévenir ses inscrits par e-mail
+    notify: bool = True
 
     @field_validator("note")
     @classmethod
@@ -501,6 +503,7 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         ensure_available(sid, *custom_span(start.isoformat(), body.time or row["rdv_time"],
                                            end.isoformat() if end else None))
     if sent & custom_fields:
+        before = (when(row), _place(row))
         db.update_custom_selection(
             sid, selection_id, port_id, location,
             start.isoformat(), end.isoformat() if end else None,
@@ -517,14 +520,25 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         _, waiting_before = _status(sid, selection_id)
         db.update_selection_capacity(sid, selection_id, _clean_capacity(body.max_registrations))
         _notify_promotions(background, sid, selection_id, waiting_before)
+    if sent & custom_fields and body.notify:
+        _notify_moved(background, sid, selection_id, *before)
     return _one_out(sid, selection_id, user["id"])
 
 
 @router.delete("/selections/{selection_id}", status_code=204)
-def delete_selection(selection_id: int, user: CurrentPicker):
-    # filtré par structure : impossible de retirer le choix d'une autre structure
-    if not db.delete_selection(user["structure_id"], selection_id):
+def delete_selection(selection_id: int, user: CurrentPicker, background: BackgroundTasks,
+                     warn: bool = Query(True, alias="notify"), reason: str | None = Query(None, max_length=300)):
+    """Retire un créneau et ses inscriptions. notify (par défaut) : les inscrits d'un créneau à venir en sont
+    prévenus par e-mail, avec le motif facultatif."""
+    sid = user["structure_id"]
+    row = db.get_selection(sid, selection_id)   # filtré par structure : impossible de retirer celui d'une autre
+    members = _members_to_notify(sid, row) if row is not None and warn else []
+    if not db.delete_selection(sid, selection_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if members:
+        reason = " ".join(reason.split()) if reason else None
+        by = accounts.display_name(user)
+        background.add_task(notify, [cancelled_message(m, row, by, reason) for m in members])
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +605,7 @@ def _notify_promotions(background: BackgroundTasks, structure_id: int, selection
             if member is not None and member["email"]:
                 messages.append(promoted_message(member, row, can_unregister))
     if messages:
-        background.add_task(_notify, messages)
+        background.add_task(notify, messages)
 
 
 @router.post("/selections/{selection_id}/registration")
@@ -647,7 +661,7 @@ def _place(row: sqlite3.Row) -> str:
     return row["note"] + f" ({row['port_name']})" if row["note"] else row["port_name"]
 
 
-def _when(row: sqlite3.Row) -> str:
+def when(row: sqlite3.Row) -> str:
     start = date.fromisoformat(row["local_date"])
     when = f"du {_fr_date(start)} {start.year}"
     if row["end_date"]:
@@ -666,10 +680,10 @@ def registered_message(member: sqlite3.Row, row: sqlite3.Row, by: str,
     app = mailer.APP_NAME
     day = _fr_date(date.fromisoformat(row["local_date"]))
     if waiting_position is None:
-        what = f"{by} vous a inscrit au créneau {_when(row)} : {_place(row)}."
+        what = f"{by} vous a inscrit au créneau {when(row)} : {_place(row)}."
         subject = f"{app} : inscription au créneau du {day}"
     else:
-        what = (f"{by} vous a placé en file d'attente (n° {waiting_position}) pour le créneau {_when(row)} : "
+        what = (f"{by} vous a placé en file d'attente (n° {waiting_position}) pour le créneau {when(row)} : "
                 f"{_place(row)}.\nCe créneau est complet : vous serez prévenu(e) par e-mail si une place se libère.")
         subject = f"{app} : file d'attente pour le créneau du {day}"
     body = f"""{accounts.greeting(member)}
@@ -696,7 +710,7 @@ def promoted_message(member: sqlite3.Row, row: sqlite3.Row, can_unregister: bool
                  "de votre structure pour laisser la place au suivant.\nVos créneaux :")
     body = f"""{accounts.greeting(member)}
 
-Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {_when(row)} : {_place(row)}.
+Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {when(row)} : {_place(row)}.
 
 {leave}
 {mailer.link('mes-creneaux.html')}
@@ -707,7 +721,7 @@ Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {_when(
     return member["email"], f"{app} : une place s'est libérée pour le créneau du {_fr_date(date.fromisoformat(row['local_date']))}", body
 
 
-def _notify(messages: list[tuple[str, str, str]]) -> None:
+def notify(messages: list[tuple[str, str, str]]) -> None:
     try:
         errors = mailer.send_many(messages)
     except mailer.MailError as e:
@@ -715,6 +729,97 @@ def _notify(messages: list[tuple[str, str, str]]) -> None:
     for (to, _, _), err in zip(messages, errors):
         if err:
             print(f"[inscription] e-mail non envoyé à {to} : {err}", file=sys.stderr, flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Créneau retiré ou déplacé : ses inscrits (confirmés et file d'attente) sont prévenus par e-mail, s'il est à venir
+# ---------------------------------------------------------------------------
+
+def _members_to_notify(structure_id: int, row: sqlite3.Row) -> list[sqlite3.Row]:
+    """Inscrits (confirmés et file d'attente) d'un créneau à venir qui ont une adresse e-mail ; [] sans envoi
+    d'e-mails ou pour un créneau passé."""
+    if not mailer.enabled() or (row["end_date"] or row["local_date"]) < _today():
+        return []
+    members = (db.get_user(r["user_id"], structure_id) for r in db.list_registrations(structure_id, row["id"]))
+    return [m for m in members if m is not None and m["email"]]
+
+
+def cancelled_message(member: sqlite3.Row, row: sqlite3.Row, by: str, reason: str | None) -> tuple[str, str, str]:
+    app = mailer.APP_NAME
+    why = f"\nMotif : {reason}\n" if reason else ""
+    body = f"""{accounts.greeting(member)}
+
+Le créneau {when(row)} : {_place(row)}, auquel vous étiez inscrit(e), est annulé par {by}.
+{why}
+Votre inscription est retirée. Les autres créneaux de votre structure :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+    day = _fr_date(date.fromisoformat(row["local_date"]))
+    return member["email"], f"{app} : créneau du {day} annulé", body
+
+
+def moved_message(member: sqlite3.Row, row: sqlite3.Row, before_when: str, before_place: str) -> tuple[str, str, str]:
+    """Créneau modifié (jour, heure de rendez-vous, lieu) : l'ancien et le nouveau."""
+    app = mailer.APP_NAME
+    body = f"""{accounts.greeting(member)}
+
+Le créneau auquel vous êtes inscrit(e) a été modifié.
+
+Avant : {before_when} : {before_place}.
+Désormais : {when(row)} : {_place(row)}.
+
+Votre inscription est conservée. Si vous ne pouvez plus venir, désinscrivez-vous (ou prévenez un administrateur
+si le délai de désinscription est passé) :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+    day = _fr_date(date.fromisoformat(row["local_date"]))
+    return member["email"], f"{app} : créneau du {day} modifié", body
+
+
+def _notify_moved(background: BackgroundTasks, structure_id: int, selection_id: int,
+                  before_when: str, before_place: str) -> None:
+    row = db.get_selection(structure_id, selection_id)
+    if row is None or (when(row), _place(row)) == (before_when, before_place):
+        return   # rien de visible n'a changé (intitulé seul, même jour et même heure)
+    messages = [moved_message(m, row, before_when, before_place) for m in _members_to_notify(structure_id, row)]
+    if messages:
+        background.add_task(notify, messages)
+
+
+def notify_rdv_changes(structure_id: int, before: dict[int, str]) -> list[tuple[str, str, str]]:
+    """Messages à envoyer quand l'heure de RDV de créneaux à venir a changé (délai de rendez-vous de la structure
+    modifié) : UN e-mail par membre, qui liste ses créneaux concernés. before : {id du créneau: ancien _when}."""
+    per_member: dict[int, tuple[sqlite3.Row, list[str]]] = {}
+    for sel_id, old in before.items():
+        row = db.get_selection(structure_id, sel_id)
+        if row is None or when(row) == old:
+            continue
+        for m in _members_to_notify(structure_id, row):
+            per_member.setdefault(m["id"], (m, []))[1].append(f"- {_place(row)} : {when(row)} (au lieu de {old})")
+    app = mailer.APP_NAME
+    messages = []
+    for member, lines in per_member.values():
+        listing = "\n".join(lines)
+        body = f"""{accounts.greeting(member)}
+
+Votre structure a changé l'heure de rendez-vous de ses créneaux. Les vôtres :
+
+{listing}
+
+Vos créneaux :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+        messages.append((member["email"], f"{app} : nouvelle heure de rendez-vous", body))
+    return messages
 
 
 @router.post("/selections/{selection_id}/registrations")
@@ -755,7 +860,7 @@ def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegi
                 position = waiting_now.index(uid) + 1 if uid in waiting_now else None
                 messages.append(registered_message(member, row, by, position))
         if messages:
-            background.add_task(_notify, messages)
+            background.add_task(notify, messages)
     out = _one_out(sid, selection_id, actor["id"])
     out["added"] = len(added)
     return out

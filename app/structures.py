@@ -13,12 +13,12 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from . import db
+from . import db, selections
 from .auth import CurrentManager, CurrentSuperAdmin, can_manage_structure
 from .slots import describe_extremum, rdv_time
 
@@ -116,7 +116,7 @@ def rename_structure(structure_id: int, body: StructureIn, admin: CurrentSuperAd
 
 
 @router.patch("/{structure_id}/settings")
-def update_settings(structure_id: int, body: StructureSettingsIn, actor: CurrentManager):
+def update_settings(structure_id: int, body: StructureSettingsIn, actor: CurrentManager, background: BackgroundTasks):
     """Règles de la structure : ses administrateurs ou un super administrateur."""
     if not can_manage_structure(actor, structure_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Structure inconnue")
@@ -145,7 +145,9 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
     db.update_structure_settings(structure_id, **fields)
     offset = fields.get("rdv_offset_minutes")
     if offset is not None and offset != before["rdv_offset_minutes"]:
-        _shift_upcoming_rdvs(structure_id, offset)
+        messages = _shift_upcoming_rdvs(structure_id, offset)
+        if messages:
+            background.add_task(selections.notify, messages)
     moved = None
     if any(flag in fields and fields[flag] != before[flag] for flag in ("use_api_maree", "use_calibration")):
         moved = rebind_upcoming(structure_id)
@@ -191,17 +193,19 @@ def rebind_upcoming(structure_id: int) -> int:
     return moved
 
 
-def _shift_upcoming_rdvs(structure_id: int, offset_minutes: int) -> None:
+def _shift_upcoming_rdvs(structure_id: int, offset_minutes: int) -> list[tuple[str, str, str]]:
     """Nouveau délai : recalcule l'heure de RDV des créneaux choisis à venir ;
-    les créneaux passés gardent celle qu'ils avaient."""
+    les créneaux passés gardent celle qu'ils avaient. Renvoie les e-mails qui préviennent leurs inscrits."""
     today = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
-    rdvs = []
+    rdvs, before = [], {}
     for row in db.list_selections(structure_id, today):
         if row["local_time"] is None:
             continue  # créneau personnalisé : son heure de RDV est saisie, pas déduite d'une étale
         rdv = rdv_time(datetime.fromisoformat(f"{row['local_date']}T{row['local_time']}"), offset_minutes)
         rdvs.append((rdv.date().isoformat(), rdv.strftime("%H:%M"), row["id"]))
+        before[row["id"]] = selections.when(row)
     db.update_selection_rdvs(rdvs)
+    return selections.notify_rdv_changes(structure_id, before)
 
 
 @router.delete("/{structure_id}", status_code=204)
