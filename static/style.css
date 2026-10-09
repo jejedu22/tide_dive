@@ -1954,3 +1954,13 @@ dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-o
 .feature-off { font-size: 0.75rem; font-weight: 400; }
 #broadcast-form label:not(.check) { display: block; margin: 0.5rem 0; font-weight: 600; color: var(--blue-deep); font-size: 0.9rem; }
 #broadcast-form input[name=subject], #broadcast-form textarea { display: block; width: 100%; font: inherit; padding: 0.4rem 0.5rem; border-radius: 8px; border: 1px solid #cfe3ea; margin-top: 0.2rem; font-weight: 400; }
+
+/* Exploitation (administration) */
+.block-label { display: block; margin: 0.5rem 0; font-weight: 600; color: var(--blue-deep); font-size: 0.9rem; }
+.block-label input { display: block; width: 100%; font: inherit; font-weight: 400; padding: 0.4rem 0.5rem; border-radius: 8px; border: 1px solid #cfe3ea; margin-top: 0.2rem; }
+.inline-check { display: inline-flex; margin-left: 0.8rem; padding: 0; }
+code.cron { font-size: 0.72rem; font-weight: 400; }
+.subhead { margin: 1rem 0 0.4rem; font-size: 1rem; color: var(--blue-deep); }
+.users.wrap-table th, .users.wrap-table td { white-space: normal; }
+.users.wrap-table tbody th { min-width: 12rem; }
+.dash-issues .tag { white-space: normal; border-radius: 8px; line-height: 1.3; padding: 0.1rem 0.45rem; }

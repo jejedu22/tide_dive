@@ -108,6 +108,11 @@ LABELS: dict[tuple[str, str], str] = {
     ("PUT", "/api/admin/announcements/{announcement_id}"): "Bandeau d'annonce modifié",
     ("DELETE", "/api/admin/announcements/{announcement_id}"): "Bandeau d'annonce supprimé",
     ("POST", "/api/admin/broadcast"): "E-mail aux administrateurs de structure",
+    ("POST", "/api/admin/backups"): "Sauvegarde demandée",
+    ("POST", "/api/admin/backups/{name}/verify"): "Sauvegarde vérifiée",
+    ("POST", "/api/admin/schedule/{key}/run"): "Tâche automatique lancée",
+    ("PUT", "/api/admin/maintenance"): "Mode maintenance modifié",
+    ("POST", "/api/admin/mail-test"): "E-mail de test",
     ("PUT", "/api/divers/{user_id}"): "Fiche plongeur modifiée",
     ("POST", "/api/divers/{user_id}/caci/validate"): "Certificat médical (CACI) validé",
 }
@@ -161,6 +166,8 @@ _RESOLVERS = [
      lambda m: (f"{_user_name(int(m[2])) or 'compte n° ' + m[2]} · {_selection_name(int(m[1]))[0] or ''}",
                 _selection_name(int(m[1]))[1])),
     (re.compile(r"/selections/(\d+)"), lambda m: _selection_name(int(m[1]))),
+    (re.compile(r"/admin/schedule/(\w+)/run"), lambda m: (_schedule_label(m[1]), None)),
+    (re.compile(r"/admin/backups/([\w.-]+)/verify"), lambda m: (m[1], None)),
     (re.compile(r"/(?:users|divers)/(\d+)"), lambda m: (_user_name(int(m[1])), None)),
     (re.compile(r"/structures/(\d+)"), lambda m: (
         (r := _simple("SELECT name FROM structures WHERE id = ?", int(m[1]))) and r["name"], int(m[1]))),
@@ -178,6 +185,11 @@ _RESOLVERS = [
         (r := _simple("SELECT subject, structure_id FROM newsletters WHERE id = ?", int(m[1]))) and r["subject"],
         r["structure_id"] if r else None)),
 ]
+
+
+def _schedule_label(key: str) -> str | None:
+    from .ops import SCHEDULE    # import tardif : ops importe auth, comme ce module
+    return next((s.label for s in SCHEDULE if s.key == key), None)
 
 
 def resolve_target(path: str) -> tuple[str | None, int | None]:

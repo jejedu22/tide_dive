@@ -304,6 +304,13 @@ def _m012_structure_features(conn: sqlite3.Connection) -> None:
                  "ends_at TEXT NOT NULL, structure_ids TEXT, created_by_name TEXT, created_at TEXT NOT NULL)")
 
 
+def _m013_mail_log(conn: sqlite3.Connection) -> None:
+    """Suivi des e-mails de service (table créée par db.SCHEMA sur toute base) : rien à convertir."""
+    conn.execute("CREATE TABLE IF NOT EXISTS mail_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, "
+                 "recipient TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('sent', 'failed')), "
+                 "error TEXT)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -317,6 +324,7 @@ MIGRATIONS: list[Migration] = [
     Migration(10, "journal d'activité", _m010_audit_log),
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
     Migration(12, "fonctions activables, archivage des structures, bandeaux d'annonce", _m012_structure_features),
+    Migration(13, "suivi des e-mails de service", _m013_mail_log),
 ]
 
 

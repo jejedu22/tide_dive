@@ -112,10 +112,14 @@ def send_many(messages: Iterable[tuple[str, str, str]]) -> list[str | None]:
         for to, subject, body in messages:
             print(f"\n----- e-mail (MAIL_BACKEND=console) -----\nÀ : {to}\nSujet : {subject}\n\n{body}\n"
                   "-----------------------------------------", file=sys.stdout, flush=True)
-        return [None] * len(messages)
+        return _logged(messages, [None] * len(messages))
 
     results: list[str | None] = []
-    conn = _smtp()
+    try:
+        conn = _smtp()
+    except MailError as e:
+        _logged(messages, [str(e)] * len(messages))
+        raise
     try:
         for to, subject, body in messages:
             try:
@@ -130,6 +134,21 @@ def send_many(messages: Iterable[tuple[str, str, str]]) -> list[str | None]:
             conn.quit()
         except (OSError, smtplib.SMTPException):
             pass
+    return _logged(messages, results)
+
+
+def _logged(messages: list[tuple[str, str, str]], results: list[str | None]) -> list[str | None]:
+    """Enregistre chaque envoi dans le suivi des e-mails (administration → Exploitation) ; sans effet sur l'envoi
+    si la base est indisponible."""
+    from datetime import datetime, timezone
+
+    from . import db   # import tardif : le mailer sert aussi hors de l'application
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        db.add_mail_log([(at, to, subject[:200], "failed" if err else "sent", err)
+                         for (to, subject, _), err in zip(messages, results)])
+    except Exception:   # noqa: BLE001 — le suivi ne doit jamais faire échouer un envoi
+        pass
     return results
 
 
