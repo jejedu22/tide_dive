@@ -21,6 +21,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -41,6 +42,9 @@ if security.ALLOWED_ORIGINS:
 audit.install(app)      # journal d'activité (modifications faites par un compte connecté)
 ops.install(app)        # mode maintenance : lecture seule sauf pour les super administrateurs
 security.install(app)   # en-têtes de sécurité (CSP…) et contrôle de l'origine des requêtes qui modifient des données
+# Compression des réponses (JSON, JS, CSS) : la liste des créneaux d'une structure active pèse des centaines de Ko,
+# une dizaine une fois compressée ; zlib travaille hors du verrou de Python
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.middleware("http")

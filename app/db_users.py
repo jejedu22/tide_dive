@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .db_core import get_conn
+from .db_core import fetch_all, get_conn
 
 
 # ---------------------------------------------------------------------------
@@ -63,15 +63,14 @@ _ORDER_USERS = " ORDER BY COALESCE(u.last_name, u.username) COLLATE NOCASE, u.fi
 UNUSABLE_PASSWORD = "!invite"
 
 
-def list_users(structure_id: int | None = None) -> list[sqlite3.Row]:
+def list_users(structure_id: int | None = None) -> list[dict]:
     """Les MEMBRES d'une structure (rôle et profils de cette structure), ou tous les comptes
     (vus dans leur structure par défaut)."""
     with get_conn() as conn:
         if structure_id is None:
-            return conn.execute(_user_query("u.structure_id") + _ORDER_USERS).fetchall()
-        return conn.execute(
-            _user_query(":ctx", where="WHERE m.user_id IS NOT NULL") + _ORDER_USERS, {"ctx": structure_id}
-        ).fetchall()
+            return fetch_all(conn, _user_query("u.structure_id") + _ORDER_USERS)
+        return fetch_all(conn, _user_query(":ctx", where="WHERE m.user_id IS NOT NULL") + _ORDER_USERS,
+                         {"ctx": structure_id})
 
 
 def get_user(user_id: int, structure_id: int | None = None) -> sqlite3.Row | None:

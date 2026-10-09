@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .db_core import get_conn
+from .db_core import fetch_all, get_conn
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ _SELECTION_SQL = """
 """
 
 
-def list_selections(structure_id: int, from_date: str | None = None) -> list[sqlite3.Row]:
+def list_selections(structure_id: int, from_date: str | None = None) -> list[dict]:
     """Créneaux choisis par une structure, par date ; from_date : à partir de ce jour (inclus)."""
     sql = _SELECTION_SQL + " WHERE s.structure_id = ?"
     params: list = [structure_id]
@@ -98,7 +98,7 @@ def list_selections(structure_id: int, from_date: str | None = None) -> list[sql
         params.append(from_date)
     with get_conn() as conn:
         # RDV puis étale : un créneau personnalisé n'a que son heure de RDV
-        return conn.execute(sql + " ORDER BY s.local_date, s.rdv_date, s.rdv_time, s.local_time", params).fetchall()
+        return fetch_all(conn, sql + " ORDER BY s.local_date, s.rdv_date, s.rdv_time, s.local_time", params)
 
 
 def get_selection(structure_id: int, selection_id: int) -> sqlite3.Row | None:
@@ -211,7 +211,7 @@ def delete_selection(structure_id: int, selection_id: int) -> bool:
 # Inscriptions sur les créneaux choisis
 # ---------------------------------------------------------------------------
 
-def list_registrations(structure_id: int, selection_id: int | None = None) -> list[sqlite3.Row]:
+def list_registrations(structure_id: int, selection_id: int | None = None) -> list[dict]:
     """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription (confirmés d'abord,
     puis file d'attente : voir selections.split_registrations)."""
     sql = """
@@ -230,7 +230,7 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
         params.append(selection_id)
     with get_conn() as conn:
         # ordre d'inscription : c'est lui qui décide qui est confirmé et qui attend (rowid départage la même seconde)
-        return conn.execute(sql + " ORDER BY r.selection_id, r.created_at, r.rowid", params).fetchall()
+        return fetch_all(conn, sql + " ORDER BY r.selection_id, r.created_at, r.rowid", params)
 
 
 def add_registration(selection_id: int, user_id: int, now: str,

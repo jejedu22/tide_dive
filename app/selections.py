@@ -45,6 +45,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -447,7 +448,9 @@ def list_structure_selections(user: CurrentMember, upcoming: bool = False):
     rows = db.list_selections(sid, _today() if upcoming else None)
     regs = _registrations_by_selection(sid)
     locks = db.get_lock_days(sid)
-    return [_selection_out(r, regs.get(r["id"]), user["id"], locks) for r in rows]
+    # valeurs déjà JSON (str, int, None…) : réponse directe, sans le parcours récursif de jsonable_encoder,
+    # coûteux sur des centaines de créneaux et leurs inscriptions
+    return JSONResponse([_selection_out(r, regs.get(r["id"]), user["id"], locks) for r in rows])
 
 
 def _initial_capacity(body: BaseModel, structure_id: int) -> int | None:

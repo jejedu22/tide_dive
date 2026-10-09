@@ -54,6 +54,7 @@ from datetime import timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import accounts, db, diver, mailer, passwords, security, totp
@@ -772,7 +773,8 @@ def require_mail() -> None:
 @router.get("/admin/users")
 def admin_list_users(actor: CurrentManager, structure_id: int | None = None):
     scope = scope_structure(actor, structure_id, required=False)
-    return [_public_user(u) for u in db.list_users(scope)]
+    # valeurs déjà JSON : réponse directe (jsonable_encoder est lent sur un millier de comptes)
+    return JSONResponse([_public_user(u) for u in db.list_users(scope)])
 
 
 @router.post("/admin/users", status_code=201)
