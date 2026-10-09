@@ -8,11 +8,15 @@ const THEMES = { auto: "Auto", light: "Clair", dark: "Sombre" };
 function currentTheme() {
   try { return localStorage.getItem("theme") || "auto"; } catch { return "auto"; }
 }
+// « Auto » est résolu ici (clair ou sombre, comme le système) : la feuille de style n'a qu'un jeu de règles
+// pour le mode sombre, et la page suit un changement du système en direct
+const systemDark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function applyTheme(theme) {
-  if (theme === "auto") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = theme;
+  const dark = theme === "dark" || (theme === "auto" && systemDark && systemDark.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 applyTheme(currentTheme());
+if (systemDark) systemDark.addEventListener("change", () => applyTheme(currentTheme()));
 
 const Session = (() => {
   let user = null;

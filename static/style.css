@@ -2069,7 +2069,9 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .slot-weather.weather-strong { color: #a3471b; font-weight: 600; }
 .slot-weather-line { margin: 0.15rem 0; }
 
-/* ==== Mode sombre : réglage du système (« Auto ») ou choix du compte (menu → Thème) ==== */
+/* ==== Mode sombre : réglage du système (« Auto ») ou choix du compte (menu → Thème) ====
+   session.js résout « Auto » en data-theme="dark" ou "light" (et suit le système) : les règles des composants
+   n'existent qu'une fois. Les couleurs de base suivent aussi le système avant tout script (pages sans session.js). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
   color-scheme: dark;
@@ -2084,27 +2086,9 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
   --muted: #9bb3be;
   --input-bg: #0f2129;
   --weekend-bg: #16303a;
+  --picked-bg: #1a2a30;        /* créneau déjà choisi : plus terne que les cartes */
+  --picked-text: #7d959f;
   }
-
-:root:not([data-theme="light"]) input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]), :root:not([data-theme="light"]) select, :root:not([data-theme="light"]) textarea {
-  background: var(--input-bg); color: var(--text); border-color: var(--line-strong); }
-:root:not([data-theme="light"]) dialog, :root:not([data-theme="light"]) .account-dialog { background: var(--surface); color: var(--text); }
-:root:not([data-theme="light"]) .panel h2, :root:not([data-theme="light"]) .panel h3, :root:not([data-theme="light"]) h1, :root:not([data-theme="light"]) h2 { color: var(--blue-deep); }
-:root:not([data-theme="light"]) .hint, :root:not([data-theme="light"]) .dialog-hint, :root:not([data-theme="light"]) .field-hint, :root:not([data-theme="light"]) .muted, :root:not([data-theme="light"]) .optional { color: var(--muted); }
-:root:not([data-theme="light"]) a { color: #7fd3f0; }
-:root:not([data-theme="light"]) header a, :root:not([data-theme="light"]) .btn-primary { color: inherit; }
-:root:not([data-theme="light"]) .tag, :root:not([data-theme="light"]) .kind, :root:not([data-theme="light"]) .coef, :root:not([data-theme="light"]) .att, :root:not([data-theme="light"]) .level-badge, :root:not([data-theme="light"]) .carpool-chip, :root:not([data-theme="light"]) .reg-count,
-:root:not([data-theme="light"]) .reg-status, :root:not([data-theme="light"]) .caci-tag, :root:not([data-theme="light"]) .tag-pending, :root:not([data-theme="light"]) .tag-warn { filter: brightness(0.82) saturate(1.1); }
-:root:not([data-theme="light"]) .cal-cell.out { background: #101f26; color: #5d7884; }
-:root:not([data-theme="light"]) .slot-card.mine { background: #12302a; }
-:root:not([data-theme="light"]) .banner, :root:not([data-theme="light"]) .unav-warning, :root:not([data-theme="light"]) .unav-note, :root:not([data-theme="light"]) .caci-note, :root:not([data-theme="light"]) .dialog-notice, :root:not([data-theme="light"]) .mailjet-alert, :root:not([data-theme="light"]) .nl-warning,
-:root:not([data-theme="light"]) .announce { background: #2b2614; color: #f3e2b0; border-color: #6b5a24; }
-:root:not([data-theme="light"]) .announce:not(.announce-warning) { background: #123a36; color: #c9f1e9; }
-:root:not([data-theme="light"]) .kpi { box-shadow: none; border: 1px solid var(--line); }
-:root:not([data-theme="light"]) code, :root:not([data-theme="light"]) .help-article code { background: var(--surface-2); color: var(--text); }
-:root:not([data-theme="light"]) img.structure-logo, :root:not([data-theme="light"]) .licence-qr, :root:not([data-theme="light"]) .totp-qr { background: #fff; }
-:root:not([data-theme="light"]) .leaflet-container { filter: brightness(0.85); }
-:root:not([data-theme="light"]) .cur-chart text, :root:not([data-theme="light"]) .cur-chart .cur-tick { fill: var(--muted); }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -2119,24 +2103,55 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
   --muted: #9bb3be;
   --input-bg: #0f2129;
   --weekend-bg: #16303a;
+  --picked-bg: #1a2a30;        /* créneau déjà choisi : plus terne que les cartes */
+  --picked-text: #7d959f;
 }
-
-:root[data-theme="dark"] input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]), :root[data-theme="dark"] select, :root[data-theme="dark"] textarea {
-  background: var(--input-bg); color: var(--text); border-color: var(--line-strong); }
+:root[data-theme="dark"] input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]), :root[data-theme="dark"] select, :root[data-theme="dark"] textarea { background: var(--input-bg); color: var(--text); border-color: var(--line-strong); }
 :root[data-theme="dark"] dialog, :root[data-theme="dark"] .account-dialog { background: var(--surface); color: var(--text); }
 :root[data-theme="dark"] .panel h2, :root[data-theme="dark"] .panel h3, :root[data-theme="dark"] h1, :root[data-theme="dark"] h2 { color: var(--blue-deep); }
 :root[data-theme="dark"] .hint, :root[data-theme="dark"] .dialog-hint, :root[data-theme="dark"] .field-hint, :root[data-theme="dark"] .muted, :root[data-theme="dark"] .optional { color: var(--muted); }
 :root[data-theme="dark"] a { color: #7fd3f0; }
-:root[data-theme="dark"] header a, :root[data-theme="dark"] .btn-primary { color: inherit; }
-:root[data-theme="dark"] .tag, :root[data-theme="dark"] .kind, :root[data-theme="dark"] .coef, :root[data-theme="dark"] .att, :root[data-theme="dark"] .level-badge, :root[data-theme="dark"] .carpool-chip, :root[data-theme="dark"] .reg-count,
-:root[data-theme="dark"] .reg-status, :root[data-theme="dark"] .caci-tag, :root[data-theme="dark"] .tag-pending, :root[data-theme="dark"] .tag-warn { filter: brightness(0.82) saturate(1.1); }
+:root[data-theme="dark"] header a { color: inherit; }
+:root[data-theme="dark"] .kind, :root[data-theme="dark"] .coef { filter: brightness(0.9); }
+:root[data-theme="dark"] .kind.custom { background: #22344a; color: #cfe0f5; }
+:root[data-theme="dark"] .kind.water { background: #173447; color: #bfe0f5; }
+:root[data-theme="dark"] .tag-pending { background: #123a4a; color: #9fdcf2; }
+:root[data-theme="dark"] .tag-warn { background: #4a1d2a; color: #ffb3c4; }
+:root[data-theme="dark"] .tag.tag-profile, :root[data-theme="dark"] .level-badge { background: #2e2550; color: #cdbdf7; }
+:root[data-theme="dark"] .tight-tag { background: #3d300c; color: #f5d27a; border-color: #6b5a24; }
+:root[data-theme="dark"] .caci-tag.valid, :root[data-theme="dark"] .att-present, :root[data-theme="dark"] .mailjet-check.ok { background: #0f3b2f; color: #8ee8c4; }
+:root[data-theme="dark"] .caci-tag.pending, :root[data-theme="dark"] .att-excused, :root[data-theme="dark"] .reg-status-wait { background: #3d300c; color: #f5d27a; border-color: #6b5a24; }
+:root[data-theme="dark"] .caci-tag.expired, :root[data-theme="dark"] .caci-tag.missing, :root[data-theme="dark"] .att-absent, :root[data-theme="dark"] .mailjet-check.ko { background: #4a1d2a; color: #ffb3c4; }
+:root[data-theme="dark"] .carpool-chip { background: #123a4a; color: #bfe7f5; }
+:root[data-theme="dark"] .reg-count { background: var(--surface-2); color: var(--text); border-color: var(--line-strong); }
+:root[data-theme="dark"] .reg-count:hover, :root[data-theme="dark"] .reg-count[aria-expanded="true"] { background: #24404b; }
+:root[data-theme="dark"] .reg-count.reg-me { background: #12302a; border-color: #2d6a4f; color: #b7f0cf; }
+:root[data-theme="dark"] .reg-count.reg-full { background: #3d2a12; border-color: #7a5a2a; color: #f5c48a; }
+:root[data-theme="dark"] .regs-pop { color: var(--text); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
+:root[data-theme="dark"] .regs-pop li.me { color: #b7f0cf; }
+:root[data-theme="dark"] .account-structure-select option { color: var(--text); }
 :root[data-theme="dark"] .cal-cell.out { background: #101f26; color: #5d7884; }
+:root[data-theme="dark"] .cal-cell[aria-current="date"] .cal-num { color: var(--brand); }
+:root[data-theme="dark"] .cal-cell[aria-current="date"].is-holiday .cal-num { color: #fff; }
 :root[data-theme="dark"] .slot-card.mine { background: #12302a; }
-:root[data-theme="dark"] .banner, :root[data-theme="dark"] .unav-warning, :root[data-theme="dark"] .unav-note, :root[data-theme="dark"] .caci-note, :root[data-theme="dark"] .dialog-notice, :root[data-theme="dark"] .mailjet-alert, :root[data-theme="dark"] .nl-warning,
-:root[data-theme="dark"] .announce { background: #2b2614; color: #f3e2b0; border-color: #6b5a24; }
-:root[data-theme="dark"] .announce:not(.announce-warning) { background: #123a36; color: #c9f1e9; }
+:root[data-theme="dark"] .banner, :root[data-theme="dark"] .unav-warning, :root[data-theme="dark"] .unav-note, :root[data-theme="dark"] .dialog-notice, :root[data-theme="dark"] .mailjet-alert, :root[data-theme="dark"] .nl-warning, :root[data-theme="dark"] .announce-warning, :root[data-theme="dark"] .banner.banner-warning { background: #2b2614; color: #f3e2b0; border-color: #6b5a24; }
+:root[data-theme="dark"] .banner:not(.banner-warning) { background: #3a1a23; color: #ffd0da; }
+:root[data-theme="dark"] .banner .health-warning { color: #f3e2b0; }
+:root[data-theme="dark"] .caci-note, :root[data-theme="dark"] .caci-box.caci-alert, :root[data-theme="dark"] .import-table tr.row-error, :root[data-theme="dark"] .nl-tile.bad { background: #3a1a23; border-color: #8a2c45; }
+:root[data-theme="dark"] .nl-tile.bad .nl-tile-value { color: #ff9fb5; }
+:root[data-theme="dark"] .announce { background: #123a36; color: #c9f1e9; }
+:root[data-theme="dark"] .users-bulk, :root[data-theme="dark"] .home-slot:hover, :root[data-theme="dark"] .home-slot:focus-visible { background: var(--surface-2); }
+:root[data-theme="dark"] .slot-weather { color: #8fc3d6; }
+:root[data-theme="dark"] .slot-weather.weather-strong { color: #ff9a6b; }
 :root[data-theme="dark"] .kpi { box-shadow: none; border: 1px solid var(--line); }
+:root[data-theme="dark"] .windows tbody tr { box-shadow: none; }
 :root[data-theme="dark"] code, :root[data-theme="dark"] .help-article code { background: var(--surface-2); color: var(--text); }
 :root[data-theme="dark"] img.structure-logo, :root[data-theme="dark"] .licence-qr, :root[data-theme="dark"] .totp-qr { background: #fff; }
+:root[data-theme="dark"] .map { background: #10232b; }
 :root[data-theme="dark"] .leaflet-container { filter: brightness(0.85); }
+:root[data-theme="dark"] .leaflet-container a { color: #0b4f63; }
 :root[data-theme="dark"] .cur-chart text, :root[data-theme="dark"] .cur-chart .cur-tick { fill: var(--muted); }
+:root[data-theme="dark"] a.btn-primary { color: var(--brand); }
+@media (max-width: 720px) {
+  :root[data-theme="dark"] .cal-chip.mine { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 3px var(--type-color); }
+}
