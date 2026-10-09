@@ -1882,3 +1882,24 @@ main > .panel + .panel { margin-top: 1.25rem; }
 .cur-site { scroll-margin-top: 0.5rem; border-radius: 8px; }
 .cur-site-focus { animation: cur-site-focus 1.6s ease-out; }
 @keyframes cur-site-focus { from { background: #d8f6ec; } to { background: transparent; } }
+
+/* Croix de fermeture des fenêtres (ajoutée par session.js) : reste visible en haut quand la fenêtre défile */
+dialog > .dialog-close {
+  position: sticky;
+  top: 0;
+  float: right;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -0.75rem -0.75rem 0 0.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: white;
+  color: #4a6572;
+  cursor: pointer;
+}
+dialog > .dialog-close:hover { background: #eef4f7; color: var(--blue-deep); }
+dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }

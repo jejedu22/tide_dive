@@ -579,6 +579,39 @@ const Session = (() => {
     });
   }
 
+  // ---- Croix de fermeture en haut à droite de toutes les fenêtres (<dialog>) de l'application ----
+  // Ajoutée à chaque (re)dessin d'une fenêtre, sauf sur une fenêtre obligatoire (data-locked). Elle fait comme le
+  // bouton Annuler / Fermer de la fenêtre s'il existe (ses effets, ex. onCancel, s'appliquent), sinon ferme.
+  const CLOSE_LABEL = "Fermer la fenêtre";
+
+  function closeDialog(d) {
+    const cancel = d.querySelector('[value="cancel"], [value="close"]');
+    if (cancel) cancel.click();
+    else d.close();
+  }
+
+  function decorateDialog(d) {
+    const existing = d.querySelector(":scope > .dialog-close");
+    if (d.dataset.locked) { existing?.remove(); return; }
+    if (existing) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "dialog-close";
+    btn.title = CLOSE_LABEL;
+    btn.setAttribute("aria-label", CLOSE_LABEL);
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    btn.addEventListener("click", () => closeDialog(d));
+    d.prepend(btn);
+  }
+
+  function decorateAllDialogs() {
+    for (const d of document.querySelectorAll("dialog")) decorateDialog(d);
+  }
+  // les fenêtres sont créées et redessinées par chaque page : on les observe toutes
+  new MutationObserver(decorateAllDialogs).observe(document.documentElement,
+    { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-locked"] });
+  decorateAllDialogs();
+
   // Super administrateur : structures proposées dans le sélecteur de l'en-tête
   let structures = null;      // null : pas encore chargées
   let structuresLoading = null;
