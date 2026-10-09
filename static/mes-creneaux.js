@@ -1090,9 +1090,9 @@ function currentChart(s, mark) {
 function siteCurrentBlock(s, mark) {
   const name = `<h3>${esc(s.site.name)}</h3>${s.site.notes ? `<p class="dialog-hint">${esc(s.site.notes)}</p>` : ""}`;
   if (!s.available) {
-    return `<section class="cur-site">${name}<p class="dialog-hint">Courant inconnu pour ce créneau : ${esc(s.reason || "raison inconnue")}.</p></section>`;
+    return `<section class="cur-site" data-site-id="${s.site.id}">${name}<p class="dialog-hint">Courant inconnu pour ce créneau : ${esc(s.reason || "raison inconnue")}.</p></section>`;
   }
-  return `<section class="cur-site">${name}
+  return `<section class="cur-site" data-site-id="${s.site.id}">${name}
     <p class="cur-summary">
       <span><b>Étale de courant</b> ${s.slack.time} <span class="muted">(${fmtKnots(s.slack.knots)} nd)</span></span>
       <span><b>Plus fort</b> ${s.max.time} : ${fmtKnots(s.max.knots)} nd ${arrow(s.max.direction)} ${compass(s.max.direction)}</span>
@@ -1114,11 +1114,26 @@ function sitesMap(el, data) {
   for (const s of data.sites) {
     const m = Carte.siteMarker(s.site, { color: s.available ? Carte.COLORS.current : Carte.COLORS.site });
     if (labels) m.unbindTooltip().bindTooltip(esc(s.site.name), { permanent: true, direction: "right", offset: [8, 0], className: "map-label" });
+    // pastille : lien vers le graphique du site, plus bas dans la fenêtre
+    const summary = s.available ? `max ${fmtKnots(s.max.knots)} nd à ${s.max.time}` : "courant inconnu";
+    m.bindPopup(`<strong>${esc(s.site.name)}</strong><br><span class="muted">${summary}</span><br>
+      <button type="button" class="link-button" data-goto-site="${s.site.id}">${s.available ? "Voir le graphique des courants" : "Voir le détail"} ↓</button>`);
     m.addTo(map);
     points.push([s.site.lat, s.site.lon]);
   }
   Carte.fit(map, points, { zoom: 13, maxZoom: 14 });
   Carte.refresh(map);
+  el.addEventListener("click", e => {
+    const btn = e.target.closest("[data-goto-site]");
+    if (!btn) return;
+    const section = el.closest("dialog").querySelector(`.cur-site[data-site-id="${btn.dataset.gotoSite}"]`);
+    if (!section) return;
+    map.closePopup();
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    section.classList.remove("cur-site-focus");
+    void section.offsetWidth;            // relance l'animation de surbrillance
+    section.classList.add("cur-site-focus");
+  });
 }
 
 async function openCurrents(p) {
