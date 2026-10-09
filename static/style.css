@@ -1950,3 +1950,14 @@ dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-o
   padding: 0.35rem 0; border-bottom: 1px solid #e3edf1; }
 .att-choices { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .att-choice { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.9rem; }
+
+/* Activité de la structure (administration) */
+.home-todo, .home-slots { list-style: none; margin: 0; padding: 0; }
+.home-todo li, .home-slots li { padding: 0.4rem 0; border-bottom: 1px solid #e3edf1; display: flex; flex-wrap: wrap;
+  gap: 0.3rem 0.6rem; align-items: center; }
+.home-todo li:last-child, .home-slots li:last-child { border-bottom: 0; }
+.home-todo li.todo-warn::before { content: "⚠"; color: #b26b00; }
+.home-todo a { margin-left: auto; }
+.inline-select { font-size: 0.9rem; font-weight: normal; margin-left: 0.5rem; }
+.stats-table td.num, .stats-table th.num { text-align: right; }
+.panel h3 { font-size: 1rem; margin: 1.2rem 0 0.4rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }

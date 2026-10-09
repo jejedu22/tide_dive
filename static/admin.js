@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "types", "sites", "utilisateurs", "mailjet", "journal"];
 const SUPER_TABS = ["dashboard", "structures", "ports", "donnees"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -93,6 +93,7 @@ function showTab(name) {
   for (const t of ALL_TABS) $(`tab-${t}`).hidden = t !== name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "dashboard") loadDashboard();
+  if (name === "activite") loadHome();
   if (name === "journal") loadJournal();
   if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
@@ -604,6 +605,129 @@ async function loadDashboard() {
 }
 
 // ---------------------------------------------------------------------------
+// Activité de la structure : à faire, créneaux à surveiller, statistiques
+// ---------------------------------------------------------------------------
+
+let homeScope = null;    // structure affichée (choix du super administrateur)
+let homeStats = null;    // dernières statistiques chargées (export Excel)
+const homeQS = (extra = {}) => {
+  const p = new URLSearchParams(extra);
+  if (isSuper() && homeScope) p.set("structure_id", homeScope);
+  const q = p.toString();
+  return q ? `?${q}` : "";
+};
+
+$("home-structure").addEventListener("change", e => {
+  homeScope = Number(e.target.value) || null;
+  loadHome();
+});
+$("stats-months").addEventListener("change", () => loadStats());
+
+const fmtDayShort = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+const dayLabel = iso => fmtDayShort.format(new Date(`${iso}T12:00:00`));
+const pct = r => (r == null ? "—" : `${Math.round(r * 100)} %`);
+const picksLink = `<a href="/mes-creneaux.html">Créneaux choisis</a>`;
+
+function homeSlot(s, extra = "") {
+  const places = s.max_registrations == null ? `${s.registrations} inscrit(s)` : `${Math.min(s.registrations, s.max_registrations)}/${s.max_registrations}`;
+  return `<li><span class="type-pill" style="--type-color:${esc(s.color)}">${esc(s.type)}</span>
+    <strong>${esc(dayLabel(s.date))}</strong> ${esc(s.rdv_time)} · ${esc(s.place)} <span class="muted">${esc(places)}</span>${extra}</li>`;
+}
+
+async function loadHome() {
+  if (isSuper() && !homeScope) {
+    $("home-kpis").innerHTML = `<p class="muted">Choisissez une structure.</p>`;
+    return;
+  }
+  let d;
+  try {
+    d = await Session.api(`/api/admin/structure-dashboard${homeQS()}`);
+  } catch (e) {
+    $("home-kpis").innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    return;
+  }
+  const c = d.counts;
+  const kpi = (value, label, title = "") => `<div class="kpi"${title ? ` title="${esc(title)}"` : ""}><strong>${value}</strong><span>${esc(label)}</span></div>`;
+  $("home-kpis").innerHTML = [
+    kpi(c.members, "membres", `${c.managers} en administration`),
+    kpi(c.active_30d, "actifs sur 30 jours", "connectés au moins une fois depuis 30 jours"),
+    kpi(c.upcoming, "créneaux à venir"),
+    kpi(c.registrations_30d, "inscriptions (30 j)"),
+    kpi(c.sites, "sites de plongée"),
+  ].join("");
+  const todo = [];
+  const settings = { "aucun type de créneau proposé": "types", "pas de port par défaut": "types", "aucun administrateur": "utilisateurs" };
+  for (const issue of d.issues) {
+    todo.push(`<li class="todo-warn">Réglage manquant : ${esc(issue)} <a href="#${settings[issue] || "types"}" data-goto="${settings[issue] || "types"}">Régler</a></li>`);
+  }
+  if (d.caci.pending) todo.push(`<li>${d.caci.pending} certificat(s) médical(aux) à valider <a href="/plongeurs.html">Plongeurs</a></li>`);
+  if (d.caci.check && (d.caci.missing || d.caci.expired)) {
+    todo.push(`<li class="todo-warn">${d.caci.missing + d.caci.expired} membre(s) sans certificat médical valable (vérification activée : leur inscription est refusée) <a href="/plongeurs.html">Plongeurs</a></li>`);
+  }
+  if (d.caci.expiring) todo.push(`<li>${d.caci.expiring} certificat(s) médical(aux) expirent dans les 30 jours</li>`);
+  if (d.unmarked.length) todo.push(`<li>${d.unmarked.length} créneau(x) des ${d.attendance_days} derniers jours sans présences pointées ${picksLink}</li>`);
+  if (c.invitations) todo.push(`<li>${c.invitations} invitation(s) à rejoindre la structure en attente <a href="#utilisateurs" data-goto="utilisateurs">Utilisateurs</a></li>`);
+  if (c.pending_accounts) todo.push(`<li>${c.pending_accounts} compte(s) n'ont pas encore choisi leur mot de passe <a href="#utilisateurs" data-goto="utilisateurs">Utilisateurs</a></li>`);
+  $("home-todo").innerHTML = todo.join("") || `<li class="muted">Rien à signaler.</li>`;
+  const section = (title, list, render) => (list.length ? `<h3>${title}</h3><ul class="home-slots">${list.map(render).join("")}</ul>` : "");
+  $("home-slots").innerHTML = [
+    section(`Peu remplis (${d.soon_days} prochains jours)`, d.low_fill, s => homeSlot(s)),
+    section("Complets, avec file d'attente", d.full, s => homeSlot(s, ` <span class="tag tag-warn">${s.waiting} en attente</span>`)),
+    section("Présences à pointer", d.unmarked, s => homeSlot(s)),
+  ].join("") || `<p class="muted">Aucun créneau à surveiller.</p>`;
+  $("home-recent").innerHTML = d.recent.length ? d.recent.map(journalLine).join("") : `<li class="muted">Aucune action enregistrée.</li>`;
+  loadStats();
+}
+
+async function loadStats() {
+  let s;
+  try {
+    s = await Session.api(`/api/admin/structure-stats${homeQS({ months: $("stats-months").value })}`);
+  } catch (e) {
+    $("stats-summary").textContent = e.message;
+    return;
+  }
+  homeStats = s;
+  const t = s.totals;
+  $("stats-summary").textContent = `Du ${dayLabel(s.start)} au ${dayLabel(s.end)} : ${t.slots} créneau(x), ` +
+    `${t.registrations} inscription(s) confirmée(s), remplissage ${pct(t.fill_rate)}, ` +
+    `${t.present} présent(s), ${t.absent} absent(s), ${t.excused} excusé(s) (présence ${pct(t.attendance_rate)}).`;
+  $("stats-types").innerHTML = s.by_type.length ? s.by_type.map(b => `
+    <tr><th scope="row"><span class="type-pill" style="--type-color:${esc(b.color)}">${esc(b.type)}</span></th>
+      <td class="num" data-label="Créneaux">${b.slots}</td><td class="num" data-label="Inscriptions">${b.registrations}</td>
+      <td class="num" data-label="Remplissage">${pct(b.fill_rate)}</td><td class="num" data-label="Présents">${b.present}</td>
+      <td class="num" data-label="Présence">${pct(b.attendance_rate)}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">Aucun créneau sur la période.</td></tr>`;
+  const fmtMonth = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+  $("stats-months-body").innerHTML = s.by_month.slice().reverse().map(m => `
+    <tr><th scope="row">${esc(fmtMonth.format(new Date(`${m.month}-15T12:00:00`)))}</th>
+      <td class="num" data-label="Créneaux">${m.slots}</td><td class="num" data-label="Inscriptions">${m.registrations}</td>
+      <td class="num" data-label="Présents">${m.present}</td></tr>`).join("");
+  $("stats-members").innerHTML = s.members.length ? s.members.map(m => `
+    <tr${m.registrations ? "" : ' class="muted"'}><th scope="row">${esc(m.display_name)}</th>
+      <td class="num" data-label="Inscriptions">${m.registrations}</td><td class="num" data-label="Présent">${m.present}</td>
+      <td class="num" data-label="Absent">${m.absent}</td><td class="num" data-label="Excusé">${m.excused}</td>
+      <td data-label="Dernier créneau">${m.last_slot ? esc(dayLabel(m.last_slot)) : "—"}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">Aucun membre.</td></tr>`;
+}
+
+$("stats-export").addEventListener("click", () => {
+  if (!homeStats) return;
+  const name = isSuper() ? $("home-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
+  XlsxExport.download(`statistiques-${XlsxExport.slug(name || "structure")}-${homeStats.start}-au-${homeStats.end}.xlsx`,
+    "Membres", [
+      { header: "Membre", width: 26, value: m => m.display_name },
+      { header: "Identifiant", width: 18, value: m => m.username },
+      { header: "Rôle", width: 14, value: m => (m.role === "manager" ? "administration" : "visualisation") },
+      { header: "Inscriptions", type: "int", width: 12, value: m => m.registrations },
+      { header: "Présent", type: "int", width: 9, value: m => m.present },
+      { header: "Absent", type: "int", width: 9, value: m => m.absent },
+      { header: "Excusé", type: "int", width: 9, value: m => m.excused },
+      { header: "Dernier créneau", type: "date", width: 14, value: m => m.last_slot },
+    ], homeStats.members);
+});
+
+// ---------------------------------------------------------------------------
 // Journal d'activité
 // ---------------------------------------------------------------------------
 
@@ -648,6 +772,10 @@ function renderStructureSelects() {
   const keepTypes = typesScope ?? Session.user?.structure?.id ?? structures[0]?.id ?? null;
   typesSel.innerHTML = opts(keepTypes);
   typesScope = typesSel.value ? Number(typesSel.value) : null;
+
+  const homeSel = $("home-structure");
+  homeSel.innerHTML = opts(homeScope ?? keepTypes);
+  homeScope = homeSel.value ? Number(homeSel.value) : null;
 
   const sitesSel = $("sites-structure");
   sitesSel.innerHTML = opts(sitesScope ?? keepTypes);
@@ -2743,6 +2871,11 @@ async function onSessionChange(user) {
   $("types-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
   $("types-structure").previousElementSibling.hidden = !sup;
   $("types-structure-name").hidden = sup;
+
+  $("home-structure").hidden = !sup;
+  $("home-structure").previousElementSibling.hidden = !sup;
+  $("home-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("home-structure-name").hidden = sup;
 
   $("sites-structure").hidden = !sup;
   $("sites-structure").previousElementSibling.hidden = !sup;

@@ -38,6 +38,7 @@
       <!-- data-super : réservé au super administrateur (masqué pour un administrateur de structure) -->
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" data-tab="dashboard" data-super aria-selected="false">Tableau de bord</button>
+        <button type="button" role="tab" data-tab="activite" aria-selected="false">Activité</button>
         <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
         <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
         <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
@@ -71,6 +72,55 @@
         <div class="panel">
           <h2>Dernières actions <button type="button" class="btn-quiet btn-small" data-goto-tab="journal">Tout le journal</button></h2>
           <ul id="dash-recent" class="journal-list"></ul>
+        </div>
+      </section>
+
+      <!-- ============ Activité de la structure : à faire et statistiques ============ -->
+      <section id="tab-activite" class="tab-panel" role="tabpanel" hidden>
+        <p class="scope-bar">
+          <label for="home-structure">Structure</label>
+          <select id="home-structure"></select>
+          <strong id="home-structure-name"></strong>
+        </p>
+        <div id="home-kpis" class="kpis"></div>
+        <div class="panel">
+          <h2>À faire</h2>
+          <ul id="home-todo" class="home-todo"></ul>
+        </div>
+        <div class="panel">
+          <h2>Créneaux à surveiller</h2>
+          <div id="home-slots"></div>
+        </div>
+        <div class="panel">
+          <h2>Statistiques
+            <label class="inline-select">sur
+              <select id="stats-months">
+                <option value="3">3 mois</option>
+                <option value="6">6 mois</option>
+                <option value="12" selected>12 mois</option>
+                <option value="24">24 mois</option>
+              </select></label>
+          </h2>
+          <p id="stats-summary" class="hint"></p>
+          <h3>Par type de créneau</h3>
+          <div class="table-wrap"><table class="users stats-table">
+            <thead><tr><th>Type</th><th>Créneaux</th><th>Inscriptions</th><th title="Inscriptions confirmées sur les places des créneaux à places limitées">Remplissage</th><th>Présents</th><th title="Présents parmi les inscrits pointés">Présence</th></tr></thead>
+            <tbody id="stats-types"></tbody>
+          </table></div>
+          <h3>Par mois</h3>
+          <div class="table-wrap"><table class="users stats-table">
+            <thead><tr><th>Mois</th><th>Créneaux</th><th>Inscriptions</th><th>Présents</th></tr></thead>
+            <tbody id="stats-months-body"></tbody>
+          </table></div>
+          <h3>Par membre <button type="button" id="stats-export" class="btn-quiet btn-small">Exporter en Excel</button></h3>
+          <div class="table-wrap"><table class="users stats-table">
+            <thead><tr><th>Membre</th><th>Inscriptions</th><th>Présent</th><th>Absent</th><th>Excusé</th><th>Dernier créneau</th></tr></thead>
+            <tbody id="stats-members"></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <h2>Dernières actions <button type="button" class="btn-quiet btn-small" data-goto-tab="journal">Tout le journal</button></h2>
+          <ul id="home-recent" class="journal-list"></ul>
         </div>
       </section>
 
@@ -693,6 +743,7 @@
 
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="session.js"></script>
+  <script src="xlsx-export.js"></script>
   <script src="carte.js"></script>
   <script src="admin.js"></script>
 </body>
