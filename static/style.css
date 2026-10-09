@@ -2027,3 +2027,11 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .account-dialog .notif-types .dialog-hint { flex-basis: 100%; margin: 0; }
 .level-badge { display: inline-block; margin-left: 0.35rem; font-size: 0.72rem; font-weight: 700; padding: 0 0.4rem;
   border-radius: 999px; background: #e9e3fb; color: #4b2fa3; white-space: nowrap; vertical-align: middle; }
+
+/* Commentaire et covoiturage des inscriptions */
+.carpool-chip { font-size: 0.78rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: #e6f3f8; color: #0b4f63;
+  white-space: nowrap; }
+.carpool-tag { font-size: 0.75rem; white-space: nowrap; }
+.reg-comment { display: block; font-size: 0.78rem; color: #4a6572; font-style: italic; }
+.account-dialog .carpool-field { border: 1px solid #d8e8ee; border-radius: 10px; padding: 0.3rem 0.8rem 0.5rem; }
+.account-dialog .carpool-field input[type=number] { width: 4rem; margin: 0 0.3rem; }

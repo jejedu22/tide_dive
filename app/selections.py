@@ -330,7 +330,9 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
             {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
              "created_at": r["created_at"],
              "registered_by": r["registered_by_name"],   # inscrit par un tiers, sinon None
-             "attendance": r["attendance"]}               # present, absent, excused ; None : pas pointé
+             "attendance": r["attendance"],               # present, absent, excused ; None : pas pointé
+             # commentaire et covoiturage (offer : propose des places, need : cherche une place)
+             "comment": r["comment"], "carpool": r["carpool"], "carpool_seats": r["carpool_seats"]}
         )
     return out
 
@@ -391,6 +393,9 @@ def _selection_out(
         "waiting_count": len(waiting),
         "full": capacity is not None and len(confirmed) >= capacity,
         "my_status": None if mine is None else ("waiting" if mine["waiting"] else "confirmed"),
+        # covoiturage : places proposées et personnes qui en cherchent une, parmi les inscrits
+        "carpool": {"seats": sum(r["carpool_seats"] or 0 for r in registrations if r["carpool"] == "offer"),
+                    "needs": sum(1 for r in registrations if r["carpool"] == "need")},
         "my_position": mine["position"] if mine else None,
         "past": (row["end_date"] or row["local_date"]) < _today(),
         # feuille de présence : à partir du jour du créneau
@@ -730,8 +735,49 @@ def _notify_promotions(background: BackgroundTasks, structure_id: int, selection
         background.add_task(notify, messages)
 
 
+class RegistrationNoteIn(BaseModel):
+    """Commentaire et covoiturage d'une inscription (champ absent : inchangé ; null : effacé)."""
+    comment: str | None = Field(None, max_length=200)
+    carpool: Literal["offer", "need"] | None = None
+    carpool_seats: int | None = Field(None, ge=1, le=8)
+
+    @field_validator("comment")
+    @classmethod
+    def _comment(cls, v: str | None) -> str | None:
+        return _clean_note(v)
+
+    @model_validator(mode="after")
+    def _seats(self):
+        if self.carpool == "offer" and not self.carpool_seats:
+            raise ValueError("indiquez le nombre de places proposées")
+        return self
+
+
+def _save_note(selection_id: int, user_id: int, body: RegistrationNoteIn | None, current=None) -> None:
+    if body is None or not body.model_fields_set:
+        return
+    get = lambda k: getattr(body, k) if k in body.model_fields_set else (current[k] if current else None)  # noqa: E731
+    db.set_registration_note(selection_id, user_id, get("comment"), get("carpool"), get("carpool_seats"))
+
+
+@router.patch("/selections/{selection_id}/registration")
+def update_my_registration(selection_id: int, body: RegistrationNoteIn, user: CurrentMember):
+    """Commentaire et covoiturage de sa propre inscription (créneau du jour ou à venir)."""
+    sid = user["structure_id"]
+    row = db.get_selection(sid, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if (row["end_date"] or row["local_date"]) < _today():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est passé")
+    current = next((r for r in db.list_registrations(sid, selection_id) if r["user_id"] == user["id"]), None)
+    if current is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Vous n'êtes pas inscrit sur ce créneau")
+    _save_note(selection_id, user["id"], body, current)
+    return _one_out(sid, selection_id, user["id"])
+
+
 @router.post("/selections/{selection_id}/registration")
-def register(selection_id: int, user: CurrentMember):
+def register(selection_id: int, user: CurrentMember, body: RegistrationNoteIn | None = None):
     """S'inscrire sur un créneau à venir de sa structure (tout membre, y compris en visualisation)."""
     sid = user["structure_id"]
     row = _upcoming_selection_or_error(sid, selection_id)
@@ -745,6 +791,7 @@ def register(selection_id: int, user: CurrentMember):
         db.add_registration(selection_id, user["id"], _now_iso())
     except sqlite3.IntegrityError:
         pass  # déjà inscrit (double clic, deux onglets) : l'état voulu est atteint
+    _save_note(selection_id, user["id"], body)
     return _one_out(sid, selection_id, user["id"])
 
 

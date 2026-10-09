@@ -69,6 +69,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/selections/{selection_id}"): "Créneau retiré",
     ("POST", "/api/selections/{selection_id}/registration"): "Inscription",
     ("DELETE", "/api/selections/{selection_id}/registration"): "Désinscription",
+    ("PATCH", "/api/selections/{selection_id}/registration"): "Inscription commentée (covoiturage)",
     ("POST", "/api/selections/{selection_id}/registrations"): "Membres inscrits par un tiers",
     ("DELETE", "/api/selections/{selection_id}/registrations/{user_id}"): "Inscription d'un membre retirée",
     ("PUT", "/api/selections/{selection_id}/attendance"): "Présences pointées",

@@ -726,6 +726,11 @@ CREATE TABLE IF NOT EXISTS slot_registrations (
     -- feuille de présence (après la sortie) : present, absent, excused ; NULL : pas encore pointé
     attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
     attendance_at TEXT,
+    -- commentaire du membre (« j'arriverai en retard »…) et covoiturage : offer (propose carpool_seats places)
+    -- ou need (cherche une place)
+    comment TEXT,
+    carpool TEXT CHECK (carpool IS NULL OR carpool IN ('offer', 'need')),
+    carpool_seats INTEGER CHECK (carpool_seats IS NULL OR carpool_seats BETWEEN 1 AND 8),
     PRIMARY KEY (selection_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);

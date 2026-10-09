@@ -239,6 +239,7 @@ from .db_selections import (  # noqa: F401
     add_registration,
     delete_registration,
     set_attendance,
+    set_registration_note,
     update_selection_capacity,
 )
 from .db_unavailabilities import (  # noqa: F401

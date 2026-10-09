@@ -419,6 +419,21 @@ def _m018_min_level(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN min_level TEXT")
 
 
+REGISTRATION_NOTE_COLUMNS = {
+    "comment": "TEXT",
+    "carpool": "TEXT CHECK (carpool IS NULL OR carpool IN ('offer', 'need'))",
+    "carpool_seats": "INTEGER CHECK (carpool_seats IS NULL OR carpool_seats BETWEEN 1 AND 8)",
+}
+
+
+def _m019_registration_notes(conn: sqlite3.Connection) -> None:
+    """Commentaire et covoiturage (places proposées, place cherchée) de chaque inscription."""
+    existing = _columns(conn, "slot_registrations")
+    for col, ddl in REGISTRATION_NOTE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_registrations ADD COLUMN {col} {ddl}")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -438,6 +453,7 @@ MIGRATIONS: list[Migration] = [
     Migration(16, "fiche de la structure, logo et demandes d'adhésion", _m016_structure_profile),
     Migration(17, "préférences d'e-mails et récapitulatif des nouveaux créneaux", _m017_mail_preferences),
     Migration(18, "niveau de plongeur minimal des types et des créneaux", _m018_min_level),
+    Migration(19, "commentaire et covoiturage des inscriptions", _m019_registration_notes),
 ]
 
 

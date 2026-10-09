@@ -215,7 +215,8 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
     """Inscrits des créneaux d'une structure (ou d'un seul créneau), par ordre d'inscription (confirmés d'abord,
     puis file d'attente : voir selections.split_registrations)."""
     sql = """
-        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, r.attendance, u.username,
+        SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, r.attendance, r.comment, r.carpool,
+               r.carpool_seats, u.username,
                COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                    AS display_name
         FROM slot_registrations r
@@ -251,6 +252,15 @@ def update_selection_capacity(structure_id: int, selection_id: int, max_registra
             "UPDATE slot_selections SET max_registrations = ? WHERE id = ? AND structure_id = ?",
             (max_registrations, selection_id, structure_id),
         ).rowcount > 0
+
+
+def set_registration_note(selection_id: int, user_id: int, comment: str | None, carpool: str | None,
+                          carpool_seats: int | None) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE slot_registrations SET comment = ?, carpool = ?, carpool_seats = ? WHERE selection_id = ? "
+            "AND user_id = ?", (comment, carpool, carpool_seats if carpool == "offer" else None, selection_id,
+                                user_id)).rowcount > 0
 
 
 def set_attendance(selection_id: int, entries: dict[int, str | None], now: str) -> int:

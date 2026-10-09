@@ -144,7 +144,11 @@ function registrationsCell(p) {
   const presence = p.attendance_open && canRegisterOthers() && p.registrations.length
     ? `<button type="button" class="btn-quiet btn-small" data-act="attendance" title="Feuille de présence : qui est venu">Présences${marked ? ` (${marked}/${p.registrations.length})` : "…"}</button>`
     : "";
-  return `<div class="regs">${count}${mine}${button}${others}${places}${presence}</div>`;
+  const note = p.registered && !p.past
+    ? `<button type="button" class="btn-quiet btn-small" data-act="my-note" title="Commentaire et covoiturage">Mon inscription…</button>` : "";
+  const car = p.carpool && (p.carpool.seats || p.carpool.needs)
+    ? `<span class="carpool-chip" title="Covoiturage : places proposées par les inscrits, et inscrits qui cherchent une place">🚗 ${p.carpool.seats} place(s)${p.carpool.needs ? ` · ${p.carpool.needs} cherche(nt)` : ""}</span>` : "";
+  return `<div class="regs">${count}${mine}${button}${note}${others}${places}${presence}${car}</div>`;
 }
 
 // Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
@@ -263,7 +267,10 @@ function renderPop() {
     const by = r.registered_by ? `<span class="reg-by">inscrit par ${esc(r.registered_by)}</span>` : "";
     const rank = r.waiting ? `<span class="reg-rank">${r.position}.</span> ` : "";
     const att = r.attendance ? ` <span class="att att-${r.attendance}">${ATTENDANCE[r.attendance]}</span>` : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${att}${by}</span>${remove}</li>`;
+    const car = r.carpool === "offer" ? ` <span class="carpool-tag" title="Propose ${r.carpool_seats} place(s) en voiture">🚗 ${r.carpool_seats}</span>`
+      : r.carpool === "need" ? ` <span class="carpool-tag" title="Cherche une place en voiture">🚗 ?</span>` : "";
+    const comment = r.comment ? `<span class="reg-comment">${esc(r.comment)}</span>` : "";
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${att}${car}${by}${comment}</span>${remove}</li>`;
   };
   const confirmed = p.registrations.filter(r => !r.waiting);
   const waiting = p.registrations.filter(r => r.waiting);
@@ -801,6 +808,42 @@ picksEl.addEventListener("click", e => {
   if (p) openRegisterOthers(p);
 });
 
+// ---- Mon inscription : commentaire et covoiturage ----
+
+function openMyNote(p) {
+  const r = p.registrations.find(x => x.user_id === Session.user.id) || {};
+  const form = openDialog({
+    title: "Mon inscription",
+    body: `
+      <p class="dialog-hint">Créneau du ${esc(formatLong(p.date))}, ${esc(p.note || p.port)}. Visible des autres membres de la structure.</p>
+      <label>Commentaire <span class="field-hint">(facultatif)</span>
+        <input type="text" name="comment" maxlength="200" value="${esc(r.comment || "")}" placeholder="ex. j'arriverai à 9 h, besoin d'une bouteille de 15 L"></label>
+      <fieldset class="carpool-field"><legend>Covoiturage</legend>
+        <label class="check"><input type="radio" name="carpool" value=""${!r.carpool ? " checked" : ""}> Rien à signaler</label>
+        <label class="check"><input type="radio" name="carpool" value="offer"${r.carpool === "offer" ? " checked" : ""}> Je propose
+          <input type="number" name="seats" min="1" max="8" step="1" value="${r.carpool_seats || 2}" aria-label="Nombre de places"> place(s)</label>
+        <label class="check"><input type="radio" name="carpool" value="need"${r.carpool === "need" ? " checked" : ""}> Je cherche une place</label>
+      </fieldset>`,
+    onSubmit: async form => {
+      const carpool = form.querySelector("[name=carpool]:checked").value || null;
+      const body = { comment: form.comment.value.trim() || null, carpool };
+      if (carpool === "offer") body.carpool_seats = Number(form.seats.value);
+      const updated = await Session.api(`/api/selections/${p.id}/registration`, { method: "PATCH", body });
+      picks = picks.map(x => (x.id === p.id ? updated : x));
+      render();
+      statusEl.textContent = "Inscription mise à jour.";
+    },
+  });
+  form.seats.addEventListener("focus", () => { form.querySelector("[name=carpool][value=offer]").checked = true; });
+}
+
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=my-note]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openMyNote(p);
+});
+
 // ---- Feuille de présence (à partir du jour du créneau ; administration ou profil « Inscriptions ») ----
 
 const ATTENDANCE = { present: "présent", absent: "absent", excused: "excusé" };
@@ -1134,6 +1177,10 @@ const EXPORT_COLUMNS = [
     r.display_name + (r.registered_by ? ` (inscrit par ${r.registered_by})` : "")).join(", ") },
   { header: "File d'attente", width: 40, value: p => p.registrations.filter(r => r.waiting).map(r =>
     `${r.position}. ${r.display_name}`).join(", ") },
+  { header: "Commentaires", width: 40, value: p => p.registrations.filter(r => r.comment).map(r =>
+    `${r.display_name} : ${r.comment}`).join(" ; ") },
+  { header: "Covoiturage", width: 36, value: p => p.registrations.filter(r => r.carpool).map(r =>
+    `${r.display_name} ${r.carpool === "offer" ? `propose ${r.carpool_seats} place(s)` : "cherche une place"}`).join(" ; ") },
   { header: "Présents", type: "int", width: 9, value: p => (p.registrations.some(r => r.attendance)
     ? p.registrations.filter(r => r.attendance === "present").length : null) },
   { header: "Absents / excusés", width: 30, value: p => p.registrations.filter(r => r.attendance && r.attendance !== "present")
