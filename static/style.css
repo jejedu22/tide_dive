@@ -1878,3 +1878,7 @@ main > .panel + .panel { margin-top: 1.25rem; }
 .divers-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.6rem; }
 .divers-bar p { margin: 0; }
 .caci-note { border-color: #ef476f; background: #fff5f7; }
+/* site atteint depuis sa pastille sur la carte : brève surbrillance */
+.cur-site { scroll-margin-top: 0.5rem; border-radius: 8px; }
+.cur-site-focus { animation: cur-site-focus 1.6s ease-out; }
+@keyframes cur-site-focus { from { background: #d8f6ec; } to { background: transparent; } }
