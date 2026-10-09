@@ -464,6 +464,38 @@ def _m021_weather(conn: sqlite3.Connection) -> None:
     conn.execute(WEATHER_TABLE)
 
 
+def _m022_shallow_water_constituents(conn: sqlite3.Connection) -> None:
+    """Calcul FES avec les ondes de petits fonds (M4, MS4, MN4) : les années à venir sont à recalculer.
+
+    Un recalage établi sans ces ondes les corrigeait lui-même : il n'est plus appliqué (colonne constituents
+    NULL, voir calibration.applies_to_current). Les ports dotés d'un site api-maree.fr sont remis en file de
+    recalage, qui relance leurs précalculs ; les autres, en file de précalcul. Sans clé api-maree.fr, le
+    recalage échoue et le port garde ses horaires actuels (calcul et recalage d'avant, cohérents entre eux)."""
+    if "constituents" in _columns(conn, "tide_calibration"):
+        return
+    conn.execute("ALTER TABLE tide_calibration ADD COLUMN constituents TEXT")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    by = "mise à jour (ondes de petits fonds)"
+
+    def enqueue(kind: str, params: dict) -> None:
+        params_json = json.dumps(params, sort_keys=True)
+        if not conn.execute("SELECT 1 FROM jobs WHERE kind = ? AND params_json = ? AND status IN ('queued', 'running')",
+                            (kind, params_json)).fetchone():
+            conn.execute("INSERT INTO jobs (kind, params_json, created_by, created_at) VALUES (?, ?, ?, ?)",
+                         (kind, params_json, by, now))
+
+    recalibrated = set()
+    for r in conn.execute("SELECT c.port_id, c.model FROM tide_calibration c JOIN ports p ON p.id = c.port_id "
+                          "WHERE p.api_maree_site IS NOT NULL AND p.api_maree_site != '' ORDER BY c.port_id").fetchall():
+        enqueue("calibrate", {"model": r["model"], "port_id": r["port_id"]})
+        recalibrated.add(r["port_id"])
+    this_year = datetime.now(timezone.utc).year
+    for r in conn.execute("SELECT port_id, year, model FROM computed_years WHERE year >= ? ORDER BY port_id, year",
+                          (this_year,)).fetchall():
+        if r["port_id"] not in recalibrated:
+            enqueue("precompute", {"model": r["model"], "port_id": r["port_id"], "year": r["year"]})
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -486,6 +518,7 @@ MIGRATIONS: list[Migration] = [
     Migration(19, "commentaire et covoiturage des inscriptions", _m019_registration_notes),
     Migration(20, "notifications push", _m020_push),
     Migration(21, "cache de la météo marine", _m021_weather),
+    Migration(22, "calcul FES avec les ondes de petits fonds (M4, MS4, MN4)", _m022_shallow_water_constituents),
 ]
 
 

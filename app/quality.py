@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
 
-from . import db
+from . import calibration as calib, db
 from .auth import CurrentSuperAdmin
 
 router = APIRouter(prefix="/api/admin")
@@ -89,6 +89,9 @@ def port_quality(port, now: datetime) -> dict:
         calibration = {"computed_at": cal["computed_at"], "model": cal["model"], "site": cal["site"],
                        "mean_level_m": cal["mean_level_m"], "level_diff_m": round(diff, 2) if diff is not None else None,
                        "rmse_after_m": cal["rmse_after_m"], "extrema_dt_after_min": cal["extrema_dt_after_min"]}
+        if not calib.applies_to_current(cal):
+            issue("warning", "recalage établi avant le calcul des ondes de petits fonds (M4, MS4, MN4) : il n'est "
+                             "plus appliqué ; relancer le recalage")
         if diff is not None and abs(diff) > LEVEL_ERROR_M:
             issue("error", f"niveau moyen d'api-maree.fr ({_m(cal['mean_level_m'])}) très éloigné du niveau moyen "
                            f"saisi ({_m(offset)})")

@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from app import calendar_fr, db, migrations, precompute
+from app import calendar_fr, db, migrations, precompute, tide_model
 from tests.conftest import login
 from tests.synthetic import year_series
 
@@ -196,7 +196,7 @@ def test_precalcul_ecrit_le_calcul_brut_et_le_calcul_corrige(tmp_db, monkeypatch
     port = db.upsert_port("Brest", 48.38, -4.49, offset_zh_m=4.32)
     # correction M2 de 20 cm : décale les étales de quelques minutes
     waves = [{"name": "M2", "speed": 28.9841042, "phase": 0.0, "cos": 0.2, "sin": 0.1}]
-    db.save_calibration(port, site="brest", model="FES2014", time_shift_min=0, amplitude=1,
+    db.save_calibration(port, site="brest", model="FES2014", constituents=tide_model.CONSTITUENTS_KEY, time_shift_min=0, amplitude=1,
                         harmonics_json=json.dumps(waves), computed_at="2099-01-01T00:00:00+00:00",
                         n_points=100, window_start="x", window_end="y")
     monkeypatch.setattr(sys, "argv", ["precompute", "--port-id", str(port), "--year", "2027", "--model", "FES2014"])

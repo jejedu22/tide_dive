@@ -122,6 +122,10 @@ def port_calibration(port_id: int | None, model: str, label: str) -> tuple[float
     if cal["model"] != model:
         print(f"[{label}] recalage ignoré : établi pour {cal['model']}, calcul avec {model}. Relancer le recalage.")
         return NO_CALIBRATION
+    if not calib.applies_to_current(cal):
+        print(f"[{label}] recalage ignoré : établi avant le calcul des ondes de petits fonds (M4, MS4, MN4). "
+              "Relancer le recalage.")
+        return NO_CALIBRATION
     waves = calib.waves_of(cal)
     parts = [f"{len(waves)} ondes corrigées"] if waves else []
     if (cal["time_shift_min"], cal["amplitude"]) != (0, 1):
@@ -201,7 +205,7 @@ def brest_corrected(model: str | None) -> bool:
     """Brest a-t-il un recalage pour ce modèle ? (ses coefficients corrigés diffèrent alors des bruts)"""
     brest = next((r for r in db.list_ports() if r["name"].lower() == BREST_NAME.lower()), None)
     cal = db.get_calibration(brest["id"]) if brest else None
-    return cal is not None and cal["model"] == model
+    return cal is not None and cal["model"] == model and calib.applies_to_current(cal)
 
 
 def nearest_coefficient(t, brest_times: list[pd.Timestamp], brest_coefs: list[float]) -> float | None:

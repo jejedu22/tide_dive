@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS tide_calibration (
     port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,
     site TEXT NOT NULL,                 -- site api-maree.fr utilisé
     model TEXT NOT NULL,                -- modèle FES recalé (ignoré pour un autre modèle)
+    constituents TEXT,                  -- ondes du calcul recalé (tide_model.CONSTITUENTS_KEY ; NULL : sans M4…)
     time_shift_min REAL NOT NULL,
     amplitude REAL NOT NULL,
     harmonics_json TEXT,                -- ondes de correction [{name, speed °/h, cos, sin}], NULL = aucune
