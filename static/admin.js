@@ -1020,7 +1020,11 @@ async function loadSites() {
 
 function renderSitesPanel() {
   $("sites-list").innerHTML = structureSites.length ? structureSites.map(x => `
-    <li><span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${siteCurrentNote(x)}</span></li>`).join("")
+    <li data-id="${x.id}">
+      <span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${siteCurrentNote(x)}${x.notes ? `<br><span class="muted">${esc(x.notes)}</span>` : ""}</span>
+      <span><button type="button" class="btn-quiet btn-small" data-site="edit">Modifier</button>
+      <button type="button" class="btn-danger btn-small" data-site="delete">Supprimer</button></span>
+    </li>`).join("")
     : `<li class="muted">Aucun site de plongée pour l'instant.</li>`;
   renderSitesMap();
 }
@@ -1047,95 +1051,89 @@ function renderSitesMap() {
   Carte.refresh(map);
 }
 
-$("sites-manage").addEventListener("click", async () => {
+async function reloadSites() {
+  structureSites = await Session.api(`/api/admin/dive-sites${sitesQS()}`);
+  renderSitesPanel();
+}
+
+$("sites-add").addEventListener("click", async () => {
   if (publicPorts === null) publicPorts = await Session.api("/api/ports").catch(() => []);
-  openDiveSites();
+  openSiteDialog(null);
 });
 
-function openDiveSites() {
+// Liste des sites : Modifier ouvre la fenêtre pré-remplie, Supprimer après confirmation
+$("sites-list").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-site]");
+  if (!btn) return;
+  const x = structureSites.find(w => w.id === Number(btn.closest("li").dataset.id));
+  if (!x) return;
+  if (btn.dataset.site === "edit") {
+    if (publicPorts === null) publicPorts = await Session.api("/api/ports").catch(() => []);
+    openSiteDialog(x);
+    return;
+  }
+  if (!confirm(`Supprimer le site « ${x.name} » ?`)) return;
+  try {
+    await Session.api(`/api/admin/dive-sites/${x.id}`, { method: "DELETE" });
+    await reloadSites();
+  } catch (e2) {
+    flash(esc(e2.message));
+  }
+});
+
+// Fenêtre d'ajout (site = null) ou de modification d'un site, pré-remplie : carte pour le placer d'un clic
+function openSiteDialog(site) {
+  const structureName = isSuper() ? $("sites-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
+  const t = site;
   const d = document.createElement("dialog");
   d.className = "account-dialog water-dialog";
-  const structureName = isSuper() ? $("sites-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
-  const homePort = sitesHomePort();
+  d.innerHTML = `
+    <form method="dialog">
+      <h2>${t ? `Modifier « ${esc(t.name)} »` : "Ajouter un site de plongée"}${structureName ? ` <span class="muted">— ${esc(structureName)}</span>` : ""}</h2>
+      <p class="dialog-hint">Position GPS précise (degrés décimaux, ex. 48.6612 / -2.7845) : le courant de marée change beaucoup d'un point à l'autre. Il est extrait de l'atlas de courants du SHOM au point le plus proche ; déplacer un site le recalcule.</p>
+      ${typeof L === "undefined" ? "" : `<div class="map map-pick" role="region" aria-label="Carte : cliquez pour placer le site"></div>
+      <p class="map-hint">Cliquez sur la carte (fond « Photo aérienne » ou « Carte marine » pour repérer roches et épaves) pour placer le site : la latitude et la longitude se remplissent. Le marqueur se déplace aussi en le faisant glisser.</p>`}
+      <fieldset class="water-form">
+        <label>Nom <input name="name" maxlength="60" required placeholder="ex. Roches de Saint-Quay" value="${esc(t?.name ?? "")}"></label>
+        <label>Latitude <input name="lat" type="number" step="0.000001" min="-90" max="90" required placeholder="48.6612" value="${t?.lat ?? ""}"></label>
+        <label>Longitude <input name="lon" type="number" step="0.000001" min="-180" max="180" required placeholder="-2.7845" value="${t?.lon ?? ""}"></label>
+        <label>Notes <input name="notes" maxlength="300" placeholder="facultatif (profondeur, mouillage…)" value="${esc(t?.notes ?? "")}"></label>
+      </fieldset>
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-quiet" value="cancel">Annuler</button>
+        <button type="submit" class="btn-primary">${t ? "Enregistrer" : "Ajouter"}</button>
+      </div>
+    </form>`;
   document.body.append(d);
   d.addEventListener("close", () => d.remove());
-  let editing = null;   // site en cours de modification
-
-  const currentNote = siteCurrentNote;
-  const refresh = async () => {
-    structureSites = await Session.api(`/api/admin/dive-sites${sitesQS()}`);
-    renderSitesPanel();
-  };
-  const render = () => {
-    const list = structureSites;
-    const t = editing;
-    d.innerHTML = `
-      <form method="dialog">
-        <h2>Sites de plongée${structureName ? ` — ${esc(structureName)}` : ""}</h2>
-        <p class="dialog-hint">Position GPS précise de chaque site (degrés décimaux, ex. 48.6612 / -2.7845) : le courant de marée change beaucoup d'un point à l'autre. Il est extrait de l'atlas de courants du SHOM au point le plus proche ; déplacer un site le recalcule.</p>
-        <ul class="water-list">${list.length ? list.map(x => `
-          <li data-id="${x.id}">
-            <span><strong>${esc(x.name)}</strong> · <span class="muted">${fmtNum(x.lat, 4)}, ${fmtNum(x.lon, 4)}</span> · ${currentNote(x)}${x.notes ? `<br><span class="muted">${esc(x.notes)}</span>` : ""}</span>
-            <span><button type="button" class="btn-quiet btn-small" data-site="edit">Modifier</button>
-            <button type="button" class="btn-danger btn-small" data-site="delete">Supprimer</button></span>
-          </li>`).join("") : `<li class="muted">Aucun site de plongée pour l'instant.</li>`}
-        </ul>
-        ${typeof L === "undefined" ? "" : `<div class="map map-pick" role="region" aria-label="Carte : cliquez pour placer le site"></div>
-        <p class="map-hint">Cliquez sur la carte (fond « Photo aérienne » pour repérer roches et épaves) pour placer le site : la latitude et la longitude se remplissent. Le marqueur se déplace aussi en le faisant glisser.</p>`}
-        <fieldset class="water-form">
-          <legend>${t ? `Modifier « ${esc(t.name)} »` : "Ajouter un site"}</legend>
-          <label>Nom <input name="name" maxlength="60" placeholder="ex. Roches de Saint-Quay" value="${esc(t?.name ?? "")}"></label>
-          <label>Latitude <input name="lat" type="number" step="0.000001" min="-90" max="90" placeholder="48.6612" value="${t?.lat ?? ""}"></label>
-          <label>Longitude <input name="lon" type="number" step="0.000001" min="-180" max="180" placeholder="-2.7845" value="${t?.lon ?? ""}"></label>
-          <label>Notes <input name="notes" maxlength="300" placeholder="facultatif (profondeur, mouillage…)" value="${esc(t?.notes ?? "")}"></label>
-        </fieldset>
-        <p class="dialog-error" role="alert"></p>
-        <div class="dialog-actions">
-          <button type="button" class="btn-quiet" value="close">Fermer</button>
-          ${t ? `<button type="button" class="btn-quiet" value="cancel-edit">Annuler la modification</button>` : ""}
-          <button type="submit" class="btn-primary">${t ? "Enregistrer" : "Ajouter"}</button>
-        </div>
-      </form>`;
-    const form = d.querySelector("form");
-    const err = d.querySelector(".dialog-error");
-    mountPickMap(d.querySelector(".map-pick"), form, list, t, { mapPorts: publicPorts || [], homePort });
-    d.querySelector("[value=close]").addEventListener("click", () => d.close());
-    d.querySelector("[value=cancel-edit]")?.addEventListener("click", () => { editing = null; render(); });
-    form.addEventListener("submit", async e => {
-      e.preventDefault();
-      const body = { name: form.name.value.trim(), lat: Number(form.lat.value), lon: Number(form.lon.value),
-                     notes: form.notes.value.trim() || null };
-      if (!body.name || form.lat.value === "" || form.lon.value === "") { err.textContent = "Nom, latitude et longitude obligatoires."; return; }
-      if (t && t.current && (t.lat !== body.lat || t.lon !== body.lon)
-          && !confirm("Déplacer le site efface son courant (il valait pour l'ancienne position). Continuer ?")) return;
-      try {
-        await Session.api(t ? `/api/admin/dive-sites/${t.id}` : `/api/admin/dive-sites${sitesQS()}`,
-          { method: t ? "PUT" : "POST", body });
-        await refresh();
-        editing = null;
-        render();
-      } catch (e2) {
-        err.textContent = e2.message;
-      }
-    });
-    d.querySelector(".water-list").addEventListener("click", async e => {
-      const btn = e.target.closest("[data-site]");
-      if (!btn) return;
-      const x = structureSites.find(w => w.id === Number(btn.closest("li").dataset.id));
-      if (btn.dataset.site === "edit") { editing = x; render(); d.querySelector("[name=name]").focus(); return; }
-      if (!confirm(`Supprimer le site « ${x.name} » ?`)) return;
-      try {
-        await Session.api(`/api/admin/dive-sites/${x.id}`, { method: "DELETE" });
-        await refresh();
-        if (editing?.id === x.id) editing = null;
-        render();
-      } catch (e2) {
-        err.textContent = e2.message;
-      }
-    });
-  };
-  render();
+  const form = d.querySelector("form");
+  const err = d.querySelector(".dialog-error");
+  d.querySelector("[value=cancel]").addEventListener("click", () => d.close());
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const body = { name: form.name.value.trim(), lat: Number(form.lat.value), lon: Number(form.lon.value),
+                   notes: form.notes.value.trim() || null };
+    if (!body.name || form.lat.value === "" || form.lon.value === "") { err.textContent = "Nom, latitude et longitude obligatoires."; return; }
+    if (t && t.current && (t.lat !== body.lat || t.lon !== body.lon)
+        && !confirm("Déplacer le site efface son courant (il valait pour l'ancienne position) et le recalcule. Continuer ?")) return;
+    const btn = form.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      await Session.api(t ? `/api/admin/dive-sites/${t.id}` : `/api/admin/dive-sites${sitesQS()}`,
+        { method: t ? "PUT" : "POST", body });
+      if (sitesMap && !t) sitesMap.fitted = false;   // nouveau site : la carte se recadre sur tous les sites
+      await reloadSites();
+      d.close();
+    } catch (e2) {
+      err.textContent = e2.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
   d.showModal();
+  mountPickMap(d.querySelector(".map-pick"), form, structureSites, t, { mapPorts: publicPorts || [], homePort: sitesHomePort() });
+  form.name.focus();
 }
 
 // ---- Hauteurs d'eau d'un port : la recherche par hauteur d'eau donne les plages au-dessus (ou au-dessous) ----
