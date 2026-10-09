@@ -226,6 +226,17 @@ CREATE TABLE IF NOT EXISTS structures (
     archived_at TEXT
 );
 
+-- E-mails de service envoyés par le serveur (mailer.send_many : invitations, mots de passe, alertes, e-mails
+-- aux administrateurs…) ; les newsletters passent par Mailjet et ont leur propre suivi. Gardés 90 jours.
+CREATE TABLE IF NOT EXISTS mail_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+    error TEXT
+);
+
 -- Bandeaux d'annonce (super administrateurs) : affichés en haut de toutes les pages entre deux dates, à tous
 -- (structure_ids NULL, visiteurs compris) ou aux membres de certaines structures (identifiants séparés par
 -- des virgules)

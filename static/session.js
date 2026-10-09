@@ -111,7 +111,7 @@ const Session = (() => {
     const list = await api("/api/announcements").catch(() => []);
     if (u !== user && user !== null) return;            // un autre compte entre-temps
     const hidden = dismissed();
-    const items = list.filter(a => !hidden.includes(a.id)).map(a => ({ ...a, closable: true }));
+    const items = list.filter(a => !hidden.includes(a.id)).map(a => ({ closable: true, ...a }));
     if (u?.structure?.archived && !u.is_admin) {
       items.unshift({ id: "archived", level: "warning", closable: false,
         message: `La structure « ${u.structure.name} » est archivée : ses créneaux et son administration ne sont plus accessibles.` });

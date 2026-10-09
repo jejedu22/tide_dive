@@ -54,7 +54,10 @@ def current_announcements(user: OptionalUser = None):
         mine = {m["structure_id"] for m in db.list_memberships(user["id"])}
         if user["structure_id"] is not None:
             mine.add(user["structure_id"])
-    out = []
+    from .ops import maintenance            # import tardif : ops importe auth, comme ce module
+    state = maintenance()
+    out = [{"id": "maintenance", "message": state["message"], "level": "warning", "ends_at": None,
+            "closable": False}] if state["enabled"] else []
     for r in db.active_announcements(_now()):
         targets = _ids(r["structure_ids"])
         if targets is None or mine.intersection(targets):

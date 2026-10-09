@@ -79,8 +79,8 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "types", "sites", "utilisateurs", "mailjet", "journal"];
-const SUPER_TABS = ["dashboard", "structures", "ports", "donnees", "communication"];
+const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "exploitation", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const SUPER_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "exploitation"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
 
@@ -95,6 +95,7 @@ function showTab(name) {
   if (name === "dashboard") loadDashboard();
   if (name === "journal") loadJournal();
   if (name === "communication") { loadAnnouncements(); loadBroadcastRecipients(); }
+  if (name === "exploitation") { loadMaintenance(); loadSchedule(); loadBackups(); loadMailLog(); loadQuality(); }
   if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
   if (name === "ports" && portsMap) Carte.refresh(portsMap.map);
@@ -745,6 +746,178 @@ broadcastForm.addEventListener("submit", async e => {
     btn.disabled = false;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Exploitation (super administrateur) : maintenance, tâches automatiques, sauvegardes, e-mails, qualité
+// ---------------------------------------------------------------------------
+
+let maintenanceState = null;
+const JOB_STATUS = { queued: "en attente", running: "en cours", succeeded: "réussie", failed: "échec", cancelled: "annulée" };
+
+async function loadMaintenance() {
+  try {
+    maintenanceState = await Session.api("/api/admin/maintenance");
+  } catch (e) {
+    $("maintenance-state").textContent = e.message;
+    return;
+  }
+  const m = maintenanceState;
+  $("maintenance-state").innerHTML = m.enabled
+    ? `<span class="tag tag-warn">activé</span> depuis le ${stamp(m.since)} : seuls les super administrateurs peuvent modifier.`
+    : `<span class="tag tag-quiet">désactivé</span> : l'application fonctionne normalement.`;
+  if (document.activeElement !== $("maintenance-message")) $("maintenance-message").value = m.enabled ? m.message : "";
+  $("maintenance-toggle").textContent = m.enabled ? "Désactiver le mode maintenance" : "Activer le mode maintenance";
+  $("maintenance-toggle").className = m.enabled ? "btn-primary btn-small" : "btn-danger btn-small";
+}
+
+$("maintenance-toggle").addEventListener("click", async () => {
+  const enable = !maintenanceState?.enabled;
+  if (enable && !confirm("Passer l'application en lecture seule pour tous sauf les super administrateurs ?")) return;
+  try {
+    await Session.api("/api/admin/maintenance", { method: "PUT", body: { enabled: enable, message: $("maintenance-message").value.trim() || null } });
+    await loadMaintenance();
+    Session.init();       // bandeau
+  } catch (e) {
+    flash(esc(e.message));
+  }
+});
+
+async function loadSchedule() {
+  let data;
+  try {
+    data = await Session.api("/api/admin/schedule");
+  } catch (e) {
+    $("schedule-body").innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  $("schedule-body").innerHTML = data.entries.map(e => {
+    const last = e.last_job
+      ? `<span class="tag job-${e.last_job.status}">${JOB_STATUS[e.last_job.status] || e.last_job.status}</span> ${stamp(e.last_job.finished_at || e.last_job.created_at)}
+         <span class="muted">(${esc(e.last_job.created_by)})</span>` : "";
+    const backup = e.last_backup ? `${last ? "<br>" : ""}dernier fichier : ${stamp(e.last_backup.created_at)}` : "";
+    return `<tr data-key="${e.key}">
+      <th scope="row">${esc(e.label)}<br><code class="muted cron">${esc(e.cron)}</code></th>
+      <td data-label="Quand">${esc(e.when)}</td>
+      <td data-label="Prochaine">${e.next_run ? stamp(e.next_run) : "–"}</td>
+      <td data-label="Dernière">${last || backup ? last + backup : '<span class="muted">—</span>'}</td>
+      <td class="actions"><button type="button" class="btn-quiet" data-run="${e.key}">Lancer maintenant</button></td>
+    </tr>`;
+  }).join("");
+}
+
+$("schedule-body").addEventListener("click", async e => {
+  const key = e.target.closest("[data-run]")?.dataset.run;
+  if (!key) return;
+  const label = e.target.closest("tr").querySelector("th").firstChild.textContent;
+  if (!confirm(`Lancer maintenant « ${label} » ?`)) return;
+  try {
+    const r = await Session.api(`/api/admin/schedule/${key}/run`, { method: "POST" });
+    flash(r.queued.length ? `${r.queued.length} tâche(s) mise(s) en file : suivez-les dans « Données et tâches ».`
+      : "Rien de nouveau mis en file (déjà en attente, ou rien à faire).");
+    loadSchedule();
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
+async function loadBackups() {
+  let data;
+  try {
+    data = await Session.api("/api/admin/backups");
+  } catch (e) {
+    $("backups-summary").textContent = e.message;
+    return;
+  }
+  $("backups-dir").textContent = data.directory;
+  $("backups-restore").textContent = data.restore_command;
+  $("backups-summary").textContent = `${data.backups.length} sauvegarde(s) (${data.keep} gardées au plus) · base : ${fmtBytes(data.database_bytes)} · espace libre : ${fmtBytes(data.free_bytes)}.`;
+  $("backups-list").innerHTML = data.backups.length ? data.backups.map((b, i) => `
+    <li data-name="${esc(b.name)}">
+      <span><strong>${stamp(b.created_at)}</strong>${i === 0 ? ' <span class="tag">la plus récente</span>' : ""}
+        <span class="muted">· ${esc(b.name)} · ${fmtBytes(b.size)}</span><span class="backup-check"></span></span>
+      <span><a class="btn-quiet btn-small" href="/api/admin/backups/${encodeURIComponent(b.name)}" download>Télécharger</a>
+        <button type="button" class="btn-quiet btn-small" data-verify>Vérifier</button></span>
+    </li>`).join("") : `<li class="muted">Aucune sauvegarde pour l'instant.</li>`;
+}
+
+$("backups-list").addEventListener("click", async e => {
+  if (!e.target.closest("[data-verify]")) return;
+  const li = e.target.closest("li");
+  const out = li.querySelector(".backup-check");
+  out.textContent = " · vérification…";
+  try {
+    const r = await Session.api(`/api/admin/backups/${encodeURIComponent(li.dataset.name)}/verify`, { method: "POST" });
+    out.innerHTML = r.ok
+      ? ` · <span class="tag">intègre</span> <span class="muted">${r.counts.users} comptes, ${r.counts.structures} structures, ${r.counts.ports} ports, ${r.counts.slot_selections} créneaux</span>`
+      : ` · <span class="tag tag-error">invalide</span> ${esc(r.problems.join(" ; "))}`;
+  } catch (err) {
+    out.textContent = ` · ${err.message}`;
+  }
+});
+
+$("backup-now").addEventListener("click", async () => {
+  try {
+    const r = await Session.api("/api/admin/backups", { method: "POST" });
+    flash(r.queued ? "Sauvegarde mise en file : elle apparaîtra ici une fois faite par le worker." : "Une sauvegarde est déjà en file.");
+  } catch (e) {
+    flash(esc(e.message));
+  }
+});
+
+async function loadMailLog() {
+  let data;
+  try {
+    data = await Session.api(`/api/admin/mail-log?limit=100${$("mail-failed-only").checked ? "&failed=true" : ""}`);
+  } catch (e) {
+    $("mail-config").textContent = e.message;
+    return;
+  }
+  $("mail-config").innerHTML = (data.enabled
+    ? `<span class="tag">configuré</span> envoi ${esc(data.backend)}${data.sender ? ` depuis ${esc(data.sender)}` : ""}.`
+    : `<span class="tag tag-warn">non configuré</span> ${esc(data.disabled_reason || "")}.`)
+    + ` 30 derniers jours : ${data.last_30_days.total} envoi(s)${data.last_30_days.failed ? `, <strong>${data.last_30_days.failed} échec(s)</strong>` : ""}.`;
+  $("mail-test").disabled = !data.enabled;
+  $("mail-log-body").innerHTML = data.entries.length ? data.entries.map(m => `
+    <tr><td data-label="Date">${stamp(m.at)}</td><td data-label="Destinataire">${esc(m.recipient)}</td>
+      <td data-label="Objet">${esc(m.subject)}</td>
+      <td data-label="État">${m.status === "sent" ? '<span class="tag">envoyé</span>' : `<span class="tag tag-error">échec</span> ${esc(m.error || "")}`}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">Aucun e-mail.</td></tr>`;
+}
+
+$("mail-failed-only").addEventListener("change", loadMailLog);
+$("mail-test").addEventListener("click", async () => {
+  try {
+    const r = await Session.api("/api/admin/mail-test", { method: "POST" });
+    flash(`E-mail de test envoyé à ${esc(r.sent_to)}.`);
+  } catch (e) {
+    flash(esc(e.message));
+  }
+  loadMailLog();
+});
+
+async function loadQuality() {
+  let data;
+  try {
+    data = await Session.api("/api/admin/quality");
+  } catch (e) {
+    $("quality-body").innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  const m = v => (v == null ? "–" : `${fmtNum(v, 2)} m`);
+  $("quality-body").innerHTML = data.ports.length ? data.ports.map(p => {
+    const c = p.calibration, cmp = p.comparison;
+    return `<tr${p.issues.some(i => i.level === "error") ? ' class="dash-warn"' : ""}>
+      <th scope="row">${esc(p.name)}</th>
+      <td data-label="Niveau moyen">${m(p.offset_zh_m)}${p.fes_range_m ? `<br><span class="muted">PM/BM ${fmtNum(p.fes_range_m[0], 2)} à ${fmtNum(p.fes_range_m[1], 2)} m</span>` : ""}</td>
+      <td data-label="Recalage">${c ? `niveau ${m(c.mean_level_m)}${c.level_diff_m != null ? ` (${c.level_diff_m > 0 ? "+" : ""}${fmtNum(c.level_diff_m, 2)})` : ""}<br><span class="muted">${stamp(c.computed_at)}</span>` : '<span class="muted">aucun</span>'}</td>
+      <td data-label="FES / api-maree.fr">${cmp ? `${fmtNum(cmp.mean_time_diff_min, 1)} min, ${cmp.mean_height_diff_m > 0 ? "+" : ""}${fmtNum(cmp.mean_height_diff_m, 2)} m<br><span class="muted">${cmp.pairs} PM/BM</span>` : '<span class="muted">–</span>'}</td>
+      <td class="dash-issues" data-label="Points d'attention">${p.issues.length ? p.issues.map(i => `<span class="tag ${i.level === "error" ? "tag-error" : "tag-warn"}">${esc(i.message)}</span>`).join(" ") : '<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="5" class="empty">Aucun port.</td></tr>`;
+  $("quality-sites").innerHTML = data.sites_without_current.length ? data.sites_without_current.map(s => `
+    <li><span><strong>${esc(s.name)}</strong> <span class="muted">· ${esc(s.structure)}</span><br><span class="muted">${esc(s.reason)}</span></span></li>`).join("")
+    : `<li class="muted">Tous les sites ont leur courant.</li>`;
+}
 
 // ---------------------------------------------------------------------------
 // Journal d'activité

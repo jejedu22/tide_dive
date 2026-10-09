@@ -102,7 +102,7 @@ def normalize_params(kind: str, params: dict) -> dict:
         return {"port_id": int(params["port_id"])}
     if kind == "newsletter_send":
         return {"newsletter_id": int(params["newsletter_id"])}
-    if kind == "school_holidays":
+    if kind in ("school_holidays", "backup", "health"):
         return {}
     if kind == "currents_atlas":
         from .shom_currents import ZONES
@@ -132,6 +132,10 @@ def build_command(kind: str, params: dict) -> list[str]:
         return [exe, "--directory", MODEL_DIR, "--tide", params["model"]]
     if kind == "currents_atlas":
         return [sys.executable, "-m", "app.shom_currents", "--download", params["zone"]]
+    if kind == "backup":
+        return [sys.executable, "-m", "app.backup"]
+    if kind == "health":
+        return [sys.executable, "-m", "app.health", "--notify"]
     return [sys.executable, "-m", "app.calendar_fr"]
 
 
@@ -165,6 +169,10 @@ def job_label(kind: str, params: dict, port_names: dict[int, str]) -> str:
         return f"Téléchargement {params.get('model')} (AVISO+)"
     if kind == "school_holidays":
         return "Vacances scolaires"
+    if kind == "backup":
+        return "Sauvegarde de la base"
+    if kind == "health":
+        return "Contrôle de santé"
     if kind == "currents_atlas":
         from .shom_currents import ZONES
         return f"Atlas de courants SHOM {ZONES.get(params.get('zone'), (params.get('zone'),))[0]}"

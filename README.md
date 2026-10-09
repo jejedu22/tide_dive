@@ -829,6 +829,18 @@ docker compose up -d
 
 > **`data/backups/` est sur le même disque que la base** : il protège d'une fausse manipulation ou d'une corruption, pas de la perte du serveur. À copier **hors du serveur** (cron `rsync`/`rclone` sur l'hôte, snapshot du VPS…). Sauvegarder aussi **`SECRETS_KEY` à part** : sans elle, les clés Mailjet stockées en base sont illisibles. **Testez une restauration** sur une copie de temps en temps.
 
+### Onglet « Exploitation » (super administrateur)
+
+`app/ops.py`, `app/quality.py` :
+
+- **Mode maintenance** : l'application passe en lecture seule pour tous sauf les super administrateurs (toute requête qui modifie répond 503 avec le message choisi ; connexion, désinscriptions des newsletters et événements Mailjet restent permis). Le message s'affiche en bandeau sur toutes les pages. À activer avant une restauration ou une opération délicate.
+- **Tâches automatiques** : le planning de `docker/crontab` (copié dans `ops.SCHEDULE`, un test vérifie qu'ils concordent) avec la prochaine exécution, la dernière tâche de chaque type, et **Lancer maintenant** (mise en file, comme le planificateur). La sauvegarde et le contrôle de santé sont aussi des types de tâches (`backup`, `health`) pour pouvoir être lancés d'ici.
+- **Sauvegardes** : liste (date, taille), téléchargement, **vérification** (décompression et `integrity_check`, avec le nombre de comptes, structures, ports et créneaux), sauvegarde immédiate. La restauration reste en ligne de commande (ci-dessus).
+- **E-mails de service** : configuration, historique des envois du serveur (table `mail_log`, 90 jours : date, destinataire, objet, succès ou erreur), filtre « échecs seulement », e-mail de test à sa propre adresse.
+- **Qualité des données**, par port : niveau moyen manquant, ou faux quand les basses mers calculées passent nettement sous le zéro des cartes (ex. 0,01 m saisi au lieu de 5,4 m à Roscoff) ; niveau moyen d'api-maree.fr (recalage) comparé au niveau moyen saisi ; calcul FES brut comparé aux pleines et basses mers d'api-maree.fr du mois glissant (écart moyen des heures et des hauteurs). Puis les **sites de plongée sans courant**, avec la raison. L'état des atlas du SHOM est dans « Données et tâches ».
+
+API (super administrateurs) : `GET` / `POST /api/admin/backups`, `GET /api/admin/backups/{nom}`, `POST /api/admin/backups/{nom}/verify` ; `GET /api/admin/schedule`, `POST /api/admin/schedule/{clé}/run` ; `GET` / `PUT /api/admin/maintenance` `{enabled, message?}` ; `GET /api/admin/mail-log?limit&failed`, `POST /api/admin/mail-test` ; `GET /api/admin/quality`.
+
 ### Surveillance et alertes
 
 `python -m app.health` (lancé chaque jour à 07:05 avec `--notify`) contrôle :
