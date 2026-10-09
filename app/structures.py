@@ -57,6 +57,11 @@ class StructureSettingsIn(BaseModel):
     # Certificat médical (CACI) : inscription refusée sans CACI valable le jour du créneau ; durée de validité (mois)
     caci_check: bool | None = None
     caci_validity_months: int | None = Field(None, ge=1, le=60)
+    # Rappels et alertes par e-mail (reminders.py) : nombre de jours, null = désactivé
+    remind_slot_days: int | None = Field(None, ge=1, le=14)
+    alert_low_fill_days: int | None = Field(None, ge=1, le=30)
+    remind_caci_days: int | None = Field(None, ge=1, le=90)
+    alert_late_unregister_days: int | None = Field(None, ge=1, le=14)
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -78,6 +83,10 @@ def _out(row: sqlite3.Row) -> dict:
         "search_modes": row["search_modes"],
         "caci_check": bool(row["caci_check"]),
         "caci_validity_months": row["caci_validity_months"],
+        "remind_slot_days": row["remind_slot_days"],
+        "alert_low_fill_days": row["alert_low_fill_days"],
+        "remind_caci_days": row["remind_caci_days"],
+        "alert_late_unregister_days": row["alert_late_unregister_days"],
     }
 
 

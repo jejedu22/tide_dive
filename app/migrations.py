@@ -306,6 +306,36 @@ ATTENDANCE_COLUMNS = {
 }
 
 
+REMINDER_COLUMNS = {
+    # rappel aux inscrits N jours avant le créneau (1 : la veille) ; NULL : pas de rappel
+    "remind_slot_days": "INTEGER CHECK (remind_slot_days BETWEEN 1 AND 14)",
+    # alerte aux administrateurs, N jours avant, pour un créneau peu rempli ; NULL : pas d'alerte
+    "alert_low_fill_days": "INTEGER CHECK (alert_low_fill_days BETWEEN 1 AND 30)",
+    # rappel au membre dont le certificat médical expire dans N jours ; NULL : pas de rappel
+    "remind_caci_days": "INTEGER CHECK (remind_caci_days BETWEEN 1 AND 90)",
+    # alerte aux administrateurs quand un membre se désinscrit moins de N jours avant ; NULL : pas d'alerte
+    "alert_late_unregister_days": "INTEGER CHECK (alert_late_unregister_days BETWEEN 1 AND 14)",
+}
+
+REMINDERS_SENT_TABLE = """
+CREATE TABLE IF NOT EXISTS reminders_sent (
+    kind TEXT NOT NULL,          -- slot, low_fill, caci
+    ref TEXT NOT NULL,           -- créneau (id) ou date du CACI
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sent_at TEXT NOT NULL,
+    PRIMARY KEY (kind, ref, user_id)
+)"""
+
+
+def _m013_reminders(conn: sqlite3.Connection) -> None:
+    """Rappels et alertes par e-mail, réglés par structure (tous désactivés), et rappels déjà envoyés."""
+    existing = _columns(conn, "structures")
+    for col, ddl in REMINDER_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} {ddl}")
+    conn.execute(REMINDERS_SENT_TABLE)
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -319,6 +349,7 @@ MIGRATIONS: list[Migration] = [
     Migration(10, "journal d'activité", _m010_audit_log),
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
     Migration(12, "feuille de présence des créneaux", _m012_attendance),
+    Migration(13, "rappels et alertes par e-mail", _m013_reminders),
 ]
 
 

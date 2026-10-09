@@ -386,6 +386,18 @@
             </span>
           </div>
           <p class="hint">Les membres saisissent la date de leur CACI dans « Ma fiche plongeur ». Une date en attente de validation (page <a href="plongeurs.html">Plongeurs</a>, profil « Gestionnaire ») ne bloque pas l'inscription ; un certificat absent ou expiré le jour de la plongée la bloque, y compris quand un administrateur inscrit le membre.</p>
+          <h2>Rappels et alertes par e-mail</h2>
+          <p class="hint">Cochez ceux que la structure veut envoyer ; ils partent chaque matin, une seule fois chacun. Il faut que l'envoi d'e-mails soit configuré sur le serveur.</p>
+          <div class="reminder-settings">
+            <label class="check"><input type="checkbox" data-reminder="remind_slot_days"> Rappel aux inscrits
+              <input type="number" id="remind-slot-days" min="1" max="14" step="1" inputmode="numeric" value="1" aria-label="Jours avant le créneau"> jour(s) avant le créneau</label>
+            <label class="check"><input type="checkbox" data-reminder="alert_low_fill_days"> Alerte aux administrateurs pour un créneau peu rempli (aucun inscrit, ou moins de la moitié des places)
+              <input type="number" id="alert-low-fill-days" min="1" max="30" step="1" inputmode="numeric" value="3" aria-label="Jours avant le créneau"> jour(s) avant</label>
+            <label class="check"><input type="checkbox" data-reminder="alert_late_unregister_days"> Alerte aux administrateurs quand un membre se désinscrit moins de
+              <input type="number" id="alert-late-unregister-days" min="1" max="14" step="1" inputmode="numeric" value="2" aria-label="Jours avant le créneau"> jour(s) avant</label>
+            <label class="check"><input type="checkbox" data-reminder="remind_caci_days"> Rappel au membre dont le certificat médical expire dans
+              <input type="number" id="remind-caci-days" min="1" max="90" step="1" inputmode="numeric" value="30" aria-label="Jours avant l'expiration"> jours</label>
+          </div>
           <button type="submit" class="btn-primary">Enregistrer</button>
           <p id="lock-days-preview" class="hint"></p>
           <p id="settings-form-status" class="form-status" role="status"></p>

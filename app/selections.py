@@ -508,7 +508,7 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         ensure_available(sid, *custom_span(start.isoformat(), body.time or row["rdv_time"],
                                            end.isoformat() if end else None))
     if sent & custom_fields:
-        before = (when(row), _place(row))
+        before = (when(row), place(row))
         db.update_custom_selection(
             sid, selection_id, port_id, location,
             start.isoformat(), end.isoformat() if end else None,
@@ -636,7 +636,13 @@ def unregister(selection_id: int, user: CurrentMember, background: BackgroundTas
     _, waiting_before = _status(sid, selection_id)
     if user["id"] not in waiting_before:   # quitter la file d'attente reste possible après le délai
         _check_open(row, db.get_lock_days(sid)["unregister_lock_days"], "Désinscription close")
-    db.delete_registration(selection_id, user["id"])  # déjà désinscrit : idem
+    confirmed_before, _ = _status(sid, selection_id)
+    if db.delete_registration(selection_id, user["id"]) and user["id"] in confirmed_before:
+        # désinscription tardive d'une place confirmée : les administrateurs en sont prévenus (si la structure le veut)
+        from .reminders import late_unregister_alert
+        alerts = late_unregister_alert(sid, row, user)
+        if alerts:
+            background.add_task(notify, alerts)
     _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, user["id"])
 
@@ -662,7 +668,7 @@ def registration_members(actor: CurrentRegistrar):
     ]
 
 
-def _place(row: sqlite3.Row) -> str:
+def place(row: sqlite3.Row) -> str:
     return row["note"] + f" ({row['port_name']})" if row["note"] else row["port_name"]
 
 
@@ -685,11 +691,11 @@ def registered_message(member: sqlite3.Row, row: sqlite3.Row, by: str,
     app = mailer.APP_NAME
     day = _fr_date(date.fromisoformat(row["local_date"]))
     if waiting_position is None:
-        what = f"{by} vous a inscrit au créneau {when(row)} : {_place(row)}."
+        what = f"{by} vous a inscrit au créneau {when(row)} : {place(row)}."
         subject = f"{app} : inscription au créneau du {day}"
     else:
         what = (f"{by} vous a placé en file d'attente (n° {waiting_position}) pour le créneau {when(row)} : "
-                f"{_place(row)}.\nCe créneau est complet : vous serez prévenu(e) par e-mail si une place se libère.")
+                f"{place(row)}.\nCe créneau est complet : vous serez prévenu(e) par e-mail si une place se libère.")
         subject = f"{app} : file d'attente pour le créneau du {day}"
     body = f"""{accounts.greeting(member)}
 
@@ -715,7 +721,7 @@ def promoted_message(member: sqlite3.Row, row: sqlite3.Row, can_unregister: bool
                  "de votre structure pour laisser la place au suivant.\nVos créneaux :")
     body = f"""{accounts.greeting(member)}
 
-Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {when(row)} : {_place(row)}.
+Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {when(row)} : {place(row)}.
 
 {leave}
 {mailer.link('mes-creneaux.html')}
@@ -754,7 +760,7 @@ def cancelled_message(member: sqlite3.Row, row: sqlite3.Row, by: str, reason: st
     why = f"\nMotif : {reason}\n" if reason else ""
     body = f"""{accounts.greeting(member)}
 
-Le créneau {when(row)} : {_place(row)}, auquel vous étiez inscrit(e), est annulé par {by}.
+Le créneau {when(row)} : {place(row)}, auquel vous étiez inscrit(e), est annulé par {by}.
 {why}
 Votre inscription est retirée. Les autres créneaux de votre structure :
 {mailer.link('mes-creneaux.html')}
@@ -774,7 +780,7 @@ def moved_message(member: sqlite3.Row, row: sqlite3.Row, before_when: str, befor
 Le créneau auquel vous êtes inscrit(e) a été modifié.
 
 Avant : {before_when} : {before_place}.
-Désormais : {when(row)} : {_place(row)}.
+Désormais : {when(row)} : {place(row)}.
 
 Votre inscription est conservée. Si vous ne pouvez plus venir, désinscrivez-vous (ou prévenez un administrateur
 si le délai de désinscription est passé) :
@@ -790,7 +796,7 @@ si le délai de désinscription est passé) :
 def _notify_moved(background: BackgroundTasks, structure_id: int, selection_id: int,
                   before_when: str, before_place: str) -> None:
     row = db.get_selection(structure_id, selection_id)
-    if row is None or (when(row), _place(row)) == (before_when, before_place):
+    if row is None or (when(row), place(row)) == (before_when, before_place):
         return   # rien de visible n'a changé (intitulé seul, même jour et même heure)
     messages = [moved_message(m, row, before_when, before_place) for m in _members_to_notify(structure_id, row)]
     if messages:
@@ -806,7 +812,7 @@ def notify_rdv_changes(structure_id: int, before: dict[int, str]) -> list[tuple[
         if row is None or when(row) == old:
             continue
         for m in _members_to_notify(structure_id, row):
-            per_member.setdefault(m["id"], (m, []))[1].append(f"- {_place(row)} : {when(row)} (au lieu de {old})")
+            per_member.setdefault(m["id"], (m, []))[1].append(f"- {place(row)} : {when(row)} (au lieu de {old})")
     app = mailer.APP_NAME
     messages = []
     for member, lines in per_member.values():

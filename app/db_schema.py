@@ -218,7 +218,12 @@ CREATE TABLE IF NOT EXISTS structures (
     search_modes TEXT NOT NULL DEFAULT 'tides' CHECK (search_modes IN ('tides', 'heights', 'both')),
     -- certificat médical (CACI) : 1 = inscription refusée sans CACI valable le jour du créneau ; durée de validité
     caci_check INTEGER NOT NULL DEFAULT 0,
-    caci_validity_months INTEGER NOT NULL DEFAULT 12 CHECK (caci_validity_months BETWEEN 1 AND 60)
+    caci_validity_months INTEGER NOT NULL DEFAULT 12 CHECK (caci_validity_months BETWEEN 1 AND 60),
+    -- rappels et alertes par e-mail (reminders.py) ; NULL : désactivé
+    remind_slot_days INTEGER CHECK (remind_slot_days BETWEEN 1 AND 14),
+    alert_low_fill_days INTEGER CHECK (alert_low_fill_days BETWEEN 1 AND 30),
+    remind_caci_days INTEGER CHECK (remind_caci_days BETWEEN 1 AND 90),
+    alert_late_unregister_days INTEGER CHECK (alert_late_unregister_days BETWEEN 1 AND 14)
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
@@ -600,6 +605,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
     status INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id);
+
+-- Rappels déjà envoyés (reminders.py) : un seul envoi par créneau, ou par date de CACI, et par compte.
+CREATE TABLE IF NOT EXISTS reminders_sent (
+    kind TEXT NOT NULL,          -- slot, low_fill, caci
+    ref TEXT NOT NULL,           -- créneau (id) ou date du CACI
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sent_at TEXT NOT NULL,
+    PRIMARY KEY (kind, ref, user_id)
+);
 
 -- Plages d'indisponibilité d'une structure (tous lieux) : aucun créneau ne peut y être choisi ou créé.
 -- Du jour start_date (à start_time, sinon dès 00:00) au jour end_date (jusqu'à end_time exclu, sinon toute la

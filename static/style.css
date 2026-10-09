@@ -1978,3 +1978,6 @@ dialog > .dialog-close:focus-visible { outline: 2px solid var(--blue); outline-o
 .account-dialog .att-choice { display: inline-flex; flex-direction: row; align-items: center; gap: 0.25rem; margin: 0;
   font-weight: normal; }
 .account-dialog .att-choice input { width: auto; margin: 0; }
+.reminder-settings { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.4rem 0 1rem; }
+.reminder-settings label.check { display: block; line-height: 2; }
+.reminder-settings input[type=number] { width: 4.2rem; margin: 0 0.25rem; }

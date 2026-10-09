@@ -1533,6 +1533,11 @@ $("types-structure").addEventListener("change", e => {
 // N jours : fermé à partir de J-N (possible jusqu'à J-N-1 inclus) ; vide : pas de limite.
 
 const settingsForm = $("settings-form");
+// Rappels et alertes : réglage (nombre de jours) → champ ; case décochée : désactivé (null)
+const REMINDER_INPUTS = {
+  remind_slot_days: "remind-slot-days", alert_low_fill_days: "alert-low-fill-days",
+  alert_late_unregister_days: "alert-late-unregister-days", remind_caci_days: "remind-caci-days",
+};
 const lockInputs = { register_lock_days: $("register-lock-days"), unregister_lock_days: $("lock-days") };
 const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
@@ -1636,6 +1641,11 @@ function loadSettings() {
   $("use-calibration").checked = st.use_calibration ?? true;
   $("caci-check").checked = !!st.caci_check;
   $("caci-validity-months").value = st.caci_validity_months ?? 12;
+  for (const [key, input] of Object.entries(REMINDER_INPUTS)) {
+    const box = settingsForm.querySelector(`[data-reminder=${key}]`);
+    box.checked = st[key] != null;
+    if (st[key] != null) $(input).value = st[key];
+  }
   const offset = st.rdv_offset_minutes ?? 120;
   rdvInputs.hours.value = Math.floor(offset / 60);
   rdvInputs.minutes.value = offset % 60;
@@ -1688,6 +1698,17 @@ settingsForm.addEventListener("submit", async e => {
     return;
   }
   body.caci_validity_months = months;
+  for (const [key, input] of Object.entries(REMINDER_INPUTS)) {
+    const el = $(input);
+    if (!settingsForm.querySelector(`[data-reminder=${key}]`).checked) { body[key] = null; continue; }
+    const n = Number(el.value);
+    if (!Number.isInteger(n) || n < Number(el.min) || n > Number(el.max)) {
+      status.textContent = `Rappels et alertes : nombre de jours de ${el.min} à ${el.max}.`;
+      el.focus();
+      return;
+    }
+    body[key] = n;
+  }
   status.textContent = "";
   try {
     const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
