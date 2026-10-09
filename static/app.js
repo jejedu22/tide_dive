@@ -134,6 +134,7 @@ const TABLE_HEAD = `
           <option value="ferie">Férié</option>
           <option value="vacances">Vacances</option>
           <option value="semaine">En semaine</option>
+          <option value="deux" title="Jours où au moins deux étales restent affichées (avec les autres filtres) : deux plongées dans la journée">Deux plongées</option>
         </select>
       </th>
       <th class="c-rdv" data-label="RDV">
@@ -230,7 +231,7 @@ function matchDay(day, mode) {
     case "off":      return !!(d.weekend || d.holiday);
     case "vacances": return !!d.school_holiday;
     case "semaine":  return !d.weekend && !d.holiday;
-    default:         return true;
+    default:         return true;   // « deux » : traité sur la journée entière (applyFilters)
   }
 }
 
@@ -243,7 +244,7 @@ function applyFilters(results, f) {
   const rdv = hasRdv(lastData);  // filtre RDV caché et ignoré sans RDV
   const hMin = toNum(f.hMin), hMax = toNum(f.hMax);
   const cMin = toNum(f.coefMin), cMax = toNum(f.coefMax);
-  return results.filter(r =>
+  const kept = results.filter(r =>
     matchPick(r, f.pick) &&
     matchDay(r.day, f.day) &&
     (!f.kind || r.kind === f.kind) &&
@@ -252,6 +253,11 @@ function applyFilters(results, f) {
     // on filtre sur la valeur arrondie, celle qui est affichée
     inRange(r.coefficient != null ? Math.round(r.coefficient) : null, cMin, cMax)
   );
+  if (f.day !== "deux") return kept;
+  // deux plongées dans la journée : les jours qui gardent au moins deux étales avec les autres filtres
+  const perDay = new Map();
+  for (const r of kept) perDay.set(r.date, (perDay.get(r.date) || 0) + 1);
+  return kept.filter(r => perDay.get(r.date) >= 2);
 }
 
 function buildRows(results) {

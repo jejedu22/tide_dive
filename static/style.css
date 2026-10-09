@@ -2035,3 +2035,19 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .reg-comment { display: block; font-size: 0.78rem; color: #4a6572; font-style: italic; }
 .account-dialog .carpool-field { border: 1px solid #d8e8ee; border-radius: 10px; padding: 0.3rem 0.8rem 0.5rem; }
 .account-dialog .carpool-field input[type=number] { width: 4rem; margin: 0 0.3rem; }
+
+/* Accueil du membre, partage, carnet */
+.home-panel h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+.home-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1.5rem; }
+@media (max-width: 720px) { .home-cols { grid-template-columns: 1fr; } }
+.home-list { list-style: none; margin: 0; padding: 0; }
+.home-slot { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: center; width: 100%; text-align: left;
+  background: none; border: 0; border-left: 4px solid var(--type-color, #118ab2); padding: 0.35rem 0.6rem;
+  margin: 0.2rem 0; border-radius: 6px; cursor: pointer; font: inherit; color: inherit; }
+.home-slot:hover, .home-slot:focus-visible { background: #e6f3f8; }
+.home-acts { margin: 0.6rem 0 0; }
+.slot-highlight { outline: 3px solid var(--sand); outline-offset: 2px; }
+.day-all { margin: 0 0 0.6rem; }
+.logbook-dialog { width: min(44rem, 96vw); }
+.logbook-kpis { margin: 0.6rem 0; }
+.logbook-wrap { max-height: 45vh; overflow: auto; }

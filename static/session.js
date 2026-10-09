@@ -1194,6 +1194,8 @@ const Session = (() => {
             title="Voir l'application comme un autre rôle (lecture seule)">${icon("eye")}<span>Voir comme…</span></button>` : ""}
           ${u.structures?.length || u.structure ? `<button type="button" class="account-item" data-act="agenda"
             title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
+          ${u.can.view_selections ? `<a class="account-item" href="mes-creneaux.html#carnet"
+            title="Vos plongées passées, pointées par l'encadrement">${icon("wave")}<span>Mon carnet de plongées</span></a>` : ""}
           <button type="button" class="account-item" data-act="notifications"
             title="E-mails de rappel, nouveaux créneaux, notifications sur ce téléphone">${icon("mail")}<span>Mes notifications</span></button>
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""

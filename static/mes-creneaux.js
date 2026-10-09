@@ -125,7 +125,7 @@ function registrationsCell(p) {
     ? ""
     : !p.registered
       ? !levelOk(p)
-        ? `<span class="reg-locked" title="Ce créneau demande le niveau ${esc(p.min_level.label)} au moins (votre fiche plongeur). Un encadrant peut vous inscrire.">🔒 Niveau ${esc(p.min_level.label)}</span>`
+        ? `<span class="reg-locked" title="Ce créneau demande le niveau ${esc(p.min_level.label)} au moins (votre fiche plongeur). Un encadrant peut vous inscrire.">🔒 ${esc(p.min_level.label)} requis</span>`
         : p.can_register
         ? `<button type="button" class="btn-primary btn-small" data-act="register"
              title="${p.full ? "Créneau complet : vous serez placé en file d'attente. " : ""}Inscription possible jusqu'au ${formatDay(p.register_until)} inclus">${p.full ? "Rejoindre la file d'attente" : "S'inscrire"}</button>`
@@ -178,6 +178,8 @@ const removeButton = () => (canPick() ? `<button type="button" class="btn-danger
 const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
 // Dupliquer : créneau personnalisé seulement (un créneau d'étale suit la marée de son jour)
 const duplicateButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="duplicate" title="Copier ce créneau à un autre jour">Dupliquer…</button>` : "");
+// Partager : lien direct vers le créneau (membres de la structure, connectés)
+const shareButton = p => `<button type="button" class="btn-quiet btn-small" data-act="share" title="Copier le lien de ce créneau, pour le partager avec un membre de la structure">Partager</button>`;
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
 
 // Séjour sur plusieurs jours (créneau personnalisé) : dernier jour, nombre de jours, mention affichée
@@ -217,7 +219,7 @@ function slotCard(p) {
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
         <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
-        <span class="slot-acts">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</span>
+        <span class="slot-acts">${shareButton(p)}${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -447,6 +449,11 @@ function renderCalendar(list) {
   html += unavailableOn(selectedDay).map(u =>
     `<p class="day-unavailable">Structure indisponible ${esc(unavText(u))} : aucun créneau ne peut y être ajouté.</p>`).join("");
   if (items.length) {
+    // deux plongées (ou plus) le même jour : s'inscrire à toutes d'un coup
+    const open = items.filter(p => p.date === selectedDay && !p.past && !p.registered && p.can_register && levelOk(p));
+    if (open.length > 1) {
+      html += `<p class="day-all"><button type="button" class="btn-primary btn-small" data-act="register-day" data-day="${selectedDay}">S'inscrire aux ${open.length} créneaux du jour</button></p>`;
+    }
     html += `<ul class="slot-cards">${items.map(slotCard).join("")}</ul>`;
   } else {
     const next = list.find(p => p.date > selectedDay);
@@ -498,7 +505,7 @@ function renderTable(list) {
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</td>
+          <td class="c-actions">${shareButton(p)}${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -517,7 +524,50 @@ function renderListCards(list) {
 
 // ---- Rendu d'ensemble ----
 
+// ---- Accueil : mes prochains créneaux, places libres cette semaine, carnet ----
+
+function homeItem(p, extra = "") {
+  return `<li><button type="button" class="home-slot" data-goto-slot="${p.id}" style="--type-color:${esc(p.type.color)}">
+    <strong>${esc(cap(formatDay(p.date)))}</strong> <span>RDV ${esc(p.rdv.time)}</span> <span>${esc(p.note || p.port)}</span>
+    <span class="type-pill" style="--type-color:${esc(p.type.color)}">${esc(p.type.label)}</span>${extra}</button></li>`;
+}
+
+function renderHome() {
+  const el = $("home-panel");
+  const today = todayISO(), week = addDays(today, 7);
+  const upcoming = picks.filter(p => lastDay(p) >= today);
+  const mine = upcoming.filter(p => p.registered).slice(0, 4);
+  const open = upcoming.filter(p => !p.registered && p.date <= week && p.can_register && levelOk(p)).slice(0, 4);
+  el.hidden = !picks.length;
+  el.innerHTML = `
+    <div class="home-cols">
+      <div><h2>Mes prochains créneaux</h2>${mine.length
+        ? `<ul class="home-list">${mine.map(p => homeItem(p, p.my_status === "waiting" ? ` <span class="reg-status reg-status-wait">file d'attente n° ${p.my_position}</span>` : "")).join("")}</ul>`
+        : `<p class="muted">Aucune inscription à venir.</p>`}</div>
+      <div><h2>Places libres cette semaine</h2>${open.length
+        ? `<ul class="home-list">${open.map(p => homeItem(p, p.full ? ` <span class="muted">complet, file d'attente</span>`
+          : p.max_registrations ? ` <span class="muted">${p.max_registrations - p.confirmed_count} place(s)</span>` : "")).join("")}</ul>`
+        : `<p class="muted">Rien de libre dans les 7 prochains jours.</p>`}</div>
+    </div>
+    <p class="home-acts"><button type="button" class="btn-quiet btn-small" data-act="logbook">Mon carnet de plongées</button></p>`;
+}
+
+// Montrer un créneau : son jour dans le calendrier, fiche mise en évidence
+function showSlot(id) {
+  const p = picks.find(x => x.id === id);
+  if (!p) { statusEl.textContent = "Ce créneau n'existe plus, ou n'est pas dans votre structure."; return; }
+  if (lastDay(p) < todayISO()) showPast.checked = true;
+  view = "cal";
+  selectDay(p.date, { reveal: true });
+  const card = picksEl.querySelector(`.slot-card[data-id="${id}"]`);
+  if (card) {
+    card.classList.add("slot-highlight");
+    card.scrollIntoView({ block: "center", behavior: reducedMotion.matches ? "auto" : "smooth" });
+  }
+}
+
 function render() {
+  renderHome();
   const list = visiblePicks();
   document.querySelector(".rdv-abbr").title = rdvTitle();
   statusEl.textContent = picks.length
@@ -618,7 +668,16 @@ async function load() {
   renderTypeFilter();
   renderUnavNote();
   render();
+  followHash();
 }
+
+// Lien direct : #creneau-<id> montre ce créneau ; #carnet ouvre le carnet de plongées
+function followHash() {
+  const m = location.hash.match(/^#creneau-(\d+)$/);
+  if (m) showSlot(Number(m[1]));
+  else if (location.hash === "#carnet") openLogbook();
+}
+window.addEventListener("hashchange", followHash);
 
 // Les droits d'inscription dépendent de la date : un onglet resté ouvert (ou
 // rouvert le lendemain) se remet à jour quand on y revient, pour ne pas
@@ -843,6 +902,94 @@ picksEl.addEventListener("click", e => {
   const p = picks.find(x => x.id === holderId(btn));
   if (p) openMyNote(p);
 });
+
+// ---- Accueil, partage, plusieurs créneaux le même jour, carnet ----
+
+$("home-panel").addEventListener("click", e => {
+  const go = e.target.closest("[data-goto-slot]");
+  if (go) showSlot(Number(go.dataset.gotoSlot));
+  if (e.target.closest("[data-act=logbook]")) openLogbook();
+});
+
+picksEl.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act=share]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (!p) return;
+  const url = `${location.origin}/mes-creneaux.html#creneau-${p.id}`;
+  const text = `${p.type.label} — ${cap(formatLong(p.date))}, RDV ${p.rdv.time}, ${p.note || p.port}`;
+  try {
+    if (navigator.share && narrow.matches) await navigator.share({ title: text, url });
+    else { await navigator.clipboard.writeText(`${text}\n${url}`); statusEl.textContent = "Lien du créneau copié."; }
+  } catch { /* partage annulé */ }
+});
+
+picksEl.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act=register-day]");
+  if (!btn) return;
+  const day = btn.dataset.day;
+  const open = picks.filter(p => p.date === day && !p.past && !p.registered && p.can_register && levelOk(p));
+  btn.disabled = true;
+  const failed = [];
+  for (const p of open) {
+    try {
+      const updated = await Session.api(`/api/selections/${p.id}/registration`, { method: "POST" });
+      picks = picks.map(x => (x.id === p.id ? updated : x));
+    } catch (err) {
+      failed.push(`${p.rdv.time} : ${err.message}`);
+    }
+  }
+  render();
+  statusEl.textContent = failed.length ? `Inscription impossible — ${failed.join(" ; ")}` : `Inscrit aux ${open.length} créneaux du jour.`;
+});
+
+const ATT_LABEL = { present: "présent", absent: "absent", excused: "excusé" };
+
+async function openLogbook() {
+  let b;
+  try {
+    b = await Session.api("/api/me/logbook");
+  } catch (err) {
+    statusEl.textContent = err.message;
+    return;
+  }
+  const t = b.totals;
+  const form = openDialog({
+    title: "Mon carnet de plongées",
+    submitLabel: "Exporter en Excel",
+    body: `
+      <p class="dialog-hint">Vos créneaux passés, dans toutes vos structures. Une plongée compte quand l'encadrement a pointé votre présence.</p>
+      <div class="kpis logbook-kpis">
+        <div class="kpi"><strong>${t.dives}</strong><span>plongée(s)</span></div>
+        ${b.by_year.slice(0, 2).map(y => `<div class="kpi"><strong>${y.dives}</strong><span>en ${esc(y.year)}</span></div>`).join("")}
+        <div class="kpi"><strong>${t.last ? esc(formatDay(t.last)) : "—"}</strong><span>dernière plongée</span></div>
+      </div>
+      ${b.places.length ? `<p class="dialog-hint">Lieux les plus fréquents : ${b.places.map(x => `${esc(x.place)} (${x.dives})`).join(", ")}.</p>` : ""}
+      ${b.entries.length ? `<div class="table-wrap logbook-wrap"><table class="users logbook">
+        <thead><tr><th>Date</th><th>Lieu</th><th>Type</th><th>Présence</th></tr></thead>
+        <tbody>${b.entries.map(e => `<tr><td>${esc(formatDay(e.date))}</td><td>${esc(e.note ? `${e.note} (${e.place})` : e.place)}</td>
+          <td><span class="type-pill" style="--type-color:${esc(e.type.color)}">${esc(e.type.label)}</span></td>
+          <td>${e.attendance ? `<span class="att att-${e.attendance}">${ATT_LABEL[e.attendance]}</span>` : `<span class="muted">non pointé</span>`}</td></tr>`).join("")}</tbody>
+      </table></div>` : `<p class="muted">Aucun créneau passé pour l'instant.</p>`}`,
+    onSubmit: async () => {
+      XlsxExport.download(`carnet-de-plongees-${XlsxExport.slug(Session.user.display_name || "plongeur")}.xlsx`, "Carnet", [
+        { header: "Date", type: "date", width: 11, value: e => e.date },
+        { header: "RDV", type: "time", width: 8, value: e => e.rdv_time },
+        { header: "Lieu", width: 24, value: e => e.place },
+        { header: "Intitulé", width: 22, value: e => e.note || "" },
+        { header: "Type", width: 16, value: e => e.type.label },
+        { header: "Étale", width: 7, value: e => e.kind || "" },
+        { header: "Coefficient", type: "int", width: 11, value: e => (e.coefficient != null ? Math.round(e.coefficient) : null) },
+        { header: "Structure", width: 18, value: e => e.structure },
+        { header: "Présence", width: 11, value: e => ATT_LABEL[e.attendance] || "non pointé" },
+        { header: "Commentaire", width: 30, value: e => e.comment || "" },
+      ], b.entries);
+    },
+  });
+  form.closest("dialog").classList.add("logbook-dialog");
+  form.querySelector("[value=cancel]").textContent = "Fermer";
+  if (!b.entries.length) form.querySelector("[type=submit]").hidden = true;
+}
 
 // ---- Feuille de présence (à partir du jour du créneau ; administration ou profil « Inscriptions ») ----
 
