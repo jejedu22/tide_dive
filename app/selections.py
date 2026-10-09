@@ -49,7 +49,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import accounts, db, diver, mailer
+from . import accounts, db, diver, mailer, push
 from .auth import (
     CurrentManager, CurrentMember, CurrentPicker, CurrentRegistrar, CurrentUser, can_manage_structure, scope_structure,
 )
@@ -660,12 +660,17 @@ def delete_selection(selection_id: int, user: CurrentPicker, background: Backgro
     sid = user["structure_id"]
     row = db.get_selection(sid, selection_id)   # filtré par structure : impossible de retirer celui d'une autre
     members = _members_to_notify(sid, row) if row is not None and warn else []
+    pushed = _push_targets(sid, row) if row is not None and warn else []
     if not db.delete_selection(sid, selection_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    reason = " ".join(reason.split()) if reason else None
     if members:
-        reason = " ".join(reason.split()) if reason else None
         by = accounts.display_name(user)
         background.add_task(notify, [cancelled_message(m, row, by, reason) for m in members])
+    if pushed:
+        background.add_task(push.send_to_users, pushed, "Créneau annulé",
+                            f"{when(row)}, {place(row)}" + (f" — {reason}" if reason else ""), "mes-creneaux.html",
+                            f"slot-{row['id']}")
 
 
 # ---------------------------------------------------------------------------
@@ -717,20 +722,25 @@ def _status(structure_id: int, selection_id: int) -> tuple[list[int], list[int]]
 
 
 def _notify_promotions(background: BackgroundTasks, structure_id: int, selection_id: int, waiting_before: list[int]) -> None:
-    """Prévient par e-mail les membres qui attendaient et sont désormais confirmés (place libérée, places ajoutées)."""
-    if not mailer.enabled() or not waiting_before:
+    """Prévient (e-mail, push) les membres qui attendaient et sont désormais confirmés (place libérée, ajoutée)."""
+    if not waiting_before:
         return
     row = db.get_selection(structure_id, selection_id)
     if row is None or (row["end_date"] or row["local_date"]) < _today():
         return   # créneau passé (retrait ou places changées après coup) : il n'y a plus de place à annoncer
-    can_unregister = _today() <= open_until(row["local_date"], db.get_lock_days(structure_id)["unregister_lock_days"])
     confirmed_now, _ = _status(structure_id, selection_id)
+    promoted = [uid for uid in waiting_before if uid in confirmed_now]
+    if promoted:
+        background.add_task(push.send_to_users, promoted, "Une place s'est libérée",
+                            f"Vous êtes inscrit(e) : {when(row)}, {place(row)}.", _slot_url(row), f"slot-{row['id']}")
+    if not mailer.enabled():
+        return
+    can_unregister = _today() <= open_until(row["local_date"], db.get_lock_days(structure_id)["unregister_lock_days"])
     messages = []
-    for uid in waiting_before:
-        if uid in confirmed_now:
-            member = db.get_user(uid, structure_id)
-            if member is not None and member["email"]:
-                messages.append(promoted_message(member, row, can_unregister))
+    for uid in promoted:
+        member = db.get_user(uid, structure_id)
+        if member is not None and member["email"]:
+            messages.append(promoted_message(member, row, can_unregister))
     if messages:
         background.add_task(notify, messages)
 
@@ -924,6 +934,18 @@ def _members_to_notify(structure_id: int, row: sqlite3.Row) -> list[sqlite3.Row]
     return [m for m in members if m is not None and m["email"] and m["mail_changes"]]
 
 
+def _push_targets(structure_id: int, row: sqlite3.Row) -> list[int]:
+    """Inscrits d'un créneau à venir qui acceptent les notifications de changement (push)."""
+    if (row["end_date"] or row["local_date"]) < _today():
+        return []
+    members = (db.get_user(r["user_id"], structure_id) for r in db.list_registrations(structure_id, row["id"]))
+    return [m["id"] for m in members if m is not None and m["mail_changes"]]
+
+
+def _slot_url(row: sqlite3.Row) -> str:
+    return f"mes-creneaux.html#creneau-{row['id']}"
+
+
 def cancelled_message(member: sqlite3.Row, row: sqlite3.Row, by: str, reason: str | None) -> tuple[str, str, str]:
     app = mailer.APP_NAME
     why = f"\nMotif : {reason}\n" if reason else ""
@@ -970,6 +992,10 @@ def _notify_moved(background: BackgroundTasks, structure_id: int, selection_id: 
     messages = [moved_message(m, row, before_when, before_place) for m in _members_to_notify(structure_id, row)]
     if messages:
         background.add_task(notify, messages)
+    targets = _push_targets(structure_id, row)
+    if targets:
+        background.add_task(push.send_to_users, targets, "Créneau modifié", f"Désormais : {when(row)}, {place(row)}.",
+                            _slot_url(row), f"slot-{row['id']}")
 
 
 def notify_rdv_changes(structure_id: int, before: dict[int, str]) -> list[tuple[str, str, str]]:

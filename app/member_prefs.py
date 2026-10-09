@@ -42,7 +42,7 @@ def _out(user) -> dict:
                                   for t in (db.list_slot_types(sid, active_only=True) if sid is not None else [])]},
     }
     from . import push
-    out["push"] = push.status(user)
+    out["push"] = push.device_status(user)
     return out
 
 

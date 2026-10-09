@@ -434,6 +434,23 @@ def _m019_registration_notes(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE slot_registrations ADD COLUMN {col} {ddl}")
 
 
+PUSH_TABLE = """
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY,           -- adresse du service push du navigateur (une par appareil)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,                -- clés de chiffrement de l'appareil (base64url)
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+)"""
+
+
+def _m020_push(conn: sqlite3.Connection) -> None:
+    """Abonnements aux notifications push (un par appareil)."""
+    conn.execute(PUSH_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -454,6 +471,7 @@ MIGRATIONS: list[Migration] = [
     Migration(17, "préférences d'e-mails et récapitulatif des nouveaux créneaux", _m017_mail_preferences),
     Migration(18, "niveau de plongeur minimal des types et des créneaux", _m018_min_level),
     Migration(19, "commentaire et covoiturage des inscriptions", _m019_registration_notes),
+    Migration(20, "notifications push", _m020_push),
 ]
 
 

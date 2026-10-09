@@ -458,3 +458,43 @@ def set_digest_types(user_id: int, structure_id: int, value: str | None) -> None
     with get_conn() as conn:
         conn.execute("UPDATE memberships SET digest_types = ? WHERE user_id = ? AND structure_id = ?",
                      (value, user_id, structure_id))
+
+
+# ---------------------------------------------------------------------------
+# Notifications push (push.py)
+# ---------------------------------------------------------------------------
+
+def save_push_subscription(user_id: int, endpoint: str, p256dh: str, auth: str, now: str) -> None:
+    """Un appareil déjà abonné (même adresse) est rattaché au compte qui s'abonne à nouveau."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, "
+            "auth = excluded.auth, created_at = excluded.created_at", (endpoint, user_id, p256dh, auth, now))
+
+
+def delete_push_subscription(endpoint: str, user_id: int | None = None) -> None:
+    sql, params = "DELETE FROM push_subscriptions WHERE endpoint = ?", [endpoint]
+    if user_id is not None:
+        sql += " AND user_id = ?"
+        params.append(user_id)
+    with get_conn() as conn:
+        conn.execute(sql, params)
+
+
+def list_push_subscriptions(user_ids: list[int]) -> list[sqlite3.Row]:
+    if not user_ids:
+        return []
+    with get_conn() as conn:
+        return conn.execute(f"SELECT * FROM push_subscriptions WHERE user_id IN ({','.join('?' * len(user_ids))})",
+                            user_ids).fetchall()
+
+
+def count_push_subscriptions(user_id: int) -> int:
+    with get_conn() as conn:
+        return conn.execute("SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+
+def touch_push_subscription(endpoint: str, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?", (now, endpoint))

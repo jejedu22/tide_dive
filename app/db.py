@@ -135,6 +135,11 @@ from .db_structures import (  # noqa: F401
     delete_structure,
 )
 from .db_users import (  # noqa: F401
+    save_push_subscription,
+    delete_push_subscription,
+    list_push_subscriptions,
+    count_push_subscriptions,
+    touch_push_subscription,
     set_mail_preferences,
     set_digest_types,
     _user_query,

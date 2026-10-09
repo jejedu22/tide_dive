@@ -964,6 +964,63 @@ const Session = (() => {
       <p class="dialog-hint">Lien personnel : ne le partagez pas.</p>`;
   }
 
+  // Notifications push sur cet appareil (service worker sw.js, serveur app/push.py)
+  const b64ToBytes = b64 => {
+    const raw = atob((b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, c => c.charCodeAt(0));
+  };
+
+  async function setupPush(el, info) {
+    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    if (!supported) {
+      el.innerHTML = `<p class="dialog-hint">Ce navigateur ne reçoit pas les notifications. Sur iPhone, installez d'abord
+        l'application sur l'écran d'accueil (Partager → « Sur l'écran d'accueil »), puis ouvrez-la.</p>`;
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const render = async (msg = "") => {
+      const sub = await reg.pushManager.getSubscription();
+      const denied = Notification.permission === "denied";
+      el.innerHTML = `
+        <p class="dialog-hint">Place libérée, créneau annulé ou modifié, rappels : selon vos choix ci-dessus.
+          ${info.devices ? `${info.devices} appareil(s) abonné(s) sur votre compte.` : ""}</p>
+        ${denied ? `<p class="dialog-hint">Les notifications sont bloquées pour ce site dans les réglages du navigateur.</p>` : ""}
+        <p class="form-actions">
+          ${sub ? `<button type="button" class="btn-secondary btn-small" data-push="off">Désactiver sur cet appareil</button>
+                   <button type="button" class="btn-quiet btn-small" data-push="test">M'envoyer un test</button>`
+                : `<button type="button" class="btn-primary btn-small" data-push="on"${denied ? " disabled" : ""}>Activer sur cet appareil</button>`}
+        </p>
+        <p class="form-status" role="status">${esc(msg)}</p>`;
+    };
+    el.addEventListener("click", async e => {
+      const act = e.target.closest("[data-push]")?.dataset.push;
+      if (!act) return;
+      try {
+        if (act === "on") {
+          if (await Notification.requestPermission() !== "granted") return render("Autorisation refusée.");
+          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(info.public_key) });
+          info = await api("/api/me/push", { method: "POST", body: sub.toJSON() });
+          return render("Notifications activées sur cet appareil.");
+        }
+        if (act === "off") {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) {
+            info = await api("/api/me/push", { method: "DELETE", body: { endpoint: sub.endpoint } });
+            await sub.unsubscribe();
+          }
+          return render("Notifications désactivées sur cet appareil.");
+        }
+        if (act === "test") {
+          await api("/api/me/push/test", { method: "POST" });
+          return render("Notification de test envoyée.");
+        }
+      } catch (err) {
+        render(err.message);
+      }
+    });
+    render();
+  }
+
   // « Mes notifications » : e-mails de rappel et de changement, récapitulatif des nouveaux créneaux, push
   async function openNotifications() {
     const d = document.createElement("dialog");

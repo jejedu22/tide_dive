@@ -194,9 +194,35 @@ def digest_message(member, rows: list, structure_name: str) -> tuple[str, str, s
     return member["email"], f"{mailer.APP_NAME} : {len(rows)} nouveau(x) créneau(x) ({structure_name})", body
 
 
+def collect_push(today: date | None = None, record: bool = True) -> list[tuple[int, str, str, str, Key]]:
+    """Rappels de créneau par notification push (comptes ayant un appareil abonné et acceptant les rappels) :
+    [(compte, titre, texte, adresse, envoi)]."""
+    from .selections import place, when
+    today = today or _today()
+    out = []
+    with db.get_conn() as conn:
+        for st in db.list_structures():
+            if st["archived_at"] or not st["remind_slot_days"]:
+                continue
+            for row in _upcoming(conn, st["id"], today + timedelta(days=1), today + timedelta(days=st["remind_slot_days"])):
+                regs = [r["user_id"] for r in db.list_registrations(st["id"], row["id"])]
+                for uid in regs[:row["max_registrations"]] if row["max_registrations"] else regs:
+                    member = db.get_user(uid, st["id"])
+                    key = ("slot_push", str(row["id"]), uid)
+                    if (member and member["mail_reminders"] and db.count_push_subscriptions(uid)
+                            and _claim(conn, key, record)):
+                        out.append((uid, f"Rappel : {row['type_label']}", f"{when(row)}, {place(row)}.",
+                                    f"mes-creneaux.html#creneau-{row['id']}", key))
+    return out
+
+
 def send_due(today: date | None = None) -> tuple[int, list[str]]:
-    """Envoie les rappels du jour ; renvoie (envoyés, erreurs). Les envois en échec seront retentés."""
-    due = collect(today)
+    """Envoie les rappels du jour ; renvoie (e-mails envoyés, erreurs). Les envois en échec seront retentés.
+    Les rappels par notification push partent aussi (un échec n'est pas retenté)."""
+    from . import push
+    for uid, title, text, url, _ in collect_push(today):
+        push.send_to_users([uid], title, text, url, "rappel")
+    due = collect(today) if mailer.enabled() else []
     if not due:
         return 0, []
     errors = mailer.send_many([m for m, _ in due])
@@ -238,8 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{to} : {subject}")
         return 0
     if not mailer.enabled():
-        print(f"Rappels non envoyés : {mailer.disabled_reason()}.", file=sys.stderr)
-        return 0
+        print(f"Rappels par e-mail non envoyés : {mailer.disabled_reason()}.", file=sys.stderr)
     sent, errors = send_due()
     for e in errors:
         print(f"[rappels] e-mail non envoyé à {e}", file=sys.stderr)

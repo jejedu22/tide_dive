@@ -676,6 +676,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id);
 
+-- Notifications push (push.py) : abonnements des appareils des membres
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY,           -- adresse du service push du navigateur (une par appareil)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,                -- clés de chiffrement de l'appareil (base64url)
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
 -- Rappels déjà envoyés (reminders.py) : un seul envoi par créneau, ou par date de CACI, et par compte.
 CREATE TABLE IF NOT EXISTS reminders_sent (
     kind TEXT NOT NULL,          -- slot, low_fill, caci
