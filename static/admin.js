@@ -94,6 +94,7 @@ function showTab(name) {
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "structures") { loadStructures(); loadRequests(); }
   if (name === "donnees") { loadStatus(); loadJobs(); }
+  if (name === "ports" && portsMap) Carte.refresh(portsMap.map);
   if (name === "types") loadTypes();
   if (name === "utilisateurs") loadUsers();
   if (name === "mailjet") loadMailjet();
@@ -771,6 +772,7 @@ function renderPorts() {
       </tr>`;
   }).join("")
     : `<tr><td colspan="7" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
+  renderPortsMap();   // la carte suit les ports et les sites
 }
 
 catalogSelect.addEventListener("change", () => {
@@ -912,9 +914,84 @@ $("currents-refresh").addEventListener("click", async () => {
 
 const siteCount = p => diveSites.filter(x => x.port_id === p.id).length;
 
+// ---- Carte des ports et des sites (onglet Ports) ----
+
+let portsMap = null;   // { map, layer, fitted }
+
+function renderPortsMap() {
+  if (typeof L === "undefined") return;   // Leaflet absent : pas de carte, le reste fonctionne
+  if (!portsMap) {
+    const map = Carte.create($("ports-map"));
+    portsMap = { map, layer: L.layerGroup().addTo(map), fitted: false };
+    $("ports-map-legend").innerHTML = Carte.legend();
+  }
+  const { map, layer } = portsMap;
+  layer.clearLayers();
+  const points = [];
+  for (const p of ports) {
+    const n = diveSites.filter(s => s.port_id === p.id).length;
+    Carte.portMarker(p).bindPopup(`<strong>${esc(p.name)}</strong><br>${n} site(s) de plongée<br>
+      <button type="button" class="btn-quiet btn-small" data-map-sites="${p.id}">Sites…</button>`).addTo(layer);
+    points.push([p.latitude, p.longitude]);
+  }
+  for (const s of diveSites) {
+    Carte.siteMarker(s).bindPopup(`<strong>${esc(s.name)}</strong> (${esc(s.port)})<br>`
+      + (s.current ? `Courant : ${esc(s.current.atlas)}` : `<span class="muted">${esc(s.current_status || "pas encore de courant")}</span>`)).addTo(layer);
+    points.push([s.lat, s.lon]);
+  }
+  if (!portsMap.fitted && points.length) {   // cadrage initial seulement : la vue choisie est gardée ensuite
+    Carte.fit(map, points, { zoom: 11, maxZoom: 11 });
+    portsMap.fitted = true;
+  }
+  Carte.refresh(map);
+}
+
+$("ports-map").addEventListener("click", e => {
+  const btn = e.target.closest("[data-map-sites]");
+  const port = btn && ports.find(p => p.id === Number(btn.dataset.mapSites));
+  if (port) openDiveSites(port);
+});
+
+// Carte de saisie d'un site : le port, ses autres sites, et le marqueur du site placé d'un clic
+// (remplit latitude / longitude ; il se déplace aussi par glisser-déposer ou en tapant les coordonnées)
+function mountPickMap(el, form, list, editing) {
+  if (!el) return;
+  const map = Carte.create(el);
+  const port = ports.find(p => p.id === Number(el.closest("dialog").dataset.portId));
+  const points = [];
+  if (port) { Carte.portMarker(port).addTo(map); points.push([port.latitude, port.longitude]); }
+  for (const x of list) {
+    if (editing && x.id === editing.id) continue;
+    Carte.siteMarker(x).addTo(map);
+    points.push([x.lat, x.lon]);
+  }
+  let marker = null;
+  const round = v => Math.round(v * 1e6) / 1e6;
+  const setInputs = (lat, lon) => { form.lat.value = round(lat); form.lon.value = round(lon); };
+  const place = (lat, lon) => {
+    if (marker) { marker.setLatLng([lat, lon]); return; }
+    marker = L.marker([lat, lon], { draggable: true, title: "Site en cours de saisie" }).addTo(map);
+    marker.on("dragend", () => { const ll = marker.getLatLng(); setInputs(ll.lat, ll.lng); });
+  };
+  map.on("click", e => { place(e.latlng.lat, e.latlng.lng); setInputs(e.latlng.lat, e.latlng.lng); });
+  for (const name of ["lat", "lon"]) {
+    form[name].addEventListener("change", () => {
+      const lat = Number(form.lat.value), lon = Number(form.lon.value);
+      if (form.lat.value !== "" && form.lon.value !== "" && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        place(lat, lon);
+        map.panTo([lat, lon]);
+      }
+    });
+  }
+  if (editing) { place(editing.lat, editing.lon); map.setView([editing.lat, editing.lon], 15); }
+  else Carte.fit(map, points, { zoom: 13, maxZoom: 14 });
+  Carte.refresh(map);
+}
+
 function openDiveSites(port) {
   const d = document.createElement("dialog");
   d.className = "account-dialog water-dialog";
+  d.dataset.portId = port.id;
   document.body.append(d);
   d.addEventListener("close", () => d.remove());
   let editing = null;   // site en cours de modification
@@ -936,6 +1013,8 @@ function openDiveSites(port) {
             <button type="button" class="btn-danger btn-small" data-site="delete">Supprimer</button></span>
           </li>`).join("") : `<li class="muted">Aucun site de plongée pour ce port.</li>`}
         </ul>
+        ${typeof L === "undefined" ? "" : `<div class="map map-pick" role="region" aria-label="Carte : cliquez pour placer le site"></div>
+        <p class="map-hint">Cliquez sur la carte (fond « Photo aérienne » pour repérer roches et épaves) pour placer le site : la latitude et la longitude se remplissent. Le marqueur se déplace aussi en le faisant glisser.</p>`}
         <fieldset class="water-form">
           <legend>${t ? `Modifier « ${esc(t.name)} »` : "Ajouter un site"}</legend>
           <label>Nom <input name="name" maxlength="60" placeholder="ex. Roches de Saint-Quay" value="${esc(t?.name ?? "")}"></label>
@@ -952,6 +1031,7 @@ function openDiveSites(port) {
       </form>`;
     const form = d.querySelector("form");
     const err = d.querySelector(".dialog-error");
+    mountPickMap(d.querySelector(".map-pick"), form, list, t);
     d.querySelector("[value=close]").addEventListener("click", () => d.close());
     d.querySelector("[value=cancel-edit]")?.addEventListener("click", () => { editing = null; render(); });
     form.addEventListener("submit", async e => {
@@ -2351,6 +2431,6 @@ async function onSessionChange(user) {
   showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.help]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.map, Session.LINKS.help]);
 Session.onChange(onSessionChange);
 Session.init();

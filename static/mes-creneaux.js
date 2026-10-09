@@ -1004,7 +1004,7 @@ typeFilter.addEventListener("change", () => { closePop(); render(); });
 showPast.addEventListener("change", () => { closePop(); render(); });
 onlyMine.addEventListener("change", () => { closePop(); render(); });
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.help]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.help]);
 Session.onChange(user => {
   const member = !!user?.can.view_selections;
   picksEl.hidden = !member;
@@ -1089,6 +1089,26 @@ function siteCurrentBlock(s, mark) {
   </section>`;
 }
 
+// Petite carte : le port et ses sites, nommés, avec le courant le plus fort de la période
+function sitesMap(el, data) {
+  if (!el) return;
+  const map = Carte.create(el);
+  const points = [];
+  if (data.port_position) {
+    Carte.portMarker({ name: data.port, latitude: data.port_position.lat, longitude: data.port_position.lon }).addTo(map);
+    points.push([data.port_position.lat, data.port_position.lon]);
+  }
+  const labels = data.sites.length <= 8;   // noms affichés en permanence tant qu'ils restent lisibles
+  for (const s of data.sites) {
+    const m = Carte.siteMarker(s.site, { color: s.available ? Carte.COLORS.current : Carte.COLORS.site });
+    if (labels) m.unbindTooltip().bindTooltip(esc(s.site.name), { permanent: true, direction: "right", offset: [8, 0], className: "map-label" });
+    m.addTo(map);
+    points.push([s.site.lat, s.site.lon]);
+  }
+  Carte.fit(map, points, { zoom: 13, maxZoom: 14 });
+  Carte.refresh(map);
+}
+
 async function openCurrents(p) {
   const d = document.createElement("dialog");
   d.className = "account-dialog currents-dialog";
@@ -1114,8 +1134,10 @@ async function openCurrents(p) {
     body.innerHTML = `
       <p class="dialog-hint">De ${data.period.start} à ${data.period.end}${data.period.mark ? `, autour de l'étale (trait pointillé)` : ""}.
         Vitesse en nœuds ; les flèches indiquent où porte le courant ; le point marque l'étale de courant.</p>
+      ${typeof L === "undefined" ? "" : `<div class="map map-small" role="region" aria-label="Carte des sites du port"></div>`}
       ${sites.map(s => siteCurrentBlock(s, data.period.mark)).join("")}
       <p class="cur-source">Indicatif : courant de surface d'un modèle, hors vent et houle ; à n'utiliser qu'en complément des documents nautiques officiels. ${esc(data.attribution)}</p>`;
+    sitesMap(body.querySelector(".map-small"), data);
   } catch (e) {
     body.innerHTML = `<p class="dialog-error">${esc(e.message)}</p>`;
   }

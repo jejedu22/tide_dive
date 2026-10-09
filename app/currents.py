@@ -271,6 +271,7 @@ def selection_currents(selection_id: int, user: CurrentMember):
     sites = db.list_dive_sites(sel["port_id"]) if period is not None else []
     return {
         "port": port["name"] if port is not None else None,
+        "port_position": ({"lat": port["latitude"], "lon": port["longitude"]} if port is not None else None),
         "period": ({"start": _local(period[0], tz), "end": _local(period[1], tz),
                     "mark": _local(period[2], tz) if period[2] else None} if period else None),
         "sites": [site_period(s, period[0], period[1], tz) for s in sites],

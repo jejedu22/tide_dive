@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendive — carte des ports et des sites</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Carte</h1>
+        <p class="subtitle">Les ports et leurs sites de plongée.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main>
+    <section class="panel map-panel">
+      <div id="map" class="map map-page" role="region" aria-label="Carte des ports et des sites de plongée"></div>
+      <div id="map-legend"></div>
+      <p id="status" class="muted" role="status"></p>
+    </section>
+    <section class="panel">
+      <h2>Ports et sites</h2>
+      <div id="places" class="map-places"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Fonds de carte : plan © contributeurs OpenStreetMap, photo aérienne © IGN – Géoplateforme. Courant aux sites : atlas de courants de marée du SHOM (Licence Ouverte 2.0). Positions indicatives : se référer aux cartes marines officielles.</p>
+    <p><a href="aide.html">Aide</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="session.js"></script>
+  <script src="carte.js"></script>
+  <script src="carte-page.js"></script>
+</body>
+</html>
