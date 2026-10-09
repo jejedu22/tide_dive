@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from . import db, selections
+from . import accounts, db, selections
 from .auth import CurrentManager, CurrentSuperAdmin, can_manage_structure
 from .slots import describe_extremum, rdv_time
 
@@ -57,6 +57,8 @@ class StructureSettingsIn(BaseModel):
     # Certificat médical (CACI) : inscription refusée sans CACI valable le jour du créneau ; durée de validité (mois)
     caci_check: bool | None = None
     caci_validity_months: int | None = Field(None, ge=1, le=60)
+    # Fonctions activées (accounts.FEATURES), les autres sont désactivées (super administrateurs seulement)
+    features: list[Literal[tuple(accounts.FEATURES)]] | None = None   # type: ignore[valid-type]
     # Rappels et alertes par e-mail (reminders.py) : nombre de jours, null = désactivé
     remind_slot_days: int | None = Field(None, ge=1, le=14)
     alert_low_fill_days: int | None = Field(None, ge=1, le=30)
@@ -83,6 +85,8 @@ def _out(row: sqlite3.Row) -> dict:
         "search_modes": row["search_modes"],
         "caci_check": bool(row["caci_check"]),
         "caci_validity_months": row["caci_validity_months"],
+        "features": accounts.parse_features(row["disabled_features"]),
+        "archived_at": row["archived_at"],
         "remind_slot_days": row["remind_slot_days"],
         "alert_low_fill_days": row["alert_low_fill_days"],
         "remind_caci_days": row["remind_caci_days"],
@@ -143,6 +147,14 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
         elif not actor["is_admin"] and fields["search_modes"] != before["search_modes"]:
             raise HTTPException(status.HTTP_403_FORBIDDEN,
                                 "La recherche proposée à la structure est réglée par les super administrateurs")
+    if "features" in fields:
+        features = fields.pop("features")
+        if features is not None:
+            disabled = ",".join(f for f in accounts.FEATURES if f not in features)
+            if not actor["is_admin"] and disabled != before["disabled_features"]:
+                raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                    "Les fonctions de la structure sont réglées par les super administrateurs")
+            fields["disabled_features"] = disabled
     if fields.get("caci_validity_months", 0) is None:
         del fields["caci_validity_months"]
     for flag in ("use_api_maree", "use_calibration", "caci_check"):
@@ -215,6 +227,41 @@ def _shift_upcoming_rdvs(structure_id: int, offset_minutes: int) -> list[tuple[s
         before[row["id"]] = selections.when(row)
     db.update_selection_rdvs(rdvs)
     return selections.notify_rdv_changes(structure_id, before)
+
+
+@router.post("/{structure_id}/archive")
+def archive_structure(structure_id: int, admin: CurrentSuperAdmin):
+    """Archive la structure : ses membres n'y ont plus accès (ni créneaux, ni administration), ses données sont
+    gardées ; elle peut être réactivée."""
+    _or_404(structure_id)
+    db.set_structure_archived(structure_id, datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    return _out(db.get_structure(structure_id))
+
+
+@router.delete("/{structure_id}/archive")
+def unarchive_structure(structure_id: int, admin: CurrentSuperAdmin):
+    _or_404(structure_id)
+    db.set_structure_archived(structure_id, None)
+    return _out(db.get_structure(structure_id))
+
+
+class TransferIn(BaseModel):
+    to_structure_id: int
+    user_ids: list[int] = Field(min_length=1, max_length=5000)
+    move: bool = False     # False : ajout à l'autre structure (copie) ; True : déplacement
+
+
+@router.post("/{structure_id}/transfer")
+def transfer_members(structure_id: int, body: TransferIn, admin: CurrentSuperAdmin):
+    """Rattache des membres à une autre structure avec le même rôle et les mêmes profils ; move : les retire de
+    celle-ci (leurs inscriptions à ses créneaux avec)."""
+    src = _or_404(structure_id)
+    dst = _or_404(body.to_structure_id)
+    if src["id"] == dst["id"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choisissez une autre structure")
+    n = db.transfer_members(src["id"], dst["id"], body.user_ids, body.move,
+                            datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    return {"transferred": n, "from": _out(db.get_structure(src["id"])), "to": _out(db.get_structure(dst["id"]))}
 
 
 @router.delete("/{structure_id}", status_code=204)

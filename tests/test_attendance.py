@@ -76,13 +76,13 @@ def test_droits_profil_inscriptions_et_membre(new_client, club):
     assert _client(new_client, "enc").put(f"/api/selections/{sel}/attendance", json=body).status_code == 200
 
 
-def test_migration_12_idempotente(tmp_db):
+def test_migration_14_idempotente(tmp_db):
     from app import migrations
 
     with db.get_conn() as conn:
         conn.execute("ALTER TABLE slot_registrations DROP COLUMN attendance_at")
         conn.execute("ALTER TABLE slot_registrations DROP COLUMN attendance")
-        migrations._m012_attendance(conn)
-        migrations._m012_attendance(conn)
+        migrations._m014_attendance(conn)
+        migrations._m014_attendance(conn)
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(slot_registrations)")}
     assert {"attendance", "attendance_at"} <= cols

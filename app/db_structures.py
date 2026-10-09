@@ -53,7 +53,8 @@ LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
 
 SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id", "default_max_registrations",
                     "use_api_maree", "use_calibration", "search_modes", "caci_check", "caci_validity_months",
-                    "remind_slot_days", "alert_low_fill_days", "remind_caci_days", "alert_late_unregister_days")
+                    "remind_slot_days", "alert_low_fill_days", "remind_caci_days", "alert_late_unregister_days",
+                    "disabled_features")
 
 
 def update_structure_settings(structure_id: int, **fields) -> None:
@@ -65,6 +66,41 @@ def update_structure_settings(structure_id: int, **fields) -> None:
     sets = ", ".join(f"{k} = ?" for k in fields)
     with get_conn() as conn:
         conn.execute(f"UPDATE structures SET {sets} WHERE id = ?", (*fields.values(), structure_id))
+
+
+def set_structure_archived(structure_id: int, archived_at: str | None) -> None:
+    """Archive (date) ou réactive (None) une structure."""
+    with get_conn() as conn:
+        conn.execute("UPDATE structures SET archived_at = ? WHERE id = ?", (archived_at, structure_id))
+
+
+def transfer_members(from_id: int, to_id: int, user_ids: list[int], move: bool, now: str) -> int:
+    """Rattache les membres choisis de from_id à to_id avec le même rôle et les mêmes profils (le rôle le plus
+    élevé l'emporte s'ils en sont déjà membres) ; move : les retire de from_id. Renvoie le nombre de comptes."""
+    from .db_memberships import remove_membership
+    moved: list[int] = []
+    with get_conn() as conn:
+        for uid in user_ids:
+            m = conn.execute("SELECT role FROM memberships WHERE user_id = ? AND structure_id = ?",
+                             (uid, from_id)).fetchone()
+            if m is None:
+                continue
+            mine = conn.execute("SELECT role FROM memberships WHERE user_id = ? AND structure_id = ?",
+                                (uid, to_id)).fetchone()
+            if mine is None:
+                conn.execute("INSERT INTO memberships (user_id, structure_id, role, created_at) VALUES (?, ?, ?, ?)",
+                             (uid, to_id, m["role"], now))
+            elif m["role"] == "manager" and mine["role"] != "manager":
+                conn.execute("UPDATE memberships SET role = 'manager' WHERE user_id = ? AND structure_id = ?",
+                             (uid, to_id))
+            conn.execute("INSERT OR IGNORE INTO user_profiles (user_id, structure_id, profile) "
+                         "SELECT user_id, ?, profile FROM user_profiles WHERE user_id = ? AND structure_id = ?",
+                         (to_id, uid, from_id))
+            moved.append(uid)
+    if move:
+        for uid in moved:
+            remove_membership(uid, from_id)   # rôle, profils, inscriptions ; structure par défaut recalée
+    return len(moved)
 
 
 DEFAULT_RDV_OFFSET_MINUTES = 120

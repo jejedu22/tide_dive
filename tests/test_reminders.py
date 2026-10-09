@@ -106,14 +106,26 @@ def test_desinscription_tardive_alerte_les_administrateurs(new_client, club, mai
     assert "désinscription tardive" in mail_outbox[0][1]
 
 
-def test_migration_13_idempotente(tmp_db):
+def test_migration_15_idempotente(tmp_db):
     from app import migrations
 
     with db.get_conn() as conn:
         for col in migrations.REMINDER_COLUMNS:
             conn.execute(f"ALTER TABLE structures DROP COLUMN {col}")
         conn.execute("DROP TABLE reminders_sent")
-        migrations._m013_reminders(conn)
-        migrations._m013_reminders(conn)
+        migrations._m015_reminders(conn)
+        migrations._m015_reminders(conn)
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(structures)")}
     assert set(migrations.REMINDER_COLUMNS) <= cols
+
+
+def test_pas_de_rappel_pour_une_structure_archivee_ou_sans_fiches(club):
+    _settings(club, remind_slot_days=2, remind_caci_days=30)
+    sel = _slot(club, TODAY + timedelta(days=1))
+    db.add_registration(sel, _uid("m1"), "2026-01-01T00:00:00+00:00")
+    db.set_caci(_uid("m2"), (TODAY - timedelta(days=350)).isoformat(), "Alice", "2026-01-01T00:00:00+00:00")
+    _settings(club, disabled_features="divers")
+    assert [k for _, keys in reminders.collect(TODAY, record=False) for k in keys] == [("slot", str(sel), _uid("m1"))]
+    with db.get_conn() as conn:
+        conn.execute("UPDATE structures SET archived_at = '2026-01-01' WHERE id = ?", (club["sid"],))
+    assert reminders.collect(TODAY, record=False) == []

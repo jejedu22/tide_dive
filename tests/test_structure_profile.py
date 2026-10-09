@@ -115,7 +115,7 @@ def test_profil_creneaux(new_client, club):
                                                     "type_id": club["type"]}).status_code == 403
 
 
-def test_migration_14_idempotente():
+def test_migration_16_idempotente():
     import sqlite3
 
     from app import migrations
@@ -123,8 +123,8 @@ def test_migration_14_idempotente():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute("CREATE TABLE structures (id INTEGER PRIMARY KEY, name TEXT)")
-    migrations._m014_structure_profile(conn)
-    migrations._m014_structure_profile(conn)
+    migrations._m016_structure_profile(conn)
+    migrations._m016_structure_profile(conn)
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(structures)")}
     tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert set(migrations.STRUCTURE_PROFILE_COLUMNS) <= cols and {"join_requests", "structure_logos"} <= tables

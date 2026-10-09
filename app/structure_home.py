@@ -103,9 +103,10 @@ def structure_dashboard(actor: CurrentManager, structure_id: int | None = None):
             low.append(_slot_label(r))
     unmarked = [_slot_label(r) for r in recent if r["regs"] and not r["marked"]]
     # certificats médicaux des membres
-    caci = {"pending": 0, "missing": 0, "expired": 0, "expiring": 0, "check": bool(st["caci_check"])}
+    divers = accounts.parse_features(st["disabled_features"])["divers"]   # fonction désactivée : rien à suivre
+    caci = {"pending": 0, "missing": 0, "expired": 0, "expiring": 0, "check": divers and bool(st["caci_check"])}
     soon_limit = today + timedelta(days=30)
-    for m in db.list_users(sid):
+    for m in (db.list_users(sid) if divers else []):
         state = diver.caci_state(m, today, st["caci_validity_months"])
         if state["state"] in ("pending", "missing", "expired"):
             caci[state["state"]] += 1

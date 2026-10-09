@@ -213,7 +213,16 @@ def current_manager(user: Annotated[sqlite3.Row, Depends(current_user)]) -> sqli
 def current_member(user: Annotated[sqlite3.Row, Depends(current_user)]) -> sqlite3.Row:
     if user["structure_id"] is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Votre compte n'est rattaché à aucune structure")
+    if not user["is_admin"] and accounts.structure_archived(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cette structure est archivée : elle n'est plus accessible")
     return user
+
+
+def require_feature(user: sqlite3.Row, feature: str) -> None:
+    """403 si la fonction est désactivée pour la structure active du compte (accounts.FEATURES)."""
+    if not accounts.structure_features(user)[feature]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            f"Fonction désactivée pour votre structure : {accounts.FEATURES[feature].lower()}")
 
 
 def current_picker(user: Annotated[sqlite3.Row, Depends(current_member)]) -> sqlite3.Row:

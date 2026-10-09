@@ -353,6 +353,21 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 
 Il n'y a pas d'inscription libre (une personne peut seulement demander à rejoindre une structure par son [lien d'adhésion](#fiche-de-la-structure-et-demandes-dadhésion)) : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
+### Fonctions, archivage et transfert (super administrateur)
+
+Dans **Administration → Structures**, pour chaque structure :
+
+- **Fonctions…** : courants et sites de plongée, carte, newsletters, fiches plongeurs et CACI peuvent être désactivés (`structures.disabled_features`, `accounts.FEATURES`). Une fonction désactivée disparaît des menus, des pages et de l'API pour les membres et les administrateurs de la structure (le contrôle du CACI à l'inscription aussi) ; ses données sont gardées. La recherche par hauteur d'eau garde son réglage (colonne « Recherche »).
+- **Archiver / Réactiver** : une structure archivée n'est plus accessible à ses membres (ni créneaux, ni administration ; un bandeau le leur dit), n'apparaît plus dans les envois aux administrateurs, mais garde toutes ses données. Le super administrateur y garde accès.
+- **Transférer…** : rattache des membres choisis à une autre structure, avec leur rôle et leurs profils (le rôle le plus élevé l'emporte s'ils en sont déjà membres), en les gardant dans la structure d'origine ou en les **déplaçant** (retirés de l'origine avec leurs inscriptions à ses créneaux).
+
+### Communication (super administrateur)
+
+**Administration → Communication** (`app/communication.py`) :
+
+- **Bandeaux d'annonce** : un message (information, ou « important » en jaune) affiché en haut de toutes les pages entre deux dates, pour tout le monde (visiteurs compris) ou pour les membres de certaines structures. Chacun peut le masquer (retenu par son navigateur). Supprimé un an après sa fin.
+- **E-mail aux administrateurs de structure** : un message envoyé à tous les comptes en administration (avec une adresse, non suspendus) des structures actives, ou de certaines ; la liste des destinataires s'affiche avant l'envoi. Nécessite l'envoi d'e-mails du serveur (`MAIL_BACKEND`).
+
 ### Plusieurs structures par compte
 
 Un compte peut appartenir à **plusieurs structures**, avec un **rôle et des profils propres à chacune** (administrateur d'un club, simple membre d'un autre). Un **sélecteur dans l'en-tête** permet de passer de l'une à l'autre. La structure choisie est celle de **la session** : deux navigateurs peuvent être sur deux structures, et la dernière utilisée est reprise à la connexion suivante. Un super administrateur choisit parmi toutes les structures (ou aucune) et y est en administration, sans en être membre.
@@ -463,7 +478,7 @@ API : `GET /api/admin/structure-dashboard`, `GET /api/admin/structure-stats?mont
 - **Lien d'adhésion** : jeton aléatoire, à activer, remplacer ou désactiver. La page publique `/rejoindre.html#<jeton>` (jeton dans le fragment) montre la fiche et un formulaire (prénom, nom, e-mail, téléphone, message, consentement). La demande est enregistrée (table `join_requests`) et signalée par e-mail aux administrateurs ; **aucun compte n'est créé d'office**, aucun e-mail n'est envoyé à l'adresse saisie. Anti-abus : champ piège, 3 demandes par adresse et 30 par structure sur 24 h, limitation par adresse IP.
 - **Utilisateurs → Demandes d'adhésion** : **Créer le compte** (formulaire prérempli), **Inviter son compte** (compte existant dans une autre structure), **Classer sans suite**, **Remettre en attente**, **Supprimer**. Une demande est classée dès que le compte est créé ou l'invitation envoyée ; les demandes traitées sont supprimées au bout d'un an.
 
-Migration de schéma n° 14.
+Migration de schéma n° 16.
 
 ### Liste des comptes : filtres, export, actions groupées
 
@@ -471,7 +486,7 @@ Dans **Utilisateurs**, la liste se filtre par rôle, profil, certificat médical
 
 ### Rappels et alertes par e-mail
 
-Réglés par chaque structure dans **`/admin.html` → Créneaux → Rappels et alertes** ; **tous désactivés par défaut** (migration n° 13) :
+Réglés par chaque structure dans **`/admin.html` → Créneaux → Rappels et alertes** ; **tous désactivés par défaut** (migration n° 15) :
 
 | Réglage | Envoi |
 |---|---|
@@ -639,7 +654,7 @@ Les administrateurs d'une structure déclarent des **plages d'indisponibilité**
 
 ### Feuille de présence
 
-À partir du jour du créneau, l'administration, le profil Inscriptions ou le profil Créneaux pointe chaque inscrit **présent**, **absent** ou **excusé** (bouton **Présences**, « Tous présents » coche les confirmés) : `PUT /api/selections/{id}/attendance`. Le pointage s'affiche dans la liste des inscrits, l'export Excel (colonnes *Présents*, *Absents / excusés*) et les [statistiques](#activité-et-statistiques-de-la-structure). Migration n° 12 (colonnes `attendance`, `attendance_at` de `slot_registrations`).
+À partir du jour du créneau, l'administration, le profil Inscriptions ou le profil Créneaux pointe chaque inscrit **présent**, **absent** ou **excusé** (bouton **Présences**, « Tous présents » coche les confirmés) : `PUT /api/selections/{id}/attendance`. Le pointage s'affiche dans la liste des inscrits, l'export Excel (colonnes *Présents*, *Absents / excusés*) et les [statistiques](#activité-et-statistiques-de-la-structure). Migration n° 14 (colonnes `attendance`, `attendance_at` de `slot_registrations`).
 
 ### Séries et duplication de créneaux personnalisés
 
@@ -843,6 +858,12 @@ Réservée au super administrateur.
 | `POST /api/admin/jobs/annual` | `{year}` : un précalcul par port annuel |
 | `GET /api/admin/jobs/{id}` | détail avec journal |
 | `GET /api/admin/dashboard` | tableau de bord (super administrateurs) |
+| `PATCH /api/admin/structures/{id}/settings` | `features: [...]` : fonctions activées (super administrateurs) |
+| `POST` / `DELETE /api/admin/structures/{id}/archive` | archive / réactive une structure |
+| `POST /api/admin/structures/{id}/transfer` | `{to_structure_id, user_ids, move}` : transfert de membres |
+| `GET /api/announcements` | bandeaux en cours pour le visiteur (public) |
+| `GET` / `POST /api/admin/announcements`, `PUT` / `DELETE /api/admin/announcements/{id}` | bandeaux `{message, level: info\|warning, starts_at, ends_at, structure_ids?}` |
+| `GET /api/admin/broadcast/recipients?structure_ids=` / `POST /api/admin/broadcast` | destinataires / envoi `{subject, body, structure_ids?}` d'un e-mail aux administrateurs de structure |
 | `GET /api/admin/audit` | journal d'activité `?structure_id&q&before_id&limit` (administrateur de structure : sa structure) |
 | `POST /api/admin/jobs/{id}/cancel` | annulation |
 
@@ -862,6 +883,18 @@ docker compose up -d
 ```
 
 > **`data/backups/` est sur le même disque que la base** : il protège d'une fausse manipulation ou d'une corruption, pas de la perte du serveur. À copier **hors du serveur** (cron `rsync`/`rclone` sur l'hôte, snapshot du VPS…). Sauvegarder aussi **`SECRETS_KEY` à part** : sans elle, les clés Mailjet stockées en base sont illisibles. **Testez une restauration** sur une copie de temps en temps.
+
+### Onglet « Exploitation » (super administrateur)
+
+`app/ops.py`, `app/quality.py` :
+
+- **Mode maintenance** : l'application passe en lecture seule pour tous sauf les super administrateurs (toute requête qui modifie répond 503 avec le message choisi ; connexion, désinscriptions des newsletters et événements Mailjet restent permis). Le message s'affiche en bandeau sur toutes les pages. À activer avant une restauration ou une opération délicate.
+- **Tâches automatiques** : le planning de `docker/crontab` (copié dans `ops.SCHEDULE`, un test vérifie qu'ils concordent) avec la prochaine exécution, la dernière tâche de chaque type, et **Lancer maintenant** (mise en file, comme le planificateur). La sauvegarde et le contrôle de santé sont aussi des types de tâches (`backup`, `health`) pour pouvoir être lancés d'ici.
+- **Sauvegardes** : liste (date, taille), téléchargement, **vérification** (décompression et `integrity_check`, avec le nombre de comptes, structures, ports et créneaux), sauvegarde immédiate. La restauration reste en ligne de commande (ci-dessus).
+- **E-mails de service** : configuration, historique des envois du serveur (table `mail_log`, 90 jours : date, destinataire, objet, succès ou erreur), filtre « échecs seulement », e-mail de test à sa propre adresse.
+- **Qualité des données**, par port : niveau moyen manquant, ou faux quand les basses mers calculées passent nettement sous le zéro des cartes (ex. 0,01 m saisi au lieu de 5,4 m à Roscoff) ; niveau moyen d'api-maree.fr (recalage) comparé au niveau moyen saisi ; calcul FES brut comparé aux pleines et basses mers d'api-maree.fr du mois glissant (écart moyen des heures et des hauteurs). Puis les **sites de plongée sans courant**, avec la raison. L'état des atlas du SHOM est dans « Données et tâches ».
+
+API (super administrateurs) : `GET` / `POST /api/admin/backups`, `GET /api/admin/backups/{nom}`, `POST /api/admin/backups/{nom}/verify` ; `GET /api/admin/schedule`, `POST /api/admin/schedule/{clé}/run` ; `GET` / `PUT /api/admin/maintenance` `{enabled, message?}` ; `GET /api/admin/mail-log?limit&failed`, `POST /api/admin/mail-test` ; `GET /api/admin/quality`.
 
 ### Surveillance et alertes
 

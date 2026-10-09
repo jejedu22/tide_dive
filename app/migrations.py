@@ -292,7 +292,25 @@ def _m011_account_security(conn: sqlite3.Connection) -> None:
                  "REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)")
 
 
-def _m012_attendance(conn: sqlite3.Connection) -> None:
+def _m012_structure_features(conn: sqlite3.Connection) -> None:
+    """Fonctions activables et archivage des structures ; bandeaux d'annonce (table créée par db.SCHEMA)."""
+    existing = _columns(conn, "structures")
+    if "disabled_features" not in existing:
+        conn.execute("ALTER TABLE structures ADD COLUMN disabled_features TEXT NOT NULL DEFAULT ''")
+    if "archived_at" not in existing:
+        conn.execute("ALTER TABLE structures ADD COLUMN archived_at TEXT")
+    conn.execute("CREATE TABLE IF NOT EXISTS announcements (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, "
+                 "level TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'warning')), starts_at TEXT NOT NULL, "
+                 "ends_at TEXT NOT NULL, structure_ids TEXT, created_by_name TEXT, created_at TEXT NOT NULL)")
+
+
+def _m013_mail_log(conn: sqlite3.Connection) -> None:
+    """Suivi des e-mails de service (table créée par db.SCHEMA sur toute base) : rien à convertir."""
+    conn.execute("CREATE TABLE IF NOT EXISTS mail_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, "
+                 "recipient TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('sent', 'failed')), "
+                 "error TEXT)")
+
+def _m014_attendance(conn: sqlite3.Connection) -> None:
     """Feuille de présence : présent, absent ou excusé, pour chaque inscription (vide : pas encore pointé)."""
     existing = _columns(conn, "slot_registrations")
     for col, ddl in ATTENDANCE_COLUMNS.items():
@@ -327,7 +345,7 @@ CREATE TABLE IF NOT EXISTS reminders_sent (
 )"""
 
 
-def _m013_reminders(conn: sqlite3.Connection) -> None:
+def _m015_reminders(conn: sqlite3.Connection) -> None:
     """Rappels et alertes par e-mail, réglés par structure (tous désactivés), et rappels déjà envoyés."""
     existing = _columns(conn, "structures")
     for col, ddl in REMINDER_COLUMNS.items():
@@ -366,7 +384,7 @@ STRUCTURE_PROFILE_TABLES = (
 )
 
 
-def _m014_structure_profile(conn: sqlite3.Connection) -> None:
+def _m016_structure_profile(conn: sqlite3.Connection) -> None:
     """Fiche de la structure (contact, site, adresse, logo), lien d'adhésion et demandes d'adhésion."""
     existing = _columns(conn, "structures")
     for col, ddl in STRUCTURE_PROFILE_COLUMNS.items():
@@ -388,9 +406,11 @@ MIGRATIONS: list[Migration] = [
     Migration(9, "fiche plongeur (niveaux, licence, CACI) et vérification du CACI", _m009_diver_profile),
     Migration(10, "journal d'activité", _m010_audit_log),
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
-    Migration(12, "feuille de présence des créneaux", _m012_attendance),
-    Migration(13, "rappels et alertes par e-mail", _m013_reminders),
-    Migration(14, "fiche de la structure, logo et demandes d'adhésion", _m014_structure_profile),
+    Migration(12, "fonctions activables, archivage des structures, bandeaux d'annonce", _m012_structure_features),
+    Migration(13, "suivi des e-mails de service", _m013_mail_log),
+    Migration(14, "feuille de présence des créneaux", _m014_attendance),
+    Migration(15, "rappels et alertes par e-mail", _m015_reminders),
+    Migration(16, "fiche de la structure, logo et demandes d'adhésion", _m016_structure_profile),
 ]
 
 

@@ -88,6 +88,7 @@ const Session = (() => {
     }
     user = u;
     renderPreviewBanner(u);
+    loadAnnouncements(u);
     notify();
   }
 
@@ -100,6 +101,42 @@ const Session = (() => {
     const profiles = (u.profiles || []).map(p => ({ gestionnaire: "Gestionnaire", inscriptions: "Inscriptions", creneaux: "Créneaux" })[p] || p);
     return PREVIEW_ROLE_LABELS[u.preview.role] + (profiles.length ? ` + ${profiles.join(", ")}` : "")
       + (u.structure ? ` de ${u.structure.name}` : "");
+  }
+
+  // ---- Bandeaux d'annonce (super administrateurs), et structure archivée ----
+  const DISMISSED_KEY = "calendive.annonces.masquees";
+  const dismissed = () => { try { return JSON.parse(localStorage.getItem(DISMISSED_KEY)) || []; } catch { return []; } };
+
+  async function loadAnnouncements(u) {
+    const list = await api("/api/announcements").catch(() => []);
+    if (u !== user && user !== null) return;            // un autre compte entre-temps
+    const hidden = dismissed();
+    const items = list.filter(a => !hidden.includes(a.id)).map(a => ({ closable: true, ...a }));
+    if (u?.structure?.archived && !u.is_admin) {
+      items.unshift({ id: "archived", level: "warning", closable: false,
+        message: `La structure « ${u.structure.name} » est archivée : ses créneaux et son administration ne sont plus accessibles.` });
+    }
+    let bar = document.getElementById("announce-bar");
+    if (!items.length) { bar?.remove(); return; }
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "announce-bar";
+      bar.className = "announce-bar";
+      const preview = document.getElementById("preview-banner");
+      if (preview) preview.after(bar); else document.body.prepend(bar);
+      bar.addEventListener("click", e => {
+        const id = Number(e.target.closest("[data-dismiss]")?.dataset.dismiss);
+        if (!id) return;
+        try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed(), id].slice(-50))); } catch { /* sans stockage */ }
+        e.target.closest(".announce")?.remove();
+        if (!bar.children.length) bar.remove();
+      });
+    }
+    bar.innerHTML = items.map(a => `
+      <p class="announce announce-${a.level}" role="${a.level === "warning" ? "alert" : "status"}">
+        <span>${esc(a.message)}</span>
+        ${a.closable ? `<button type="button" class="announce-close" data-dismiss="${a.id}" title="Masquer cette annonce" aria-label="Masquer cette annonce">×</button>` : ""}
+      </p>`).join("");
   }
 
   function renderPreviewBanner(u) {
@@ -811,7 +848,7 @@ const Session = (() => {
     const list = u.is_admin ? (structures || (u.structure ? [u.structure] : [])) : (u.structures || []);
     const opts = (u.is_admin ? [`<option value=""${u.structure ? "" : " selected"}>Aucune structure</option>`] : [])
       .concat(list.map(st =>
-        `<option value="${st.id}"${st.id === u.structure?.id ? " selected" : ""}>${esc(st.name)}</option>`));
+        `<option value="${st.id}"${st.id === u.structure?.id ? " selected" : ""}>${esc(st.name)}${st.archived_at || st.archived ? " (archivée)" : ""}</option>`));
     return ` <select class="account-structure-select" data-act="structure" aria-label="Ma structure"
       title="${u.is_admin ? "Changer de structure (super administrateur)" : "Changer de structure"}">${opts.join("")}</select>`;
   }
@@ -1087,7 +1124,7 @@ const Session = (() => {
             title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
             : ` <span class="account-dot" title="Profil à compléter">!</span>`}</span></button>
-          ${u.structure ? `<button type="button" class="account-item" data-act="diver"
+          ${u.can.diver_sheet ? `<button type="button" class="account-item" data-act="diver"
             title="Niveaux, licence FFESSM, certificat médical (CACI)">${icon("wave")}<span>Ma fiche plongeur${caciBlocks(u)
             ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
           <button type="button" class="account-item" data-act="security"
@@ -1174,7 +1211,7 @@ const Session = (() => {
     admin: { href: "admin.html", label: "Administration", icon: "gear", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", icon: "mail", show: u => u.can.newsletters },
     divers: { href: "plongeurs.html", label: "Plongeurs", icon: "user", show: u => u.can.view_divers },
-    map: { href: "carte.html", label: "Carte", icon: "map" },
+    map: { href: "carte.html", label: "Carte", icon: "map", show: u => u.structure?.features?.map !== false },
     help: { href: "aide.html", label: "Aide", icon: "help" },
   };
 

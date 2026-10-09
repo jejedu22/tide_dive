@@ -34,10 +34,15 @@ def _enable_totp(c, username="root"):
     setup = c.post("/api/me/totp/setup").json()
     assert setup["uri"].startswith("otpauth://totp/Calendive%3A" + username)
     secret = setup["secret"]
-    code = totp.code_at(secret, totp.current_step() - 1)     # pas précédent : le suivant reste disponible
-    r = c.post("/api/me/totp/enable", json={"code": code})
+    step = totp.current_step()
+    r = c.post("/api/me/totp/enable", json={"code": totp.code_at(secret, step)})
     assert r.status_code == 200, r.text
-    return secret, r.json()["recovery_codes"]
+    return secret, r.json()["recovery_codes"], step
+
+
+def _next_code(secret, used_step):
+    """Code suivant celui de l'activation (pas déjà utilisé) : accepté dans la tolérance d'horloge."""
+    return totp.code_at(secret, max(used_step + 1, totp.current_step()))
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +70,7 @@ def test_codes_de_secours():
 
 def test_connexion_en_deux_temps(setup, new_client):
     root = _client(new_client, "root")
-    secret, recovery = _enable_totp(root)
+    secret, recovery, step = _enable_totp(root)
     assert root.get("/api/auth/me").json()["user"]["totp_enabled"] is True
     # nouvelle connexion : le mot de passe ne suffit plus
     c = new_client()
@@ -74,9 +79,9 @@ def test_connexion_en_deux_temps(setup, new_client):
     assert c.get("/api/auth/me").json()["user"] is None
     assert c.post("/api/auth/login/totp", json={"challenge": r["challenge"], "code": "000000"}).status_code == 401
     # le code déjà utilisé à l'activation ne resert pas ; le suivant passe
-    used = totp.code_at(secret, totp.current_step() - 1)
+    used = totp.code_at(secret, step)
     assert c.post("/api/auth/login/totp", json={"challenge": r["challenge"], "code": used}).status_code == 401
-    ok = c.post("/api/auth/login/totp", json={"challenge": r["challenge"], "code": totp.code_at(secret, totp.current_step())})
+    ok = c.post("/api/auth/login/totp", json={"challenge": r["challenge"], "code": _next_code(secret, step)})
     assert ok.status_code == 200 and ok.json()["user"]["username"] == "root"
     # le jeton ne sert qu'une fois
     assert c.post("/api/auth/login/totp", json={"challenge": r["challenge"], "code": recovery[0]}).status_code == 401
@@ -89,12 +94,12 @@ def test_connexion_en_deux_temps(setup, new_client):
 
 def test_jeton_bloque_apres_cinq_essais(setup, new_client):
     root = _client(new_client, "root")
-    secret, _ = _enable_totp(root)
+    secret, _, step = _enable_totp(root)
     c = new_client()
     ch = c.post("/api/auth/login", json={"username": "root", "password": PASSWORD}).json()["challenge"]
     for _ in range(5):
         c.post("/api/auth/login/totp", json={"challenge": ch, "code": "000000"})
-    good = totp.code_at(secret, totp.current_step())
+    good = _next_code(secret, step)
     assert c.post("/api/auth/login/totp", json={"challenge": ch, "code": good}).status_code == 401
 
 
@@ -128,9 +133,9 @@ def test_activation_ferme_les_autres_sessions_et_desactivation(setup, new_client
 
 def test_renouveler_les_codes_de_secours(setup, new_client):
     bob = _client(new_client, "bob")
-    secret, old = _enable_totp(bob, "bob")
+    secret, old, step = _enable_totp(bob, "bob")
     assert bob.post("/api/me/totp/recovery-codes", json={"code": "000000"}).status_code == 422
-    new = bob.post("/api/me/totp/recovery-codes", json={"code": totp.code_at(secret, totp.current_step())}).json()
+    new = bob.post("/api/me/totp/recovery-codes", json={"code": _next_code(secret, step)}).json()
     assert len(new["recovery_codes"]) == 10 and set(new["recovery_codes"]).isdisjoint(old)
 
 
@@ -138,7 +143,7 @@ def test_secret_chiffre_si_cle(setup, new_client, monkeypatch):
     from cryptography.fernet import Fernet
     monkeypatch.setenv("SECRETS_KEY", Fernet.generate_key().decode())
     bob = _client(new_client, "bob")
-    secret, _ = _enable_totp(bob, "bob")
+    secret, _, _ = _enable_totp(bob, "bob")
     stored = db.get_totp(setup["bob"])["totp_secret"]
     assert stored.startswith("enc:") and secret not in stored and totp.unseal(stored) == secret
 

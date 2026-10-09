@@ -116,6 +116,8 @@ def collect(today: date | None = None, record: bool = True) -> list[tuple[tuple[
             conn.execute("DELETE FROM reminders_sent WHERE sent_at < ?",
                          ((datetime.now(timezone.utc) - KEEP).isoformat(timespec="seconds"),))
         for st in db.list_structures():
+            if st["archived_at"]:
+                continue        # structure archivée : ses membres n'y ont plus accès
             sid, name = st["id"], st["name"]
             if st["remind_slot_days"]:
                 for row in _upcoming(conn, sid, today + timedelta(days=1), today + timedelta(days=st["remind_slot_days"])):
@@ -134,7 +136,7 @@ def collect(today: date | None = None, record: bool = True) -> list[tuple[tuple[
                     fresh = [(r, k) for r, k in zip(low, keys) if _claim(conn, k, record)]
                     if fresh:
                         out.append((low_fill_alert(admin, [r for r, _ in fresh], name), [k for _, k in fresh]))
-            if st["remind_caci_days"]:
+            if st["remind_caci_days"] and accounts.parse_features(st["disabled_features"])["divers"]:
                 limit = today + timedelta(days=st["remind_caci_days"])
                 for member in db.list_users(sid):
                     state = diver.caci_state(member, today, st["caci_validity_months"])
@@ -161,7 +163,7 @@ def send_due(today: date | None = None) -> tuple[int, list[str]]:
 def late_unregister_alert(structure_id: int, row, member) -> list[tuple[str, str, str]]:
     """Membre confirmé qui se désinscrit moins de N jours avant le créneau : e-mail aux administrateurs."""
     st = db.get_structure(structure_id)
-    days = st["alert_late_unregister_days"] if st else None
+    days = st["alert_late_unregister_days"] if st and not st["archived_at"] else None
     if not days or not mailer.enabled():
         return []
     left = (date.fromisoformat(row["local_date"]) - _today()).days

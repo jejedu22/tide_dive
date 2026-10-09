@@ -23,6 +23,8 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_unavailabilities.py plages d'indisponibilité des structures
   db_water.py       hauteurs d'eau des ports, créneaux de hauteur d'eau
   db_audit.py       journal d'activité
+  db_announcements.py bandeaux d'annonce, administrateurs des structures (e-mail groupé)
+  db_ops.py         exploitation : suivi des e-mails de service, dernières tâches par type
   db_accounts.py    double authentification, suspension, recherche, doublons, fusion, export (RGPD)
   db_currents.py    sites de plongée des structures, courant de marée à chaque site (atlas du SHOM)
   db_requests.py    demandes de création de structure
@@ -124,6 +126,8 @@ from .db_structures import (  # noqa: F401
     LOCK_COLUMNS,
     SETTINGS_COLUMNS,
     update_structure_settings,
+    set_structure_archived,
+    transfer_members,
     DEFAULT_RDV_OFFSET_MINUTES,
     get_rdv_offset,
     get_default_max_registrations,
@@ -280,6 +284,22 @@ from .db_accounts import (  # noqa: F401
     merge_users,
     export_account,
     anonymize_audit,
+)
+from .db_announcements import (  # noqa: F401
+    active_announcements,
+    delete_announcement,
+    get_announcement,
+    list_announcements,
+    purge_announcements,
+    save_announcement,
+    structure_managers,
+)
+from .db_ops import (  # noqa: F401
+    add_mail_log,
+    last_jobs_by_kind,
+    list_mail_log,
+    mail_log_stats,
+    purge_mail_log,
 )
 from .db_audit import (  # noqa: F401
     add_audit,
