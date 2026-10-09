@@ -84,8 +84,8 @@ def test_fichier_le_plus_fin_et_maille_en_mer(atlases):
 
 
 def test_mise_a_jour_des_sites(atlases, tmp_db):
-    port = db.upsert_port("Binic", 48.6, -2.82)
-    sites = [db.create_dive_site(port, name, la, lo, None, "2026-01-01T00:00:00+00:00")
+    club = db.create_structure("Club A", "2026-01-01T00:00:00+00:00")
+    sites = [db.create_dive_site(club, name, la, lo, None, "2026-01-01T00:00:00+00:00")
              for name, la, lo in (("Rochers", 48.66, -2.78), ("Large", 47.0, -2.8))]
     # le port de référence n'existe pas encore dans l'application
     sc.update_site(db.get_dive_site(sites[0]), atlases)

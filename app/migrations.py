@@ -222,6 +222,32 @@ def _m007_preview(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN preview_profiles TEXT")
 
 
+def _m008_dive_sites_by_structure(conn: sqlite3.Connection) -> None:
+    """Sites de plongée rattachés à une structure (et non plus à un port). Chaque site existant va aux structures
+    dont son port est le port par défaut (copié, avec son courant, s'il y en a plusieurs) ; sans structure, il est
+    supprimé. Reconstruction des deux tables (db.DIVE_SITES_COLUMNS, db.SITE_CURRENTS_COLUMNS)."""
+    from .db_schema import DIVE_SITES_COLUMNS, SITE_CURRENTS_COLUMNS
+    if "port_id" not in _columns(conn, "dive_sites"):
+        return
+    conn.execute("ALTER TABLE site_currents RENAME TO site_currents_old")
+    conn.execute("ALTER TABLE dive_sites RENAME TO dive_sites_old")
+    conn.execute("CREATE TABLE dive_sites " + DIVE_SITES_COLUMNS)
+    conn.execute("CREATE TABLE site_currents " + SITE_CURRENTS_COLUMNS)
+    copied = ("name, lat, lon, notes, created_at, current_atlas, current_ref_port_id, current_ref_kind, "
+              "current_status, current_lat, current_lon, current_imported_at")
+    for site in conn.execute("SELECT * FROM dive_sites_old").fetchall():
+        for (structure_id,) in conn.execute("SELECT id FROM structures WHERE default_port_id = ?",
+                                            (site["port_id"],)).fetchall():
+            new_id = conn.execute(
+                f"INSERT INTO dive_sites (structure_id, {copied}) SELECT ?, {copied} FROM dive_sites_old WHERE id = ?",
+                (structure_id, site["id"])).lastrowid
+            conn.execute("INSERT INTO site_currents (site_id, offset_min, u45, v45, u95, v95) "
+                         "SELECT ?, offset_min, u45, v45, u95, v95 FROM site_currents_old WHERE site_id = ?",
+                         (new_id, site["id"]))
+    conn.execute("DROP TABLE site_currents_old")
+    conn.execute("DROP TABLE dive_sites_old")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -230,6 +256,7 @@ MIGRATIONS: list[Migration] = [
     Migration(5, "horaires de marée par source (calcul brut, corrigé, api-maree.fr)", _m005_tide_sources),
     Migration(6, "recherche par hauteur d'eau", _m006_water_heights),
     Migration(7, "aperçu des rôles par un super administrateur", _m007_preview),
+    Migration(8, "sites de plongée rattachés aux structures", _m008_dive_sites_by_structure),
 ]
 
 
