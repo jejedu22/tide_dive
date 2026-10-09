@@ -8,7 +8,7 @@ import pytest
 from app.accounts import PROFILES
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
-PAGES = ["aide.html", "aide-membre.html", "aide-administrateur.html", "aide-gestionnaire.html", "aide-inscriptions.html"]
+PAGES = ["aide.html", "aide-membre.html", "aide-administrateur.html", "aide-gestionnaire.html", "aide-inscriptions.html", "aide-creneaux.html"]
 
 
 @pytest.mark.parametrize("page", PAGES)

@@ -16,11 +16,16 @@ function caciCell(d) {
   return `${tag} <span class="muted" title="${esc(title)}">du ${fmtDate(c.date)}, jusqu'au ${fmtDate(c.valid_until)}</span>`;
 }
 
-function render() {
+function shownDivers() {
   const filter = $("divers-filter").value;
-  const rows = data.divers.filter(d => !filter
+  return data.divers.filter(d => !filter
     || (filter === "pending" && d.caci.state === "pending")
     || (filter === "blocked" && ["missing", "expired"].includes(d.caci.state)));
+}
+
+function render() {
+  const filter = $("divers-filter").value;
+  const rows = shownDivers();
   $("divers-body").innerHTML = rows.length ? rows.map(d => `
     <tr data-id="${d.id}">
       <th scope="row">${esc(d.display_name)}</th>
@@ -115,6 +120,25 @@ $("divers-body").addEventListener("click", async e => {
   }
 });
 $("divers-filter").addEventListener("change", render);
+
+// Export Excel des fiches affichées (filtre compris)
+const CACI_STATES = { valid: "valable", pending: "à valider", missing: "absent", expired: "expiré" };
+$("divers-export").addEventListener("click", () => {
+  const rows = data ? shownDivers() : [];
+  if (!rows.length) return;
+  XlsxExport.download(`plongeurs-${XlsxExport.slug(Session.user?.structure?.name || "structure")}.xlsx`, "Plongeurs", [
+    { header: "Membre", width: 26, value: d => d.display_name },
+    { header: "Identifiant", width: 18, value: d => d.username },
+    { header: "Niveau", width: 18, value: d => d.diver_level_label || "" },
+    { header: "Autres qualifications", width: 26, value: d => d.qualifications || "" },
+    { header: "Encadrement", width: 18, value: d => d.instructor_level_label || "" },
+    { header: "Licence", width: 16, value: d => d.licence_number || "" },
+    { header: "CACI (date)", type: "date", width: 12, value: d => d.caci.date },
+    { header: "Valable jusqu'au", type: "date", width: 14, value: d => d.caci.valid_until },
+    { header: "CACI", width: 11, value: d => CACI_STATES[d.caci.state] || "" },
+    { header: "Validé par", width: 18, value: d => d.caci.validated_by || "" },
+  ], rows);
+});
 
 Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin,
                                     Session.LINKS.map, Session.LINKS.help]);

@@ -102,7 +102,7 @@ def normalize_params(kind: str, params: dict) -> dict:
         return {"port_id": int(params["port_id"])}
     if kind == "newsletter_send":
         return {"newsletter_id": int(params["newsletter_id"])}
-    if kind in ("school_holidays", "backup", "health"):
+    if kind in ("school_holidays", "backup", "health", "reminders"):
         return {}
     if kind == "currents_atlas":
         from .shom_currents import ZONES
@@ -136,6 +136,8 @@ def build_command(kind: str, params: dict) -> list[str]:
         return [sys.executable, "-m", "app.backup"]
     if kind == "health":
         return [sys.executable, "-m", "app.health", "--notify"]
+    if kind == "reminders":
+        return [sys.executable, "-m", "app.reminders"]
     return [sys.executable, "-m", "app.calendar_fr"]
 
 
@@ -173,6 +175,8 @@ def job_label(kind: str, params: dict, port_names: dict[int, str]) -> str:
         return "Sauvegarde de la base"
     if kind == "health":
         return "Contrôle de santé"
+    if kind == "reminders":
+        return "Rappels et alertes par e-mail"
     if kind == "currents_atlas":
         from .shom_currents import ZONES
         return f"Atlas de courants SHOM {ZONES.get(params.get('zone'), (params.get('zone'),))[0]}"

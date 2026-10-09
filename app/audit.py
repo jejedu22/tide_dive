@@ -39,6 +39,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/admin/users/{user_id}"): "Compte supprimé ou retiré de la structure",
     ("POST", "/api/admin/users/{user_id}/send-link"): "Lien de connexion envoyé",
     ("POST", "/api/admin/users/import"): "Import CSV de comptes",
+    ("POST", "/api/admin/users/bulk"): "Action groupée sur des comptes",
     ("PUT", "/api/admin/settings/tide-model"): "Modèle de marée changé",
     ("POST", "/api/admin/ports"): "Port créé",
     ("PATCH", "/api/admin/ports/{port_id}"): "Port modifié",
@@ -51,9 +52,18 @@ LABELS: dict[tuple[str, str], str] = {
     ("PATCH", "/api/admin/structures/{structure_id}"): "Structure renommée",
     ("DELETE", "/api/admin/structures/{structure_id}"): "Structure supprimée",
     ("PATCH", "/api/admin/structures/{structure_id}/settings"): "Réglages de la structure modifiés",
+    ("PATCH", "/api/admin/structures/{structure_id}/profile"): "Fiche de la structure modifiée",
+    ("PUT", "/api/admin/structures/{structure_id}/logo"): "Logo de la structure changé",
+    ("DELETE", "/api/admin/structures/{structure_id}/logo"): "Logo de la structure retiré",
+    ("POST", "/api/admin/structures/{structure_id}/join-link"): "Lien d'adhésion créé",
+    ("DELETE", "/api/admin/structures/{structure_id}/join-link"): "Lien d'adhésion désactivé",
+    ("PATCH", "/api/admin/join-requests/{request_id}"): "Demande d'adhésion traitée",
+    ("DELETE", "/api/admin/join-requests/{request_id}"): "Demande d'adhésion supprimée",
     ("POST", "/api/selections"): "Créneau choisi",
     ("POST", "/api/selections/bulk"): "Créneaux choisis en groupe",
     ("POST", "/api/selections/custom"): "Créneau personnalisé ajouté",
+    ("POST", "/api/selections/custom/series"): "Série de créneaux personnalisés ajoutée",
+    ("POST", "/api/selections/{selection_id}/duplicate"): "Créneau dupliqué",
     ("POST", "/api/selections/height"): "Créneau de hauteur d'eau choisi",
     ("PATCH", "/api/selections/{selection_id}"): "Créneau modifié",
     ("DELETE", "/api/selections/{selection_id}"): "Créneau retiré",
@@ -61,6 +71,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("DELETE", "/api/selections/{selection_id}/registration"): "Désinscription",
     ("POST", "/api/selections/{selection_id}/registrations"): "Membres inscrits par un tiers",
     ("DELETE", "/api/selections/{selection_id}/registrations/{user_id}"): "Inscription d'un membre retirée",
+    ("PUT", "/api/selections/{selection_id}/attendance"): "Présences pointées",
     ("POST", "/api/admin/slot-types"): "Type de créneau créé",
     ("PUT", "/api/admin/slot-types/order"): "Types de créneaux réordonnés",
     ("PATCH", "/api/admin/slot-types/{type_id}"): "Type de créneau modifié",
@@ -122,7 +133,7 @@ SKIPPED_PREFIXES = (
     "/api/auth/login", "/api/auth/forgot-password", "/api/auth/token-info", "/api/auth/reset-password",
     "/api/me/preferences", "/api/me/water-preferences", "/api/me/structure", "/api/me/calendar-feeds",
     "/api/me/newsletters", "/api/newsletters/preview", "/api/newsletters/unsubscribe", "/api/mailjet/events",
-    "/api/structure-requests", "/api/admin/mailjet/test", "/api/admin/mailjet/events",
+    "/api/structure-requests", "/api/join/", "/api/admin/mailjet/test", "/api/admin/mailjet/events",
 )
 
 
@@ -181,6 +192,9 @@ _RESOLVERS = [
         r["structure_id"] if r else None)),
     (re.compile(r"/water-thresholds/(\d+)"), lambda m: (
         (r := _simple("SELECT label FROM water_thresholds WHERE id = ?", int(m[1]))) and r["label"], None)),
+    (re.compile(r"/join-requests/(\d+)"), lambda m: (
+        (r := _simple("SELECT first_name || ' ' || last_name AS who, structure_id FROM join_requests WHERE id = ?",
+                      int(m[1]))) and r["who"], r["structure_id"] if r else None)),
     (re.compile(r"/newsletters/(\d+)"), lambda m: (
         (r := _simple("SELECT subject, structure_id FROM newsletters WHERE id = ?", int(m[1]))) and r["subject"],
         r["structure_id"] if r else None)),

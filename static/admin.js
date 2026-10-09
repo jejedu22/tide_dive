@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "exploitation", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "communication", "exploitation", "fiche", "types", "sites", "utilisateurs", "mailjet", "journal"];
 const SUPER_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "exploitation"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -93,6 +93,8 @@ function showTab(name) {
   for (const t of ALL_TABS) $(`tab-${t}`).hidden = t !== name;
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   if (name === "dashboard") loadDashboard();
+  if (name === "activite") loadHome();
+  if (name === "fiche") loadFiche();
   if (name === "journal") loadJournal();
   if (name === "communication") { loadAnnouncements(); loadBroadcastRecipients(); }
   if (name === "exploitation") { loadMaintenance(); loadSchedule(); loadBackups(); loadMailLog(); loadQuality(); }
@@ -610,6 +612,247 @@ async function loadDashboard() {
 }
 
 // ---------------------------------------------------------------------------
+// Activité de la structure : à faire, créneaux à surveiller, statistiques
+// ---------------------------------------------------------------------------
+
+let homeScope = null;    // structure affichée (choix du super administrateur)
+let homeStats = null;    // dernières statistiques chargées (export Excel)
+const homeQS = (extra = {}) => {
+  const p = new URLSearchParams(extra);
+  if (isSuper() && homeScope) p.set("structure_id", homeScope);
+  const q = p.toString();
+  return q ? `?${q}` : "";
+};
+
+$("home-structure").addEventListener("change", e => {
+  homeScope = Number(e.target.value) || null;
+  loadHome();
+});
+$("stats-months").addEventListener("change", () => loadStats());
+
+const fmtDayShort = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+const dayLabel = iso => fmtDayShort.format(new Date(`${iso}T12:00:00`));
+const pct = r => (r == null ? "—" : `${Math.round(r * 100)} %`);
+const picksLink = `<a href="/mes-creneaux.html">Créneaux choisis</a>`;
+
+function homeSlot(s, extra = "") {
+  const places = s.max_registrations == null ? `${s.registrations} inscrit(s)` : `${Math.min(s.registrations, s.max_registrations)}/${s.max_registrations}`;
+  return `<li><span class="type-pill" style="--type-color:${esc(s.color)}">${esc(s.type)}</span>
+    <strong>${esc(dayLabel(s.date))}</strong> ${esc(s.rdv_time)} · ${esc(s.place)} <span class="muted">${esc(places)}</span>${extra}</li>`;
+}
+
+async function loadHome() {
+  if (isSuper() && !homeScope) {
+    $("home-kpis").innerHTML = `<p class="muted">Choisissez une structure.</p>`;
+    return;
+  }
+  let d;
+  try {
+    d = await Session.api(`/api/admin/structure-dashboard${homeQS()}`);
+  } catch (e) {
+    $("home-kpis").innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    return;
+  }
+  const c = d.counts;
+  const kpi = (value, label, title = "") => `<div class="kpi"${title ? ` title="${esc(title)}"` : ""}><strong>${value}</strong><span>${esc(label)}</span></div>`;
+  $("home-kpis").innerHTML = [
+    kpi(c.members, "membres", `${c.managers} en administration`),
+    kpi(c.active_30d, "actifs sur 30 jours", "connectés au moins une fois depuis 30 jours"),
+    kpi(c.upcoming, "créneaux à venir"),
+    kpi(c.registrations_30d, "inscriptions (30 j)"),
+    kpi(c.sites, "sites de plongée"),
+  ].join("");
+  const todo = [];
+  const settings = { "aucun type de créneau proposé": "types", "pas de port par défaut": "types", "aucun administrateur": "utilisateurs" };
+  for (const issue of d.issues) {
+    todo.push(`<li class="todo-warn">Réglage manquant : ${esc(issue)} <a href="#${settings[issue] || "types"}" data-goto="${settings[issue] || "types"}">Régler</a></li>`);
+  }
+  if (d.caci.pending) todo.push(`<li>${d.caci.pending} certificat(s) médical(aux) à valider <a href="/plongeurs.html">Plongeurs</a></li>`);
+  if (d.caci.check && (d.caci.missing || d.caci.expired)) {
+    todo.push(`<li class="todo-warn">${d.caci.missing + d.caci.expired} membre(s) sans certificat médical valable (vérification activée : leur inscription est refusée) <a href="/plongeurs.html">Plongeurs</a></li>`);
+  }
+  if (d.caci.expiring) todo.push(`<li>${d.caci.expiring} certificat(s) médical(aux) expirent dans les 30 jours</li>`);
+  if (d.unmarked.length) todo.push(`<li>${d.unmarked.length} créneau(x) des ${d.attendance_days} derniers jours sans présences pointées ${picksLink}</li>`);
+  if (c.invitations) todo.push(`<li>${c.invitations} invitation(s) à rejoindre la structure en attente <a href="#utilisateurs" data-goto="utilisateurs">Utilisateurs</a></li>`);
+  if (c.pending_accounts) todo.push(`<li>${c.pending_accounts} compte(s) n'ont pas encore choisi leur mot de passe <a href="#utilisateurs" data-goto="utilisateurs">Utilisateurs</a></li>`);
+  $("home-todo").innerHTML = todo.join("") || `<li class="muted">Rien à signaler.</li>`;
+  const section = (title, list, render) => (list.length ? `<h3>${title}</h3><ul class="home-slots">${list.map(render).join("")}</ul>` : "");
+  $("home-slots").innerHTML = [
+    section(`Peu remplis (${d.soon_days} prochains jours)`, d.low_fill, s => homeSlot(s)),
+    section("Complets, avec file d'attente", d.full, s => homeSlot(s, ` <span class="tag tag-warn">${s.waiting} en attente</span>`)),
+    section("Présences à pointer", d.unmarked, s => homeSlot(s)),
+  ].join("") || `<p class="muted">Aucun créneau à surveiller.</p>`;
+  $("home-recent").innerHTML = d.recent.length ? d.recent.map(journalLine).join("") : `<li class="muted">Aucune action enregistrée.</li>`;
+  loadStats();
+}
+
+async function loadStats() {
+  let s;
+  try {
+    s = await Session.api(`/api/admin/structure-stats${homeQS({ months: $("stats-months").value })}`);
+  } catch (e) {
+    $("stats-summary").textContent = e.message;
+    return;
+  }
+  homeStats = s;
+  const t = s.totals;
+  $("stats-summary").textContent = `Du ${dayLabel(s.start)} au ${dayLabel(s.end)} : ${t.slots} créneau(x), ` +
+    `${t.registrations} inscription(s) confirmée(s), remplissage ${pct(t.fill_rate)}, ` +
+    `${t.present} présent(s), ${t.absent} absent(s), ${t.excused} excusé(s) (présence ${pct(t.attendance_rate)}).`;
+  $("stats-types").innerHTML = s.by_type.length ? s.by_type.map(b => `
+    <tr><th scope="row"><span class="type-pill" style="--type-color:${esc(b.color)}">${esc(b.type)}</span></th>
+      <td class="num" data-label="Créneaux">${b.slots}</td><td class="num" data-label="Inscriptions">${b.registrations}</td>
+      <td class="num" data-label="Remplissage">${pct(b.fill_rate)}</td><td class="num" data-label="Présents">${b.present}</td>
+      <td class="num" data-label="Présence">${pct(b.attendance_rate)}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">Aucun créneau sur la période.</td></tr>`;
+  const fmtMonth = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+  $("stats-months-body").innerHTML = s.by_month.slice().reverse().map(m => `
+    <tr><th scope="row">${esc(fmtMonth.format(new Date(`${m.month}-15T12:00:00`)))}</th>
+      <td class="num" data-label="Créneaux">${m.slots}</td><td class="num" data-label="Inscriptions">${m.registrations}</td>
+      <td class="num" data-label="Présents">${m.present}</td></tr>`).join("");
+  $("stats-members").innerHTML = s.members.length ? s.members.map(m => `
+    <tr${m.registrations ? "" : ' class="muted"'}><th scope="row">${esc(m.display_name)}</th>
+      <td class="num" data-label="Inscriptions">${m.registrations}</td><td class="num" data-label="Présent">${m.present}</td>
+      <td class="num" data-label="Absent">${m.absent}</td><td class="num" data-label="Excusé">${m.excused}</td>
+      <td data-label="Dernier créneau">${m.last_slot ? esc(dayLabel(m.last_slot)) : "—"}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">Aucun membre.</td></tr>`;
+}
+
+$("stats-export").addEventListener("click", () => {
+  if (!homeStats) return;
+  const name = isSuper() ? $("home-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
+  XlsxExport.download(`statistiques-${XlsxExport.slug(name || "structure")}-${homeStats.start}-au-${homeStats.end}.xlsx`,
+    "Membres", [
+      { header: "Membre", width: 26, value: m => m.display_name },
+      { header: "Identifiant", width: 18, value: m => m.username },
+      { header: "Rôle", width: 14, value: m => (m.role === "manager" ? "administration" : "visualisation") },
+      { header: "Inscriptions", type: "int", width: 12, value: m => m.registrations },
+      { header: "Présent", type: "int", width: 9, value: m => m.present },
+      { header: "Absent", type: "int", width: 9, value: m => m.absent },
+      { header: "Excusé", type: "int", width: 9, value: m => m.excused },
+      { header: "Dernier créneau", type: "date", width: 14, value: m => m.last_slot },
+    ], homeStats.members);
+});
+
+// ---------------------------------------------------------------------------
+// Ma structure : fiche, logo, lien d'adhésion
+// ---------------------------------------------------------------------------
+
+let ficheScope = null;    // structure affichée (choix du super administrateur)
+let fiche = null;         // fiche chargée
+const ficheId = () => (isSuper() ? ficheScope : Session.user?.structure?.id);
+const ficheForm = $("fiche-form");
+
+$("fiche-structure").addEventListener("change", e => {
+  ficheScope = Number(e.target.value) || null;
+  loadFiche();
+});
+
+function renderFiche() {
+  for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) ficheForm[k].value = fiche[k] ?? "";
+  $("fiche-logo").hidden = !fiche.logo_url;
+  if (fiche.logo_url) $("fiche-logo").src = fiche.logo_url;
+  $("fiche-no-logo").hidden = !!fiche.logo_url;
+  $("fiche-logo-delete").hidden = !fiche.logo_url;
+  const url = fiche.join_url ? new URL(fiche.join_url, location.origin).href : null;
+  $("fiche-join").innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`
+    : `<span class="muted">Lien désactivé.</span>`;
+  $("fiche-join-create").textContent = url ? "Remplacer le lien" : "Activer le lien";
+  $("fiche-join-copy").hidden = $("fiche-join-delete").hidden = !url;
+}
+
+async function loadFiche() {
+  const sid = ficheId();
+  ficheForm.hidden = !sid;
+  if (!sid) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${sid}/profile`);
+  } catch (e) {
+    $("fiche-status").textContent = e.message;
+    return;
+  }
+  renderFiche();
+}
+
+ficheForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = {};
+  for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) body[k] = ficheForm[k].value.trim() || null;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/profile`, { method: "PATCH", body });
+    renderFiche();
+    $("fiche-status").textContent = "Fiche enregistrée.";
+    const st = structures.find(x => x.id === fiche.id);
+    if (st && st.name !== fiche.name) loadStructures();    // nom changé : listes et en-tête
+    if (Session.user?.structure?.id === fiche.id) Session.user.structure.name = fiche.name;
+  } catch (err) {
+    $("fiche-status").textContent = err.message;
+  }
+});
+
+$("fiche-logo-file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const status = $("fiche-logo-status");
+  if (file.size > 200 * 1024) { status.textContent = "Image trop lourde : 200 Ko au plus."; return; }
+  try {
+    const res = await fetch(`/api/admin/structures/${ficheId()}/logo`, {
+      method: "PUT", credentials: "same-origin", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.detail || `Erreur ${res.status}`);
+    fiche = data;
+    renderFiche();
+    status.textContent = "Logo enregistré.";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+$("fiche-logo-delete").addEventListener("click", async () => {
+  if (!confirm("Retirer le logo de la structure ?")) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/logo`, { method: "DELETE" });
+    renderFiche();
+  } catch (err) {
+    $("fiche-logo-status").textContent = err.message;
+  }
+});
+
+$("fiche-join-create").addEventListener("click", async () => {
+  if (fiche?.join_url && !confirm("Remplacer le lien ? L'ancien cessera de fonctionner.")) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/join-link`, { method: "POST" });
+    renderFiche();
+    $("fiche-join-status").textContent = "Lien d'adhésion actif.";
+  } catch (err) {
+    $("fiche-join-status").textContent = err.message;
+  }
+});
+
+$("fiche-join-delete").addEventListener("click", async () => {
+  if (!confirm("Désactiver le lien d'adhésion ? Il cessera de fonctionner.")) return;
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/join-link`, { method: "DELETE" });
+    renderFiche();
+    $("fiche-join-status").textContent = "Lien désactivé.";
+  } catch (err) {
+    $("fiche-join-status").textContent = err.message;
+  }
+});
+
+$("fiche-join-copy").addEventListener("click", async () => {
+  const url = new URL(fiche.join_url, location.origin).href;
+  try {
+    await navigator.clipboard.writeText(url);
+    $("fiche-join-status").textContent = "Lien copié.";
+  } catch {
+    $("fiche-join-status").textContent = url;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Communication (super administrateur) : bandeaux d'annonce, e-mail aux administrateurs de structure
 // ---------------------------------------------------------------------------
 
@@ -964,6 +1207,14 @@ function renderStructureSelects() {
   const keepTypes = typesScope ?? Session.user?.structure?.id ?? structures[0]?.id ?? null;
   typesSel.innerHTML = opts(keepTypes);
   typesScope = typesSel.value ? Number(typesSel.value) : null;
+
+  const ficheSel = $("fiche-structure");
+  ficheSel.innerHTML = opts(ficheScope ?? keepTypes);
+  ficheScope = ficheSel.value ? Number(ficheSel.value) : null;
+
+  const homeSel = $("home-structure");
+  homeSel.innerHTML = opts(homeScope ?? keepTypes);
+  homeScope = homeSel.value ? Number(homeSel.value) : null;
 
   const sitesSel = $("sites-structure");
   sitesSel.innerHTML = opts(sitesScope ?? keepTypes);
@@ -1813,6 +2064,11 @@ $("types-structure").addEventListener("change", e => {
 // N jours : fermé à partir de J-N (possible jusqu'à J-N-1 inclus) ; vide : pas de limite.
 
 const settingsForm = $("settings-form");
+// Rappels et alertes : réglage (nombre de jours) → champ ; case décochée : désactivé (null)
+const REMINDER_INPUTS = {
+  remind_slot_days: "remind-slot-days", alert_low_fill_days: "alert-low-fill-days",
+  alert_late_unregister_days: "alert-late-unregister-days", remind_caci_days: "remind-caci-days",
+};
 const lockInputs = { register_lock_days: $("register-lock-days"), unregister_lock_days: $("lock-days") };
 const fmtWeekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
@@ -1916,6 +2172,11 @@ function loadSettings() {
   $("use-calibration").checked = st.use_calibration ?? true;
   $("caci-check").checked = !!st.caci_check;
   $("caci-validity-months").value = st.caci_validity_months ?? 12;
+  for (const [key, input] of Object.entries(REMINDER_INPUTS)) {
+    const box = settingsForm.querySelector(`[data-reminder=${key}]`);
+    box.checked = st[key] != null;
+    if (st[key] != null) $(input).value = st[key];
+  }
   const offset = st.rdv_offset_minutes ?? 120;
   rdvInputs.hours.value = Math.floor(offset / 60);
   rdvInputs.minutes.value = offset % 60;
@@ -1968,6 +2229,17 @@ settingsForm.addEventListener("submit", async e => {
     return;
   }
   body.caci_validity_months = months;
+  for (const [key, input] of Object.entries(REMINDER_INPUTS)) {
+    const el = $(input);
+    if (!settingsForm.querySelector(`[data-reminder=${key}]`).checked) { body[key] = null; continue; }
+    const n = Number(el.value);
+    if (!Number.isInteger(n) || n < Number(el.min) || n > Number(el.max)) {
+      status.textContent = `Rappels et alertes : nombre de jours de ${el.min} à ${el.max}.`;
+      el.focus();
+      return;
+    }
+    body[key] = n;
+  }
   status.textContent = "";
   try {
     const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
@@ -2287,13 +2559,48 @@ function deleteButtons(u) {
     + `<button type="button" class="btn-danger" data-act="delete">Supprimer${scoped ? " le compte" : ""}</button>`;
 }
 
+// Filtres de la liste (en plus de la recherche) : rôle, profil, certificat médical, état du compte
+function userMatches(u) {
+  const role = $("users-role").value, profile = $("users-profile").value;
+  const caci = $("users-caci").value, state = $("users-state").value;
+  if (role === "super" ? !u.is_admin : role && u.role !== role) return false;
+  if (profile && !(u.profiles || []).includes(profile)) return false;
+  const cs = u.caci?.state;
+  if (caci === "problem" ? !["missing", "expired"].includes(cs) : caci && cs !== caci) return false;
+  if (state === "pending" && !(u.pending_invite || u.must_change_password)) return false;
+  if (state === "never" && u.last_login_at) return false;
+  if (state === "incomplete" && u.profile_complete) return false;
+  if (state === "suspended" && !u.suspended) return false;
+  return true;
+}
+
+function shownUsers() {
+  const q = $("users-search").value.trim().toLowerCase();
+  return users.filter(u => userMatches(u) && (!q || [u.display_name, u.username, u.email, u.phone, u.diver?.licence_number]
+    .some(v => v && v.toLowerCase().includes(q))));
+}
+
+const checkedUsers = new Set();   // comptes cochés pour une action groupée
+
+function renderBulk() {
+  const shownIds = new Set(shownUsers().filter(u => u.id !== Session.user.id).map(u => u.id));   // cochables
+  for (const id of [...checkedUsers]) if (!shownIds.has(id)) checkedUsers.delete(id);
+  const n = checkedUsers.size;
+  // super administrateur : une action groupée vaut dans UNE structure (rôle et profils y sont propres)
+  const possible = !isSuper() || !!$("users-filter").value;
+  $("users-bulk").hidden = !n;
+  $("users-bulk-count").textContent = possible ? `${n} compte(s) coché(s)` : `${n} compte(s) coché(s) : choisissez d'abord une structure`;
+  $("users-bulk-action").disabled = $("users-bulk-apply").disabled = !possible;
+  const all = $("users-check-all");
+  all.checked = !!shownIds.size && [...shownIds].every(id => checkedUsers.has(id));
+  all.indeterminate = !all.checked && [...shownIds].some(id => checkedUsers.has(id));
+}
+
 function renderUsers() {
   const me = Session.user;
   const q = $("users-search").value.trim().toLowerCase();
-  const shown = q
-    ? users.filter(u => [u.display_name, u.username, u.email, u.phone, u.diver?.licence_number]
-      .some(v => v && v.toLowerCase().includes(q)))
-    : users;
+  const shown = shownUsers();
+  const filtered = q || ["users-role", "users-profile", "users-caci", "users-state"].some(id => $(id).value);
   usersBody.innerHTML = shown.length ? shown.map(u => {
     const self = u.id === me.id;
     const contact = [
@@ -2302,6 +2609,7 @@ function renderUsers() {
     ].filter(Boolean).join("<br>");
     return `
       <tr data-id="${u.id}">
+        <td class="col-check">${self ? "" : `<input type="checkbox" data-check value="${u.id}"${checkedUsers.has(u.id) ? " checked" : ""} aria-label="Cocher ${esc(u.display_name)}">`}</td>
         <th scope="row">
           <span class="user-name">${esc(u.display_name)}</span>${self ? ` <span class="tag">vous</span>` : ""}
           <span class="user-sub">${esc(u.username)}</span>
@@ -2320,12 +2628,182 @@ function renderUsers() {
         </td>
       </tr>`;
   }).join("")
-    : `<tr><td colspan="6" class="empty">${q ? "Aucun compte ne correspond à la recherche." : "Aucun compte."}</td></tr>`;
-  usersStatus.textContent = q ? `${shown.length} compte(s) sur ${users.length}.` : `${users.length} compte(s).`;
+    : `<tr><td colspan="7" class="empty">${filtered ? "Aucun compte ne correspond à la recherche." : "Aucun compte."}</td></tr>`;
+  usersStatus.textContent = filtered ? `${shown.length} compte(s) sur ${users.length}.` : `${users.length} compte(s).`;
+  renderBulk();
+}
+
+for (const id of ["users-role", "users-profile", "users-caci", "users-state"]) $(id).addEventListener("change", renderUsers);
+
+usersBody.addEventListener("change", e => {
+  const box = e.target.closest("[data-check]");
+  if (!box) return;
+  if (box.checked) checkedUsers.add(Number(box.value)); else checkedUsers.delete(Number(box.value));
+  renderBulk();
+});
+$("users-check-all").addEventListener("change", e => {
+  for (const u of shownUsers()) if (u.id !== Session.user.id) {
+    if (e.target.checked) checkedUsers.add(u.id); else checkedUsers.delete(u.id);
+  }
+  renderUsers();
+});
+$("users-bulk-clear").addEventListener("click", () => { checkedUsers.clear(); renderUsers(); });
+
+$("users-bulk-apply").addEventListener("click", async () => {
+  const [action, arg] = $("users-bulk-action").value.split(":");
+  if (!action || !checkedUsers.size) return;
+  const n = checkedUsers.size;
+  const labels = {
+    role: `Passer ${n} compte(s) en ${arg === "manager" ? "administration" : "visualisation"} ?`,
+    add_profile: `Attribuer le profil « ${profileCatalog.find(p => p.id === arg)?.label} » à ${n} compte(s) ?`,
+    remove_profile: `Retirer le profil « ${profileCatalog.find(p => p.id === arg)?.label} » à ${n} compte(s) ?`,
+    remove: `Retirer ${n} compte(s) de la structure ? Un compte qui n'appartient à aucune autre structure est supprimé, avec ses inscriptions.`,
+  };
+  if (!confirm(labels[action])) return;
+  const body = { user_ids: [...checkedUsers], action };
+  if (action === "role") body.role = arg;
+  if (action.endsWith("_profile")) body.profile = arg;
+  const scope = isSuper() ? `?structure_id=${$("users-filter").value}` : "";
+  try {
+    const r = await Session.api(`/api/admin/users/bulk${scope}`, { method: "POST", body });
+    checkedUsers.clear();
+    const names = id => users.find(u => u.id === id)?.display_name || `n° ${id}`;
+    usersStatus.textContent = `${r.done.length} compte(s) modifié(s).` + (r.skipped.length
+      ? ` Non traités : ${r.skipped.map(s => `${names(s.id)} (${s.reason})`).join(", ")}.` : "");
+    const status = usersStatus.textContent;
+    await loadUsers();
+    usersStatus.textContent = status;
+  } catch (err) {
+    usersStatus.textContent = err.message;
+  }
+});
+
+// Export Excel des comptes affichés (filtres compris)
+const CACI_LABELS = { valid: "valable", pending: "à valider", missing: "absent", expired: "expiré" };
+$("users-export").addEventListener("click", () => {
+  const list = shownUsers();
+  if (!list.length) return;
+  const name = isSuper() ? ($("users-filter").selectedOptions[0]?.textContent || "tous") : Session.user?.structure?.name;
+  const profileLabel = id => profileCatalog.find(p => p.id === id)?.label || id;
+  XlsxExport.download(`membres-${XlsxExport.slug(name || "structure")}.xlsx`, "Membres", [
+    { header: "Nom", width: 18, value: u => u.last_name || "" },
+    { header: "Prénom", width: 16, value: u => u.first_name || "" },
+    { header: "Identifiant", width: 18, value: u => u.username },
+    { header: "E-mail", width: 28, value: u => u.email || "" },
+    { header: "Téléphone", width: 16, value: u => u.phone || "" },
+    { header: "Structure", width: 18, value: u => u.structure?.name || "" },
+    { header: "Rôle", width: 14, value: u => (u.is_admin ? "super administrateur" : ROLE_LABELS[u.role] || "") },
+    { header: "Profils", width: 22, value: u => (u.profiles || []).map(profileLabel).join(", ") },
+    { header: "Niveau", width: 16, value: u => u.diver?.diver_level_label || "" },
+    { header: "Encadrement", width: 16, value: u => u.diver?.instructor_level_label || "" },
+    { header: "Licence", width: 16, value: u => u.diver?.licence_number || "" },
+    { header: "CACI (date)", type: "date", width: 12, value: u => u.caci?.date || null },
+    { header: "CACI valable jusqu'au", type: "date", width: 14, value: u => u.caci?.valid_until || null },
+    { header: "CACI", width: 11, value: u => CACI_LABELS[u.caci?.state] || "" },
+    { header: "Dernière connexion", type: "date", width: 14, value: u => (u.last_login_at ? u.last_login_at.slice(0, 10) : null) },
+    { header: "Compte créé le", type: "date", width: 14, value: u => (u.created_at ? u.created_at.slice(0, 10) : null) },
+  ], list);
+});
+
+// ---- Demandes d'adhésion (lien public de la structure) ----
+
+let joinRequests = [];
+let joinPending = null;   // demande en cours de traitement : classée quand le compte est créé ou invité
+const JOIN_STATUS = { new: "à traiter", done: "traitée", rejected: "classée sans suite" };
+
+async function loadJoinRequests() {
+  const filter = isSuper() ? $("users-filter").value : "";
+  if (isSuper() && !filter) { $("join-panel").hidden = true; return; }
+  try {
+    joinRequests = await Session.api(`/api/admin/join-requests${filter ? `?structure_id=${filter}` : ""}`);
+  } catch {
+    joinRequests = [];
+  }
+  renderJoinRequests();
+}
+
+function renderJoinRequests() {
+  const pending = joinRequests.filter(r => r.status === "new").length;
+  $("join-panel").hidden = !joinRequests.length;
+  $("join-count").hidden = !pending;
+  $("join-count").textContent = `${pending} à traiter`;
+  $("join-list").innerHTML = joinRequests.map(r => {
+    const acts = r.status === "new"
+      ? `<button type="button" class="btn-primary btn-small" data-act="join-create">Créer le compte</button>
+         <button type="button" class="btn-secondary btn-small" data-act="join-invite" title="La personne a déjà un compte dans une autre structure">Inviter son compte</button>
+         <button type="button" class="btn-quiet btn-small" data-act="join-reject">Classer sans suite</button>`
+      : `<button type="button" class="btn-quiet btn-small" data-act="join-reopen">Remettre en attente</button>`;
+    return `
+    <article class="request-card${r.status === "new" ? " is-new" : ""}" data-id="${r.id}">
+      <div class="request-head"><strong>${esc(r.first_name)} ${esc(r.last_name)}</strong>
+        <span class="tag${r.status === "new" ? " tag-pending" : ""}">${JOIN_STATUS[r.status]}</span></div>
+      <p class="request-contact"><a href="mailto:${esc(r.email)}">${esc(r.email)}</a>${r.phone ? ` · <a href="tel:${esc(r.phone.replace(/\s/g, ""))}">${esc(r.phone)}</a>` : ""}</p>
+      ${r.message ? `<p class="request-message">${esc(r.message)}</p>` : ""}
+      <p class="request-meta muted">Reçue le ${stamp(r.created_at)}${r.handled_by ? ` · traitée par ${esc(r.handled_by)}` : ""}</p>
+      <div class="request-acts">${acts}<button type="button" class="btn-danger btn-small" data-act="join-delete">Supprimer</button></div>
+    </article>`;
+  }).join("");
+}
+
+async function setJoinStatus(id, status) {
+  const r = await Session.api(`/api/admin/join-requests/${id}`, { method: "PATCH", body: { status } });
+  joinRequests = joinRequests.map(x => (x.id === r.id ? r : x));
+  renderJoinRequests();
+}
+
+$("join-list").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const r = joinRequests.find(x => x.id === Number(btn.closest("[data-id]").dataset.id));
+  if (!r) return;
+  try {
+    switch (btn.dataset.act) {
+      case "join-create":
+        joinPending = r.id;
+        createForm.first_name.value = r.first_name;
+        createForm.last_name.value = r.last_name;
+        createForm.email.value = r.email;
+        createForm.phone.value = r.phone || "";
+        createForm.role.value = "viewer";
+        for (const name of ["first_name", "last_name", "email"]) createForm[name].dispatchEvent(new Event("input", { bubbles: true }));
+        createForm.scrollIntoView({ block: "start" });
+        flash(`Compte de ${esc(r.first_name)} ${esc(r.last_name)} prérempli : choisissez le rôle et le mot de passe, puis validez. La demande sera classée.`);
+        break;
+      case "join-invite":
+        joinPending = r.id;
+        inviteForm.email.value = r.email;
+        inviteForm.scrollIntoView({ block: "start" });
+        flash(`Invitation préparée pour ${esc(r.email)} : validez pour l'envoyer. La demande sera classée.`);
+        break;
+      case "join-reject":
+        await setJoinStatus(r.id, "rejected");
+        break;
+      case "join-reopen":
+        await setJoinStatus(r.id, "new");
+        break;
+      case "join-delete":
+        if (!confirm(`Supprimer la demande de ${r.first_name} ${r.last_name} ?`)) return;
+        await Session.api(`/api/admin/join-requests/${r.id}`, { method: "DELETE" });
+        joinRequests = joinRequests.filter(x => x.id !== r.id);
+        renderJoinRequests();
+        break;
+    }
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
+// compte créé ou invitation envoyée pour une demande d'adhésion : elle est classée
+async function joinHandled() {
+  if (joinPending == null) return;
+  const id = joinPending;
+  joinPending = null;
+  try { await setJoinStatus(id, "done"); } catch { /* la demande reste à traiter */ }
 }
 
 async function loadUsers() {
   const filter = isSuper() ? $("users-filter").value : "";
+  loadJoinRequests();
   try {
     users = await Session.api(`/api/admin/users${filter ? `?structure_id=${filter}` : ""}`);
     renderUsers();
@@ -2335,7 +2813,7 @@ async function loadUsers() {
   }
 }
 
-$("users-filter").addEventListener("change", loadUsers);
+$("users-filter").addEventListener("change", () => { checkedUsers.clear(); loadUsers(); });
 $("users-search").addEventListener("input", renderUsers);
 
 // ---- Profils (en plus du rôle, cumulables) ----
@@ -2361,6 +2839,15 @@ async function loadProfileCatalog() {
   box.insertAdjacentHTML("beforeend", profileChoices());
   box.hidden = !profileCatalog.length;
   renderInviteProfiles();
+  // filtre de la liste et actions groupées
+  $("users-profile").innerHTML = `<option value="">Tous</option>` +
+    profileCatalog.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+  const bulk = $("users-bulk-action");
+  bulk.querySelectorAll("[data-profile], [data-remove]").forEach(o => o.remove());
+  bulk.insertAdjacentHTML("beforeend", profileCatalog.map(p =>
+    `<option data-profile value="add_profile:${esc(p.id)}">Attribuer le profil « ${esc(p.label)} »</option>
+     <option data-profile value="remove_profile:${esc(p.id)}">Retirer le profil « ${esc(p.label)} »</option>`).join("") +
+    `<option data-remove value="remove">Retirer de la structure…</option>`);
 }
 
 // ---- Création ----
@@ -2460,6 +2947,7 @@ createForm.addEventListener("submit", async e => {
       msg += `Transmettez-lui son mot de passe : il ne sera plus affiché.`;
     }
     createStatus.innerHTML = msg;
+    joinHandled();
     for (const name of ["first_name", "last_name", "email", "phone", "username", "password"]) createForm[name].value = "";
     for (const box of createForm.querySelectorAll("[name=profile]")) box.checked = false;
     suggestUsername();
@@ -2578,6 +3066,7 @@ inviteForm.addEventListener("submit", async e => {
   try {
     const r = await Session.api("/api/admin/structure-invitations", { method: "POST", body });
     status.textContent = r.detail;
+    joinHandled();
     inviteForm.email.value = "";
     for (const box of inviteForm.querySelectorAll("[name=profile]")) box.checked = false;
     loadInvitations();
@@ -3158,6 +3647,17 @@ async function onSessionChange(user) {
   $("types-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
   $("types-structure").previousElementSibling.hidden = !sup;
   $("types-structure-name").hidden = sup;
+
+  for (const k of ["fiche"]) {
+    $(`${k}-structure`).hidden = !sup;
+    $(`${k}-structure`).previousElementSibling.hidden = !sup;
+    $(`${k}-structure-name`).textContent = sup ? "" : user.structure?.name ?? "";
+    $(`${k}-structure-name`).hidden = sup;
+  }
+  $("home-structure").hidden = !sup;
+  $("home-structure").previousElementSibling.hidden = !sup;
+  $("home-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("home-structure-name").hidden = sup;
 
   $("sites-structure").hidden = !sup;
   $("sites-structure").previousElementSibling.hidden = !sup;

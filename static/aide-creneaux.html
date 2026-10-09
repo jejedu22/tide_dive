@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aide — profil Créneaux — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+</head>
+<body class="help-page" data-guide="creneaux">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Aide : profil Créneaux</h1>
+        <p class="subtitle">Organiser les créneaux de la structure.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="help-main">
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a><a href="aide-creneaux.html" aria-current="page" data-for="creneaux">Profil Créneaux</a></nav>
+
+    <article class="help-article">
+      <nav class="help-toc panel" aria-label="Sommaire"></nav>
+
+      <section class="panel" id="role">
+        <h2>Votre profil</h2>
+        <p>Le profil <strong>Créneaux</strong> (directeur de plongée, responsable des sorties…) permet d'<strong>organiser les créneaux</strong> de la structure comme un administrateur, <strong>sans</strong> gérer ses membres ni ses réglages. Il est attribué par un administrateur, pour cette structure seulement.</p>
+        <ul>
+          <li>choisir des créneaux dans la recherche, un par un ou en groupe ;</li>
+          <li>ajouter, modifier, <strong>dupliquer</strong> et retirer des créneaux personnalisés, y compris en <strong>série</strong> ;</li>
+          <li>régler le nombre de places d'un créneau ;</li>
+          <li>inscrire d'autres membres et retirer leur inscription, comme le profil <a href="aide-inscriptions.html">Inscriptions</a> ;</li>
+          <li>pointer les <strong>présences</strong>.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="serie">
+        <h2>Créneaux en série et duplication</h2>
+        <ul>
+          <li>Page <strong>Créneaux choisis</strong>, <strong>+ Créneau personnalisé</strong>, case <strong>Répéter</strong> : chaque semaine (ou toutes les 2, 3 ou 4 semaines) jusqu'à une date, 60 créneaux au plus. Les jours d'une plage d'indisponibilité sont sautés et signalés.</li>
+          <li><strong>Dupliquer…</strong> sur un créneau personnalisé le copie à un autre jour : même lieu, heure, type, intitulé et places, sans les inscrits. Un séjour garde sa durée.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="retrait">
+        <h2>Retirer ou modifier un créneau</h2>
+        <ul>
+          <li>Retirer un créneau qui a des inscrits ouvre une fenêtre : ils sont <strong>prévenus par e-mail</strong> (case cochée par défaut), avec le motif facultatif que vous saisissez.</li>
+          <li>Changer le jour, l'heure ou le lieu d'un créneau personnalisé prévient aussi ses inscrits, avec l'ancien et le nouvel horaire.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="presences">
+        <h2>Feuille de présence</h2>
+        <p>À partir du jour du créneau, le bouton <strong>Présences</strong> ouvre la liste des inscrits : présent, absent ou excusé pour chacun (<strong>Tous présents</strong> coche d'un coup les confirmés). Les présences apparaissent dans la liste des inscrits, l'export Excel et les statistiques de la structure.</p>
+      </section>
+    </article>
+
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="aide.js"></script>
+</body>
+</html>

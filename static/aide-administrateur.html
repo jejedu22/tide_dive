@@ -28,7 +28,7 @@
   </header>
 
   <main class="help-main">
-    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" aria-current="page" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a></nav>
+    <nav class="help-nav" aria-label="Guides"><a href="aide.html">Toutes les aides</a><a href="aide-membre.html" data-for="membre">Membre</a><a href="aide-administrateur.html" aria-current="page" data-for="administrateur">Administrateur de structure</a><a href="aide-gestionnaire.html" data-for="gestionnaire">Profil Gestionnaire</a><a href="aide-inscriptions.html" data-for="inscriptions">Profil Inscriptions</a><a href="aide-creneaux.html" data-for="creneaux">Profil Créneaux</a></nav>
 
     <article class="help-article">
       <nav class="help-toc panel" aria-label="Sommaire"></nav>
@@ -39,9 +39,20 @@
         <p>Les <strong>newsletters</strong> demandent le profil <strong>Gestionnaire</strong>, même pour un administrateur : attribuez-le-vous si besoin (voir <a href="#membres">Membres</a>).</p>
       </section>
 
+      <section class="panel" id="activite">
+        <h2>Activité de la structure</h2>
+        <p><strong>Administration → Activité</strong> (premier onglet) résume ce qui demande votre attention :</p>
+        <ul>
+          <li><strong>À faire</strong> : réglage manquant (type de créneau, port par défaut), certificats médicaux à valider ou qui expirent, présences à pointer, invitations et comptes en attente ;</li>
+          <li><strong>Créneaux à surveiller</strong> : peu remplis dans les 14 prochains jours, complets avec une file d'attente, passés sans présences pointées ;</li>
+          <li><strong>Statistiques</strong> sur 3 à 24 mois : par type de créneau (créneaux, inscriptions, taux de remplissage, présence), par mois et par membre (inscriptions, présent, absent, excusé), avec export Excel. Les membres sans inscription apparaissent en grisé.</li>
+        </ul>
+      </section>
+
       <section class="panel" id="demarrage">
         <h2>Premiers pas</h2>
         <ol>
+          <li><strong>Administration → Ma structure</strong> : complétez la fiche (adresse, contact, site, logo), vue par vos membres.</li>
           <li><strong>Administration → Créneaux</strong> : créez vos <strong>types de créneaux</strong> (« Sortie bateau », « Formation N2 »…) ; sans type, impossible de choisir un créneau.</li>
           <li>Réglez le <strong>délai de rendez-vous</strong>, le <strong>port par défaut</strong>, les <strong>places</strong> et les <strong>délais d'inscription</strong>.</li>
           <li><strong>Administration → Utilisateurs</strong> : ajoutez vos membres (un par un, ou par import CSV).</li>
@@ -61,6 +72,15 @@
           <li><strong>Places par défaut</strong> : copiées sur chaque <em>nouveau</em> créneau ; vide : illimité.</li>
           <li><strong>Délais d'inscription et de désinscription</strong> : fermés à partir de N jours avant le créneau ; vide : pas de limite. Un exemple s'affiche sous les champs.</li>
           <li><strong>Types de créneaux</strong> : libellé, couleur, ordre de la liste. Un type utilisé ne se supprime pas : décochez « Proposé » pour le retirer de la liste.</li>
+          <li><strong>Rappels et alertes par e-mail</strong> (tous désactivés au départ) : rappel aux inscrits N jours avant le créneau ; alerte aux administrateurs pour un créneau peu rempli (aucun inscrit, ou moins de la moitié des places) ou quand un membre se désinscrit à la dernière minute ; rappel au membre dont le certificat médical expire bientôt. Ils partent chaque matin, une seule fois chacun.</li>
+        </ul>
+      </section>
+
+      <section class="panel" id="fiche">
+        <h2>Ma structure : fiche et adhésions</h2>
+        <ul>
+          <li><strong>Fiche</strong> : nom de la structure, adresse ou port d'attache, e-mail, téléphone, site web et <strong>logo</strong> (PNG, JPEG ou WebP, 200 Ko au plus). Vos membres la voient en bas de « Créneaux choisis ».</li>
+          <li><strong>Lien d'adhésion</strong> : activez-le et diffusez-le (site du club, affiche). Une personne y envoie sa demande (nom, e-mail, message) ; vous êtes prévenu par e-mail et la retrouvez en tête de <strong>Utilisateurs → Demandes d'adhésion</strong> : <strong>Créer le compte</strong> préremplit le formulaire, <strong>Inviter son compte</strong> s'il en a déjà un ailleurs, ou <strong>Classer sans suite</strong>. Remplacer le lien rend l'ancien inutilisable.</li>
         </ul>
       </section>
 
@@ -80,8 +100,11 @@
           <li><strong>Plusieurs créneaux sur la même étale</strong> (deux bateaux) : liste « + Autre… », avec un intitulé pour les distinguer.</li>
           <li><strong>Choisir les créneaux affichés…</strong> : tous les créneaux affichés (filtres compris) d'un coup, avec le même type ; « Annuler ce choix groupé » les retire aussitôt. Filtrez d'abord (ex. étales PM, coefficient ≤ 80).</li>
           <li><strong>Recherche par hauteur d'eau</strong> (si votre structure y a accès) : une plage se choisit de la même façon ; son RDV est le début de la plage.</li>
-          <li><strong>Créneau personnalisé</strong> (page Créneaux choisis) : en dehors des étales proposées — lieu (port ou autre lieu), jour ou séjour sur plusieurs jours, heure de RDV, type, intitulé, places.</li>
-          <li><strong>Modifier</strong> : type et intitulé de tout créneau ; lieu, jour et heure d'un créneau personnalisé. <strong>Places…</strong> : nombre de places du créneau. <strong>Retirer</strong> : supprime le créneau et ses inscriptions.</li>
+          <li><strong>Créneau personnalisé</strong> (page Créneaux choisis) : en dehors des étales proposées — lieu (port ou autre lieu), jour ou séjour sur plusieurs jours, heure de RDV, type, intitulé, places. Case <strong>Répéter</strong> : le même chaque semaine (ou toutes les 2 à 4 semaines) jusqu'à une date, les jours indisponibles sautés.</li>
+          <li><strong>Dupliquer…</strong> un créneau personnalisé : copie à un autre jour, sans les inscrits.</li>
+          <li><strong>Modifier</strong> : type et intitulé de tout créneau ; lieu, jour et heure d'un créneau personnalisé (ses inscrits sont prévenus par e-mail). <strong>Places…</strong> : nombre de places du créneau. <strong>Retirer</strong> : supprime le créneau et ses inscriptions ; les inscrits sont prévenus par e-mail, avec le motif facultatif que vous saisissez.</li>
+          <li><strong>Présences</strong> : à partir du jour du créneau, pointez les inscrits présents, absents ou excusés. Elles alimentent les statistiques.</li>
+          <li>Pour déléguer l'organisation des créneaux sans donner l'administration, attribuez le profil <a href="aide-creneaux.html">Créneaux</a> (directeur de plongée…).</li>
         </ul>
       </section>
 
@@ -100,7 +123,8 @@
           <li><strong>Ajouter un utilisateur</strong> : prénom, nom, e-mail, rôle (visualisation ou administration), profils. Mot de passe : <strong>invitation par e-mail</strong> (la personne le choisit) ou <strong>mot de passe provisoire</strong> à lui transmettre.</li>
           <li><strong>Importer</strong> un fichier CSV (modèle téléchargeable) : analyse ligne par ligne, puis confirmation. 500 comptes au plus par fichier.</li>
           <li><strong>Inviter un compte existant</strong> (qui appartient déjà à une autre structure) par son adresse e-mail : il rejoint la vôtre s'il accepte. Invitation valable 30 jours, annulable.</li>
-          <li><strong>Modifier</strong> : rôle et <strong>profils</strong> (Gestionnaire, Inscriptions). <strong>Mot de passe…</strong> : renvoyer l'invitation, envoyer un lien de réinitialisation ou définir un mot de passe provisoire.</li>
+          <li><strong>Filtres</strong> de la liste (rôle, profil, certificat médical, état du compte), <strong>Exporter en Excel</strong> les comptes affichés, et <strong>actions groupées</strong> sur les comptes cochés : changer le rôle, attribuer ou retirer un profil, retirer de la structure.</li>
+          <li><strong>Modifier</strong> : rôle et <strong>profils</strong> (Gestionnaire, Inscriptions, Créneaux). <strong>Mot de passe…</strong> : renvoyer l'invitation, envoyer un lien de réinitialisation ou définir un mot de passe provisoire.</li>
           <li>Un compte partagé avec une autre structure : vous gérez son rôle et ses profils chez vous ; son profil et son mot de passe restent à son titulaire. Le <strong>retirer</strong> ne supprime pas le compte.</li>
           <li>Vous ne pouvez pas changer votre propre rôle ni supprimer votre propre compte.</li>
         </ul>

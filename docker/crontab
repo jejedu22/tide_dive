@@ -35,3 +35,8 @@
 # sauvegarde récente, disque). Envoie un e-mail aux administrateurs seulement quand une
 # erreur nouvelle apparaît (ALERT_EMAIL, sinon les super administrateurs).
 5 7 * * * python -m app.health --notify
+
+# Tous les jours, 07:20 — rappels et alertes par e-mail réglés par chaque structure (rappel de créneau aux
+# inscrits, créneaux peu remplis aux administrateurs, certificat médical qui expire). Chaque rappel n'est
+# envoyé qu'une fois ; rien n'est envoyé si aucune structure ne les a activés.
+20 7 * * * python -m app.reminders

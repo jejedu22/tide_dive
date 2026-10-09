@@ -28,6 +28,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_accounts.py    double authentification, suspension, recherche, doublons, fusion, export (RGPD)
   db_currents.py    sites de plongée des structures, courant de marée à chaque site (atlas du SHOM)
   db_requests.py    demandes de création de structure
+  db_structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
 Les évolutions nouvelles du schéma : migrations.py.
 """
@@ -234,6 +235,7 @@ from .db_selections import (  # noqa: F401
     list_registrations,
     add_registration,
     delete_registration,
+    set_attendance,
     update_selection_capacity,
 )
 from .db_unavailabilities import (  # noqa: F401
@@ -326,6 +328,22 @@ from .db_requests import (  # noqa: F401
     delete_structure_request,
     purge_structure_requests,
     super_admin_emails,
+)
+from .db_structure_profile import (  # noqa: F401
+    PROFILE_COLUMNS,
+    update_structure_profile,
+    set_join_token,
+    structure_by_join_token,
+    get_structure_logo,
+    has_structure_logo,
+    set_structure_logo,
+    create_join_request,
+    count_join_requests_since,
+    list_join_requests,
+    get_join_request,
+    set_join_request_status,
+    delete_join_request,
+    purge_join_requests,
 )
 from .db_newsletters import (  # noqa: F401
     get_mailjet,

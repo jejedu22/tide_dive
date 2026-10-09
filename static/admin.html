@@ -38,11 +38,13 @@
       <!-- data-super : réservé au super administrateur (masqué pour un administrateur de structure) -->
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" data-tab="dashboard" data-super aria-selected="false">Tableau de bord</button>
+        <button type="button" role="tab" data-tab="activite" aria-selected="false">Activité</button>
         <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
         <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
         <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
         <button type="button" role="tab" data-tab="communication" data-super aria-selected="false">Communication</button>
         <button type="button" role="tab" data-tab="exploitation" data-super aria-selected="false">Exploitation</button>
+        <button type="button" role="tab" data-tab="fiche" aria-selected="false">Ma structure</button>
         <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
         <button type="button" role="tab" data-tab="sites" aria-selected="false">Sites de plongée</button>
         <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
@@ -73,6 +75,55 @@
         <div class="panel">
           <h2>Dernières actions <button type="button" class="btn-quiet btn-small" data-goto-tab="journal">Tout le journal</button></h2>
           <ul id="dash-recent" class="journal-list"></ul>
+        </div>
+      </section>
+
+      <!-- ============ Activité de la structure : à faire et statistiques ============ -->
+      <section id="tab-activite" class="tab-panel" role="tabpanel" hidden>
+        <p class="scope-bar">
+          <label for="home-structure">Structure</label>
+          <select id="home-structure"></select>
+          <strong id="home-structure-name"></strong>
+        </p>
+        <div id="home-kpis" class="kpis"></div>
+        <div class="panel">
+          <h2>À faire</h2>
+          <ul id="home-todo" class="home-todo"></ul>
+        </div>
+        <div class="panel">
+          <h2>Créneaux à surveiller</h2>
+          <div id="home-slots"></div>
+        </div>
+        <div class="panel">
+          <h2>Statistiques
+            <label class="inline-select">sur
+              <select id="stats-months">
+                <option value="3">3 mois</option>
+                <option value="6">6 mois</option>
+                <option value="12" selected>12 mois</option>
+                <option value="24">24 mois</option>
+              </select></label>
+          </h2>
+          <p id="stats-summary" class="hint"></p>
+          <h3>Par type de créneau</h3>
+          <div class="table-wrap"><table class="users stats-table">
+            <thead><tr><th>Type</th><th>Créneaux</th><th>Inscriptions</th><th title="Inscriptions confirmées sur les places des créneaux à places limitées">Remplissage</th><th>Présents</th><th title="Présents parmi les inscrits pointés">Présence</th></tr></thead>
+            <tbody id="stats-types"></tbody>
+          </table></div>
+          <h3>Par mois</h3>
+          <div class="table-wrap"><table class="users stats-table">
+            <thead><tr><th>Mois</th><th>Créneaux</th><th>Inscriptions</th><th>Présents</th></tr></thead>
+            <tbody id="stats-months-body"></tbody>
+          </table></div>
+          <h3>Par membre <button type="button" id="stats-export" class="btn-quiet btn-small">Exporter en Excel</button></h3>
+          <div class="table-wrap"><table class="users stats-table">
+            <thead><tr><th>Membre</th><th>Inscriptions</th><th>Présent</th><th>Absent</th><th>Excusé</th><th>Dernier créneau</th></tr></thead>
+            <tbody id="stats-members"></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <h2>Dernières actions <button type="button" class="btn-quiet btn-small" data-goto-tab="journal">Tout le journal</button></h2>
+          <ul id="home-recent" class="journal-list"></ul>
         </div>
       </section>
 
@@ -351,6 +402,66 @@
       </section>
 
       <!-- ============ Types de créneaux ============ -->
+      <!-- ============ Fiche de la structure, logo, lien d'adhésion ============ -->
+      <section id="tab-fiche" class="tab-panel" role="tabpanel" hidden>
+        <p class="scope-bar">
+          <label for="fiche-structure">Structure</label>
+          <select id="fiche-structure"></select>
+          <strong id="fiche-structure-name"></strong>
+        </p>
+        <form id="fiche-form" class="panel create-user" autocomplete="off" novalidate>
+          <h2>Fiche de la structure</h2>
+          <p class="hint span-all">Vue par vos membres (page « Créneaux choisis ») et sur la page d'adhésion.</p>
+          <div class="field">
+            <label for="fiche-name">Nom</label>
+            <input id="fiche-name" name="name" required maxlength="80">
+          </div>
+          <div class="field">
+            <label for="fiche-address">Adresse ou port d'attache <span class="optional">facultatif</span></label>
+            <input id="fiche-address" name="address" maxlength="200">
+          </div>
+          <div class="field">
+            <label for="fiche-email">E-mail de contact <span class="optional">facultatif</span></label>
+            <input id="fiche-email" name="contact_email" type="email" maxlength="254">
+          </div>
+          <div class="field">
+            <label for="fiche-phone">Téléphone <span class="optional">facultatif</span></label>
+            <input id="fiche-phone" name="contact_phone" type="tel" maxlength="30">
+          </div>
+          <div class="field">
+            <label for="fiche-website">Site web <span class="optional">facultatif</span></label>
+            <input id="fiche-website" name="website" maxlength="200" placeholder="ex. monclub.fr">
+          </div>
+          <div class="form-actions span-all">
+            <button type="submit" class="btn-primary">Enregistrer</button>
+          </div>
+          <p id="fiche-status" class="form-status span-all" role="status"></p>
+        </form>
+        <div class="panel">
+          <h2>Logo</h2>
+          <div class="logo-edit">
+            <img id="fiche-logo" class="structure-logo" alt="Logo de la structure" hidden>
+            <span id="fiche-no-logo" class="muted">Aucun logo.</span>
+            <label class="btn-secondary btn-small file-btn">Choisir une image…
+              <input type="file" id="fiche-logo-file" accept="image/png,image/jpeg,image/webp" hidden></label>
+            <button type="button" id="fiche-logo-delete" class="btn-quiet btn-small">Retirer le logo</button>
+          </div>
+          <p class="hint">PNG, JPEG ou WebP, 200 Ko au plus ; une image carrée s'affiche le mieux.</p>
+          <p id="fiche-logo-status" class="form-status" role="status"></p>
+        </div>
+        <div class="panel">
+          <h2>Lien d'adhésion</h2>
+          <p class="hint">Diffusez ce lien (site du club, affiche, réseaux) : une personne qui n'a pas encore de compte y demande à rejoindre la structure. Vous recevez sa demande par e-mail et la traitez dans « Utilisateurs » : rien n'est créé sans vous.</p>
+          <p id="fiche-join" class="join-link"></p>
+          <p class="form-actions">
+            <button type="button" id="fiche-join-create" class="btn-secondary">Activer le lien</button>
+            <button type="button" id="fiche-join-copy" class="btn-quiet">Copier le lien</button>
+            <button type="button" id="fiche-join-delete" class="btn-quiet">Désactiver</button>
+          </p>
+          <p id="fiche-join-status" class="form-status" role="status"></p>
+        </div>
+      </section>
+
       <section id="tab-types" class="tab-panel" role="tabpanel" hidden>
         <p class="scope-bar">
           <label for="types-structure">Structure</label>
@@ -413,6 +524,18 @@
             </span>
           </div>
           <p class="hint">Les membres saisissent la date de leur CACI dans « Ma fiche plongeur ». Une date en attente de validation (page <a href="plongeurs.html">Plongeurs</a>, profil « Gestionnaire ») ne bloque pas l'inscription ; un certificat absent ou expiré le jour de la plongée la bloque, y compris quand un administrateur inscrit le membre.</p>
+          <h2>Rappels et alertes par e-mail</h2>
+          <p class="hint">Cochez ceux que la structure veut envoyer ; ils partent chaque matin, une seule fois chacun. Il faut que l'envoi d'e-mails soit configuré sur le serveur.</p>
+          <div class="reminder-settings">
+            <label class="check"><input type="checkbox" data-reminder="remind_slot_days"> Rappel aux inscrits
+              <input type="number" id="remind-slot-days" min="1" max="14" step="1" inputmode="numeric" value="1" aria-label="Jours avant le créneau"> jour(s) avant le créneau</label>
+            <label class="check"><input type="checkbox" data-reminder="alert_low_fill_days"> Alerte aux administrateurs pour un créneau peu rempli (aucun inscrit, ou moins de la moitié des places)
+              <input type="number" id="alert-low-fill-days" min="1" max="30" step="1" inputmode="numeric" value="3" aria-label="Jours avant le créneau"> jour(s) avant</label>
+            <label class="check"><input type="checkbox" data-reminder="alert_late_unregister_days"> Alerte aux administrateurs quand un membre se désinscrit moins de
+              <input type="number" id="alert-late-unregister-days" min="1" max="14" step="1" inputmode="numeric" value="2" aria-label="Jours avant le créneau"> jour(s) avant</label>
+            <label class="check"><input type="checkbox" data-reminder="remind_caci_days"> Rappel au membre dont le certificat médical expire dans
+              <input type="number" id="remind-caci-days" min="1" max="90" step="1" inputmode="numeric" value="30" aria-label="Jours avant l'expiration"> jours</label>
+          </div>
           <button type="submit" class="btn-primary">Enregistrer</button>
           <p id="lock-days-preview" class="hint"></p>
           <p id="settings-form-status" class="form-status" role="status"></p>
@@ -552,6 +675,13 @@
       </section>
 
       <section id="tab-utilisateurs" class="tab-panel" role="tabpanel" hidden>
+        <div id="join-panel" class="panel" hidden>
+          <div class="panel-head">
+            <h2>Demandes d'adhésion <span id="join-count" class="tag tag-pending" hidden></span></h2>
+          </div>
+          <p class="hint">Reçues par le lien d'adhésion de la structure (onglet « Ma structure »). Créez le compte, ou invitez-le s'il en a déjà un dans une autre structure ; la demande est alors classée.</p>
+          <div id="join-list" class="requests"></div>
+        </div>
         <form id="create-user" class="panel create-user" autocomplete="off" novalidate>
           <h2>Ajouter un utilisateur</h2>
           <div class="field">
@@ -728,10 +858,45 @@
               </span>
             </p>
           </div>
+          <div class="users-filters" role="group" aria-label="Filtres">
+            <label>Rôle <select id="users-role">
+              <option value="">Tous</option>
+              <option value="manager">Administration</option>
+              <option value="viewer">Visualisation</option>
+              <option value="super" data-super>Super administrateur</option>
+            </select></label>
+            <label>Profil <select id="users-profile"><option value="">Tous</option></select></label>
+            <label>Certificat médical <select id="users-caci">
+              <option value="">Tous</option>
+              <option value="valid">Valable</option>
+              <option value="pending">À valider</option>
+              <option value="problem">Absent ou expiré</option>
+            </select></label>
+            <label>État <select id="users-state">
+              <option value="">Tous</option>
+              <option value="pending">Invitation ou mot de passe provisoire</option>
+              <option value="never">Jamais connecté</option>
+              <option value="incomplete">Profil incomplet</option>
+              <option value="suspended">Suspendu</option>
+            </select></label>
+            <button type="button" id="users-export" class="btn-quiet btn-small">Exporter en Excel</button>
+          </div>
+          <div id="users-bulk" class="users-bulk" hidden>
+            <strong id="users-bulk-count"></strong>
+            <label class="visually-hidden" for="users-bulk-action">Action groupée</label>
+            <select id="users-bulk-action">
+              <option value="">Action groupée…</option>
+              <option value="role:manager">Passer en administration</option>
+              <option value="role:viewer">Passer en visualisation</option>
+            </select>
+            <button type="button" id="users-bulk-apply" class="btn-secondary btn-small">Appliquer</button>
+            <button type="button" id="users-bulk-clear" class="btn-quiet btn-small">Tout décocher</button>
+          </div>
           <div class="table-wrap">
             <table class="users users-list">
               <thead>
                 <tr>
+                  <th scope="col" class="col-check"><input type="checkbox" id="users-check-all" aria-label="Tout cocher (comptes affichés)"></th>
                   <th scope="col">Nom</th>
                   <th scope="col">Contact</th>
                   <th scope="col">Structure</th>
@@ -770,6 +935,7 @@
 
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="session.js"></script>
+  <script src="xlsx-export.js"></script>
   <script src="carte.js"></script>
   <script src="admin.js"></script>
 </body>

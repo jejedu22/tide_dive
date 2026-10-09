@@ -94,7 +94,8 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 - **2 de chaque mois, 04:30** : recalage sur api-maree.fr de chaque port doté d'un site api-maree.fr (voir [Recalage](#recalage-sur-api-mareefr)) ;
 - **tous les jours, 05:10** : horaires du mois glissant (J−1 à J+29) repris d'api-maree.fr pour ces mêmes ports ;
 - **1er de chaque mois, 04:00** (et au démarrage) : vacances scolaires ;
-- **tous les jours, 03:30** : sauvegarde de la base ; **07:05** : contrôle de santé et alertes (voir [Exploitation](#exploitation--sauvegarde-surveillance-sécurité)).
+- **tous les jours, 03:30** : sauvegarde de la base ; **07:05** : contrôle de santé et alertes (voir [Exploitation](#exploitation--sauvegarde-surveillance-sécurité)) ;
+- **tous les jours, 07:20** : rappels et alertes par e-mail des structures (voir [Rappels et alertes](#rappels-et-alertes-par-e-mail)).
 
 ### Variables d'environnement (`.env`)
 
@@ -347,10 +348,10 @@ Une **structure** (club, groupe…) regroupe des comptes, sa liste de **types de
 | Rôle | Peut |
 |---|---|
 | **Visualisation** | voir la liste des créneaux choisis par sa structure (et les voir grisés dans la recherche) |
-| **Administration** | en plus : choisir et retirer les créneaux de la structure, gérer ses membres (création, rôle, mot de passe, suppression) et ses types de créneaux |
+| **Administration** | en plus : choisir et retirer les créneaux de la structure, gérer ses membres (création, rôle, mot de passe, suppression), ses types de créneaux, sa fiche et ses demandes d'adhésion, voir son activité et ses statistiques |
 | **Super administrateur** | tout : structures, ports, données et tâches, comptes et types de toutes les structures. Peut aussi appartenir à une structure (il y a alors les droits d'administration) |
 
-Il n'y a pas d'inscription libre : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
+Il n'y a pas d'inscription libre (une personne peut seulement demander à rejoindre une structure par son [lien d'adhésion](#fiche-de-la-structure-et-demandes-dadhésion)) : les comptes sont créés sur **`/admin.html` → Utilisateurs**, par un super administrateur (dans n'importe quelle structure) ou par un administrateur de structure (dans la sienne, sans pouvoir créer de super administrateur). Garde-fous : on ne peut ni supprimer son propre compte, ni se retirer ses droits de super administrateur, ni changer son propre rôle de structure ; il reste toujours au moins un super administrateur ; une structure n'est supprimable qu'une fois vide de membres (ses types et créneaux choisis partent avec elle).
 
 ### Fonctions, archivage et transfert (super administrateur)
 
@@ -391,6 +392,7 @@ En plus de son rôle (visualisation ou administration), un compte peut recevoir 
 |---|---|
 | **Gestionnaire** | les [newsletters](#newsletters) de la structure : rédaction, envoi et suivi des envois ; la [validation des certificats médicaux](#fiche-plongeur-et-certificat-médical-caci) (page **Plongeurs**). Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
 | **Inscriptions** | [inscrire d'autres membres](#inscrire-dautres-membres) de la structure sur les créneaux, et retirer leur inscription (un encadrant qui inscrit ses élèves, par exemple). Un administrateur de structure a ce droit d'office |
+| **Créneaux** | organiser les créneaux comme un administrateur (choisir, ajouter, modifier, dupliquer, retirer, places), inscrire des membres et [pointer les présences](#feuille-de-présence), **sans** l'administration (membres, réglages) : un directeur de plongée, par exemple |
 
 Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles` (par structure).
 
@@ -458,9 +460,46 @@ Un club qui n'a pas encore de structure peut la demander depuis la page publique
 
 **Mise à jour d'une base existante** : au premier démarrage, les comptes, types et créneaux existants sont rattachés à une structure « Structure principale » ; les super administrateurs y sont en administration, **les autres comptes en visualisation** (à promouvoir si besoin). Si plusieurs comptes avaient choisi le même créneau, seul le premier choix est conservé.
 
+### Activité et statistiques de la structure
+
+**`/admin.html` → Activité** (premier onglet d'un administrateur de structure ; un super administrateur choisit la structure) :
+
+- **À faire** : réglages manquants (aucun type de créneau proposé, pas de port par défaut, aucun administrateur), certificats médicaux à valider, membres sans CACI valable quand la vérification est active, CACI qui expirent dans les 30 jours, créneaux des 30 derniers jours sans présences pointées, invitations et comptes en attente ;
+- **Créneaux à surveiller** : peu remplis dans les 14 prochains jours (aucun inscrit, ou moins de la moitié des places), complets avec une file d'attente, présences à pointer ;
+- **Statistiques** sur 3, 6, 12 ou 24 mois (créneaux du jour et passés) : par type (créneaux, inscriptions confirmées, taux de remplissage des créneaux à places limitées, présents, taux de présence parmi les inscrits pointés), par mois, et par membre (inscriptions, présent, absent, excusé, dernier créneau) avec export Excel.
+
+API : `GET /api/admin/structure-dashboard`, `GET /api/admin/structure-stats?months=12` (`app/structure_home.py`).
+
+### Fiche de la structure et demandes d'adhésion
+
+**`/admin.html` → Ma structure**, pour les administrateurs de la structure (`app/structure_profile.py`) :
+
+- **Fiche** : nom (un administrateur de structure peut désormais renommer la sienne), adresse ou port d'attache, e-mail et téléphone de contact, site web, **logo** (PNG, JPEG ou WebP reconnus à leur contenu, 200 Ko au plus, jamais de SVG ; table `structure_logos`, servi par `GET /api/structures/{id}/logo`). Les membres la voient en bas de « Créneaux choisis » (`GET /api/me/structure-card`).
+- **Lien d'adhésion** : jeton aléatoire, à activer, remplacer ou désactiver. La page publique `/rejoindre.html#<jeton>` (jeton dans le fragment) montre la fiche et un formulaire (prénom, nom, e-mail, téléphone, message, consentement). La demande est enregistrée (table `join_requests`) et signalée par e-mail aux administrateurs ; **aucun compte n'est créé d'office**, aucun e-mail n'est envoyé à l'adresse saisie. Anti-abus : champ piège, 3 demandes par adresse et 30 par structure sur 24 h, limitation par adresse IP.
+- **Utilisateurs → Demandes d'adhésion** : **Créer le compte** (formulaire prérempli), **Inviter son compte** (compte existant dans une autre structure), **Classer sans suite**, **Remettre en attente**, **Supprimer**. Une demande est classée dès que le compte est créé ou l'invitation envoyée ; les demandes traitées sont supprimées au bout d'un an.
+
+Migration de schéma n° 16.
+
+### Liste des comptes : filtres, export, actions groupées
+
+Dans **Utilisateurs**, la liste se filtre par rôle, profil, certificat médical (valable, à valider, absent ou expiré) et état (invitation ou mot de passe provisoire, jamais connecté, profil incomplet, suspendu). **Exporter en Excel** télécharge les comptes affichés (contact, rôle, profils, niveaux, licence, CACI, dernière connexion). Les cases à cocher ouvrent les **actions groupées** : passer en administration ou en visualisation, attribuer ou retirer un profil, retirer de la structure (`POST /api/admin/users/bulk`, `app/user_bulk.py`) ; chaque compte passe par les mêmes contrôles que l'action unitaire, les refus sont listés avec leur motif. Un super administrateur choisit d'abord une structure. La page **Plongeurs** a aussi son export Excel.
+
+### Rappels et alertes par e-mail
+
+Réglés par chaque structure dans **`/admin.html` → Créneaux → Rappels et alertes** ; **tous désactivés par défaut** (migration n° 15) :
+
+| Réglage | Envoi |
+|---|---|
+| Rappel aux inscrits, N jours avant (1 à 14) | chaque inscrit **confirmé** d'un créneau |
+| Créneau peu rempli, N jours avant (1 à 30) | les administrateurs : créneaux sans inscrit ou à moins de la moitié des places |
+| Désinscription tardive, moins de N jours avant (1 à 14) | les administrateurs, au moment où un membre confirmé se désinscrit |
+| Certificat médical qui expire dans N jours (1 à 90) | le membre, une fois par certificat |
+
+`python -m app.reminders` (planificateur, chaque jour à 07:20 ; `--dry-run` pour voir ce qui partirait) envoie les rappels dus, **une seule fois chacun** (table `reminders_sent`) ; un envoi en échec est retenté au passage suivant. Sans envoi d'e-mails configuré, rien ne part.
+
 ### Aide en ligne
 
-Des pages d'aide, publiques, expliquent l'application selon le rôle : **`/aide.html`** (lien « Aide » dans l'en-tête et en bas de la recherche) mène aux guides **Membre** (`aide-membre.html`), **Administrateur de structure** (`aide-administrateur.html`), **Profil Gestionnaire** (`aide-gestionnaire.html`) et **Profil Inscriptions** (`aide-inscriptions.html`). Les guides qui concernent le compte connecté sont signalés « Pour vous ». Pages statiques, à tenir à jour avec les fonctions ; un test vérifie que chaque profil du catalogue (`PROFILES`) a son guide et que les liens internes sont valides.
+Des pages d'aide, publiques, expliquent l'application selon le rôle : **`/aide.html`** (lien « Aide » dans l'en-tête et en bas de la recherche) mène aux guides **Membre** (`aide-membre.html`), **Administrateur de structure** (`aide-administrateur.html`), **Profil Gestionnaire** (`aide-gestionnaire.html`), **Profil Inscriptions** (`aide-inscriptions.html`) et **Profil Créneaux** (`aide-creneaux.html`). Les guides qui concernent le compte connecté sont signalés « Pour vous ». Pages statiques, à tenir à jour avec les fonctions ; un test vérifie que chaque profil du catalogue (`PROFILES`) a son guide et que les liens internes sont valides.
 
 ### Application installable (PWA)
 
@@ -605,6 +644,22 @@ Les administrateurs d'une structure déclarent des **plages d'indisponibilité**
 - **Créneaux déjà choisis** dans une nouvelle plage : ils sont **conservés**, inscrits compris. L'administration les liste à l'enregistrement de la plage ; à l'administrateur de les retirer s'il le souhaite.
 - **Affichage** : dans la recherche, les étales concernées sont hachurées et marquées « Indisponible · motif », sans liste de choix. Dans « Créneaux choisis », un bandeau rappelle les plages à venir et les jours concernés sont hachurés dans le calendrier.
 - Modification et suppression depuis la même liste ; les plages passées sont masquées (case « Afficher les plages passées »).
+
+### Créneau retiré ou modifié : les inscrits sont prévenus
+
+- **Retirer** un créneau à venir qui a des inscrits ouvre une fenêtre : case **Prévenir les inscrits par e-mail** (cochée) et **motif** facultatif, repris dans l'e-mail. Inscrits confirmés et file d'attente sont prévenus (`DELETE /api/selections/{id}?notify=true&reason=…` ; `notify=false` pour ne prévenir personne).
+- **Modifier** le jour, l'heure ou le lieu d'un créneau personnalisé prévient ses inscrits, avec l'ancien et le nouvel horaire (case décochable ; champ `notify` de `PATCH /api/selections/{id}`). Changer seulement l'intitulé ne prévient personne.
+- **Nouveau délai de rendez-vous** de la structure : un seul e-mail par membre liste ses créneaux à venir dont le RDV change.
+- Rien n'est envoyé pour un créneau passé, ni sans envoi d'e-mails configuré.
+
+### Feuille de présence
+
+À partir du jour du créneau, l'administration, le profil Inscriptions ou le profil Créneaux pointe chaque inscrit **présent**, **absent** ou **excusé** (bouton **Présences**, « Tous présents » coche les confirmés) : `PUT /api/selections/{id}/attendance`. Le pointage s'affiche dans la liste des inscrits, l'export Excel (colonnes *Présents*, *Absents / excusés*) et les [statistiques](#activité-et-statistiques-de-la-structure). Migration n° 14 (colonnes `attendance`, `attendance_at` de `slot_registrations`).
+
+### Séries et duplication de créneaux personnalisés
+
+- **Série** : case **Répéter** du créneau personnalisé, chaque semaine ou toutes les 2 à 4 semaines jusqu'à une date (60 créneaux au plus, pas de séjour). Les jours d'une plage d'indisponibilité sont sautés et signalés (`POST /api/selections/custom/series`).
+- **Dupliquer…** un créneau personnalisé à un autre jour : lieu, heure, type, intitulé et places repris, sans les inscrits ; un séjour garde sa durée (`POST /api/selections/{id}/duplicate`).
 
 ### Choisir tous les créneaux affichés
 
@@ -920,6 +975,7 @@ app/
   db_water.py       hauteurs d'eau des ports (seuils)
   db_currents.py    sites de plongée, courant de marée à chaque site (atlas du SHOM)
   db_requests.py    demandes de création de structure
+  db_structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
   db_newsletters.py connexion Mailjet, newsletters, groupes d'envoi
   auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
   accounts.py       profil (normalisation), identifiant proposé, jetons et e-mails de compte
@@ -934,6 +990,10 @@ app/
   structures.py     API des structures (super administrateur)
   memberships.py    invitations à rejoindre une structure (administrateurs et titulaire du compte)
   contact.py        demandes de création de structure : formulaire public, notification, administration
+  structure_home.py activité d'une structure : à faire, créneaux à surveiller, statistiques
+  structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
+  user_bulk.py      actions groupées sur les comptes d'une structure
+  reminders.py      rappels et alertes par e-mail (planificateur)
   mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
   mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test, activation du suivi
   newsletters.py    newsletters : brouillons, audiences, test, envoi, programmation, rapport, désinscription, événements Mailjet

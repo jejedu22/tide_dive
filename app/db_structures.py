@@ -53,6 +53,7 @@ LOCK_COLUMNS = ("register_lock_days", "unregister_lock_days")
 
 SETTINGS_COLUMNS = (*LOCK_COLUMNS, "rdv_offset_minutes", "default_port_id", "default_max_registrations",
                     "use_api_maree", "use_calibration", "search_modes", "caci_check", "caci_validity_months",
+                    "remind_slot_days", "alert_low_fill_days", "remind_caci_days", "alert_late_unregister_days",
                     "disabled_features")
 
 

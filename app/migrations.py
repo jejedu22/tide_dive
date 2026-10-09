@@ -310,6 +310,89 @@ def _m013_mail_log(conn: sqlite3.Connection) -> None:
                  "recipient TEXT NOT NULL, subject TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('sent', 'failed')), "
                  "error TEXT)")
 
+def _m014_attendance(conn: sqlite3.Connection) -> None:
+    """Feuille de présence : présent, absent ou excusé, pour chaque inscription (vide : pas encore pointé)."""
+    existing = _columns(conn, "slot_registrations")
+    for col, ddl in ATTENDANCE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_registrations ADD COLUMN {col} {ddl}")
+
+
+ATTENDANCE_COLUMNS = {
+    "attendance": "TEXT CHECK (attendance IN ('present', 'absent', 'excused'))",
+    "attendance_at": "TEXT",
+}
+
+
+REMINDER_COLUMNS = {
+    # rappel aux inscrits N jours avant le créneau (1 : la veille) ; NULL : pas de rappel
+    "remind_slot_days": "INTEGER CHECK (remind_slot_days BETWEEN 1 AND 14)",
+    # alerte aux administrateurs, N jours avant, pour un créneau peu rempli ; NULL : pas d'alerte
+    "alert_low_fill_days": "INTEGER CHECK (alert_low_fill_days BETWEEN 1 AND 30)",
+    # rappel au membre dont le certificat médical expire dans N jours ; NULL : pas de rappel
+    "remind_caci_days": "INTEGER CHECK (remind_caci_days BETWEEN 1 AND 90)",
+    # alerte aux administrateurs quand un membre se désinscrit moins de N jours avant ; NULL : pas d'alerte
+    "alert_late_unregister_days": "INTEGER CHECK (alert_late_unregister_days BETWEEN 1 AND 14)",
+}
+
+REMINDERS_SENT_TABLE = """
+CREATE TABLE IF NOT EXISTS reminders_sent (
+    kind TEXT NOT NULL,          -- slot, low_fill, caci
+    ref TEXT NOT NULL,           -- créneau (id) ou date du CACI
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sent_at TEXT NOT NULL,
+    PRIMARY KEY (kind, ref, user_id)
+)"""
+
+
+def _m015_reminders(conn: sqlite3.Connection) -> None:
+    """Rappels et alertes par e-mail, réglés par structure (tous désactivés), et rappels déjà envoyés."""
+    existing = _columns(conn, "structures")
+    for col, ddl in REMINDER_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} {ddl}")
+    conn.execute(REMINDERS_SENT_TABLE)
+
+
+STRUCTURE_PROFILE_COLUMNS = {
+    "contact_email": "TEXT", "contact_phone": "TEXT", "website": "TEXT", "address": "TEXT",
+    # lien d'adhésion public (/rejoindre.html#<jeton>) ; NULL : désactivé
+    "join_token": "TEXT",
+}
+
+STRUCTURE_PROFILE_TABLES = (
+    """CREATE TABLE IF NOT EXISTS structure_logos (
+        structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+        content_type TEXT NOT NULL,
+        data BLOB NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS join_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT,
+        message TEXT,
+        status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'done', 'rejected')),
+        created_at TEXT NOT NULL,
+        handled_at TEXT,
+        handled_by TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_join_requests_structure ON join_requests(structure_id, status)",
+)
+
+
+def _m016_structure_profile(conn: sqlite3.Connection) -> None:
+    """Fiche de la structure (contact, site, adresse, logo), lien d'adhésion et demandes d'adhésion."""
+    existing = _columns(conn, "structures")
+    for col, ddl in STRUCTURE_PROFILE_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} {ddl}")
+    for sql in STRUCTURE_PROFILE_TABLES:
+        conn.execute(sql)
+
 
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
@@ -325,6 +408,9 @@ MIGRATIONS: list[Migration] = [
     Migration(11, "double authentification et suspension des comptes", _m011_account_security),
     Migration(12, "fonctions activables, archivage des structures, bandeaux d'annonce", _m012_structure_features),
     Migration(13, "suivi des e-mails de service", _m013_mail_log),
+    Migration(14, "feuille de présence des créneaux", _m014_attendance),
+    Migration(15, "rappels et alertes par e-mail", _m015_reminders),
+    Migration(16, "fiche de la structure, logo et demandes d'adhésion", _m016_structure_profile),
 ]
 
 

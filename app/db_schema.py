@@ -223,7 +223,19 @@ CREATE TABLE IF NOT EXISTS structures (
     -- vide : toutes actives
     disabled_features TEXT NOT NULL DEFAULT '',
     -- structure archivée : ses membres n'y ont plus accès, ses données sont conservées ; NULL : active
-    archived_at TEXT
+    archived_at TEXT,
+    -- rappels et alertes par e-mail (reminders.py) ; NULL : désactivé
+    remind_slot_days INTEGER CHECK (remind_slot_days BETWEEN 1 AND 14),
+    alert_low_fill_days INTEGER CHECK (alert_low_fill_days BETWEEN 1 AND 30),
+    remind_caci_days INTEGER CHECK (remind_caci_days BETWEEN 1 AND 90),
+    alert_late_unregister_days INTEGER CHECK (alert_late_unregister_days BETWEEN 1 AND 14),
+    -- fiche de la structure, saisie par ses administrateurs (structure_profile.py)
+    contact_email TEXT,
+    contact_phone TEXT,
+    website TEXT,
+    address TEXT,
+    -- lien d'adhésion public (/rejoindre.html#<jeton>) ; NULL : désactivé
+    join_token TEXT
 );
 
 -- E-mails de service envoyés par le serveur (mailer.send_many : invitations, mots de passe, alertes, e-mails
@@ -250,6 +262,30 @@ CREATE TABLE IF NOT EXISTS announcements (
     created_by_name TEXT,
     created_at TEXT NOT NULL
 );
+
+-- Logo d'une structure (PNG, JPEG ou WebP, 200 Ko au plus)
+CREATE TABLE IF NOT EXISTS structure_logos (
+    structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+    content_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demandes d'adhésion reçues par le lien public d'une structure ; traitées par ses administrateurs
+CREATE TABLE IF NOT EXISTS join_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    message TEXT,
+    status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'done', 'rejected')),
+    created_at TEXT NOT NULL,
+    handled_at TEXT,
+    handled_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_join_requests_structure ON join_requests(structure_id, status);
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
 -- is_admin = super administrateur (toute l'application, toutes les structures).
@@ -631,6 +667,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id);
 
+-- Rappels déjà envoyés (reminders.py) : un seul envoi par créneau, ou par date de CACI, et par compte.
+CREATE TABLE IF NOT EXISTS reminders_sent (
+    kind TEXT NOT NULL,          -- slot, low_fill, caci
+    ref TEXT NOT NULL,           -- créneau (id) ou date du CACI
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sent_at TEXT NOT NULL,
+    PRIMARY KEY (kind, ref, user_id)
+);
+
 -- Plages d'indisponibilité d'une structure (tous lieux) : aucun créneau ne peut y être choisi ou créé.
 -- Du jour start_date (à start_time, sinon dès 00:00) au jour end_date (jusqu'à end_time exclu, sinon toute la
 -- journée), heures locales. Les créneaux déjà choisis dans la plage restent (l'administrateur est prévenu).
@@ -669,6 +714,9 @@ CREATE TABLE IF NOT EXISTS slot_registrations (
     created_at TEXT NOT NULL,
     registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     registered_by_name TEXT,
+    -- feuille de présence (après la sortie) : present, absent, excused ; NULL : pas encore pointé
+    attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
+    attendance_at TEXT,
     PRIMARY KEY (selection_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_registrations_user ON slot_registrations(user_id);

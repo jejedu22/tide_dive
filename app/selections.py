@@ -44,7 +44,9 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import accounts, db, diver, mailer
@@ -192,6 +194,39 @@ class CustomSelectionIn(BaseModel):
         return self
 
 
+MAX_SERIES = 60   # créneaux d'une série au plus (plus d'un an chaque semaine)
+
+
+class CustomSeriesIn(CustomSelectionIn):
+    """Série de créneaux personnalisés : le même chaque `every_weeks` semaine(s), du jour `date` au jour `until`
+    inclus (une fosse tous les mardis, par exemple). Pas de séjour sur plusieurs jours."""
+    until: dt.date = Field(ge=MIN_DATE, le=MAX_DATE)
+    every_weeks: int = Field(1, ge=1, le=4)
+
+    @model_validator(mode="after")
+    def _series(self):
+        if self.end_date is not None:
+            raise ValueError("une série ne peut pas être un séjour sur plusieurs jours")
+        if self.until <= self.date:
+            raise ValueError("la fin de la série doit être postérieure au premier jour")
+        if len(self.days()) > MAX_SERIES:
+            raise ValueError(f"{MAX_SERIES} créneaux au plus par série : rapprochez la date de fin")
+        return self
+
+    def days(self) -> list[dt.date]:
+        step = timedelta(weeks=self.every_weeks)
+        out, d = [], self.date
+        while d <= self.until:
+            out.append(d)
+            d += step
+        return out
+
+
+class DuplicateIn(BaseModel):
+    """Copie d'un créneau personnalisé à un autre jour (même heure, lieu, type, intitulé et places)."""
+    date: dt.date = Field(ge=MIN_DATE, le=MAX_DATE)
+
+
 class SelectionPatch(BaseModel):
     """type_id, note, max_registrations : tout créneau. port_id / location, date, end_date, time : créneau
     personnalisé uniquement (ceux d'une étale sont ceux de l'étale)."""
@@ -203,6 +238,8 @@ class SelectionPatch(BaseModel):
     time: str | None = Field(None, pattern=TIME_PATTERN)
     note: str | None = Field(None, max_length=80)
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # tout créneau ; 0 ou null : illimité
+    # créneau personnalisé déplacé (jour, heure, lieu) : prévenir ses inscrits par e-mail
+    notify: bool = True
 
     @field_validator("note")
     @classmethod
@@ -266,7 +303,8 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
         out.setdefault(r["selection_id"], []).append(
             {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
              "created_at": r["created_at"],
-             "registered_by": r["registered_by_name"]}   # inscrit par un tiers, sinon None
+             "registered_by": r["registered_by_name"],   # inscrit par un tiers, sinon None
+             "attendance": r["attendance"]}               # present, absent, excused ; None : pas pointé
         )
     return out
 
@@ -326,6 +364,8 @@ def _selection_out(
         "my_status": None if mine is None else ("waiting" if mine["waiting"] else "confirmed"),
         "my_position": mine["position"] if mine else None,
         "past": (row["end_date"] or row["local_date"]) < _today(),
+        # feuille de présence : à partir du jour du créneau
+        "attendance_open": row["local_date"] <= _today(),
         "register_until": reg_until,
         "can_register": _today() <= reg_until,
         "unregister_until": unreg_until,
@@ -462,6 +502,54 @@ def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
     return _one_out(sid, sel_id, user["id"])
 
 
+@router.post("/selections/custom/series", status_code=201)
+def create_custom_series(body: CustomSeriesIn, user: CurrentPicker):
+    """Série de créneaux personnalisés, chaque semaine (ou toutes les 2 à 4 semaines). Les jours d'une plage
+    d'indisponibilité sont sautés et listés dans « skipped »."""
+    sid = user["structure_id"]
+    if body.port_id is not None and db.get_port(body.port_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
+    _active_type_or_422(body.type_id, sid)
+    capacity = _initial_capacity(body, sid)
+    unavailable = db.list_unavailabilities(sid)
+    created, skipped = [], []
+    for day in body.days():
+        if blocking(unavailable, *custom_span(day.isoformat(), body.time, None)):
+            skipped.append({"date": day.isoformat(), "reason": "indisponible"})
+            continue
+        created.append(db.create_custom_selection(
+            sid, user["id"], body.port_id, body.location, body.type_id, day.isoformat(), None, body.time, body.note,
+            _now_iso(), max_registrations=capacity))
+    locks = db.get_lock_days(sid)
+    rows = {r["id"]: r for r in db.list_selections(sid) if r["id"] in set(created)}
+    return {"created": [_selection_out(rows[i], [], user["id"], locks) for i in created], "skipped": skipped}
+
+
+@router.post("/selections/{selection_id}/duplicate", status_code=201)
+def duplicate_selection(selection_id: int, body: DuplicateIn, user: CurrentPicker):
+    """Copie un créneau personnalisé à un autre jour ; un séjour garde sa durée. Sans les inscrits."""
+    sid = user["structure_id"]
+    row = db.get_selection(sid, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["ts_utc"] is not None or row["window_start_utc"] is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Seul un créneau personnalisé se duplique : un créneau d'étale suit la marée de son jour.")
+    end = None
+    if row["end_date"]:
+        span = date.fromisoformat(row["end_date"]) - date.fromisoformat(row["local_date"])
+        end = (body.date + span).isoformat()
+    type_id = row["type_id"]
+    t = db.get_slot_type(type_id)
+    if t is None or not t["active"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Le type de ce créneau n'est plus proposé")
+    ensure_available(sid, *custom_span(body.date.isoformat(), row["rdv_time"], end))
+    sel_id = db.create_custom_selection(
+        sid, user["id"], row["port_id"], row["location"], type_id, body.date.isoformat(), end, row["rdv_time"],
+        row["note"], _now_iso(), max_registrations=row["max_registrations"])
+    return _one_out(sid, sel_id, user["id"])
+
+
 @router.patch("/selections/{selection_id}")
 def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicker, background: BackgroundTasks):
     sid = user["structure_id"]
@@ -501,6 +589,7 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         ensure_available(sid, *custom_span(start.isoformat(), body.time or row["rdv_time"],
                                            end.isoformat() if end else None))
     if sent & custom_fields:
+        before = (when(row), place(row))
         db.update_custom_selection(
             sid, selection_id, port_id, location,
             start.isoformat(), end.isoformat() if end else None,
@@ -517,14 +606,25 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         _, waiting_before = _status(sid, selection_id)
         db.update_selection_capacity(sid, selection_id, _clean_capacity(body.max_registrations))
         _notify_promotions(background, sid, selection_id, waiting_before)
+    if sent & custom_fields and body.notify:
+        _notify_moved(background, sid, selection_id, *before)
     return _one_out(sid, selection_id, user["id"])
 
 
 @router.delete("/selections/{selection_id}", status_code=204)
-def delete_selection(selection_id: int, user: CurrentPicker):
-    # filtré par structure : impossible de retirer le choix d'une autre structure
-    if not db.delete_selection(user["structure_id"], selection_id):
+def delete_selection(selection_id: int, user: CurrentPicker, background: BackgroundTasks,
+                     warn: bool = Query(True, alias="notify"), reason: str | None = Query(None, max_length=300)):
+    """Retire un créneau et ses inscriptions. notify (par défaut) : les inscrits d'un créneau à venir en sont
+    prévenus par e-mail, avec le motif facultatif."""
+    sid = user["structure_id"]
+    row = db.get_selection(sid, selection_id)   # filtré par structure : impossible de retirer celui d'une autre
+    members = _members_to_notify(sid, row) if row is not None and warn else []
+    if not db.delete_selection(sid, selection_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if members:
+        reason = " ".join(reason.split()) if reason else None
+        by = accounts.display_name(user)
+        background.add_task(notify, [cancelled_message(m, row, by, reason) for m in members])
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +691,7 @@ def _notify_promotions(background: BackgroundTasks, structure_id: int, selection
             if member is not None and member["email"]:
                 messages.append(promoted_message(member, row, can_unregister))
     if messages:
-        background.add_task(_notify, messages)
+        background.add_task(notify, messages)
 
 
 @router.post("/selections/{selection_id}/registration")
@@ -617,7 +717,13 @@ def unregister(selection_id: int, user: CurrentMember, background: BackgroundTas
     _, waiting_before = _status(sid, selection_id)
     if user["id"] not in waiting_before:   # quitter la file d'attente reste possible après le délai
         _check_open(row, db.get_lock_days(sid)["unregister_lock_days"], "Désinscription close")
-    db.delete_registration(selection_id, user["id"])  # déjà désinscrit : idem
+    confirmed_before, _ = _status(sid, selection_id)
+    if db.delete_registration(selection_id, user["id"]) and user["id"] in confirmed_before:
+        # désinscription tardive d'une place confirmée : les administrateurs en sont prévenus (si la structure le veut)
+        from .reminders import late_unregister_alert
+        alerts = late_unregister_alert(sid, row, user)
+        if alerts:
+            background.add_task(notify, alerts)
     _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, user["id"])
 
@@ -643,11 +749,11 @@ def registration_members(actor: CurrentRegistrar):
     ]
 
 
-def _place(row: sqlite3.Row) -> str:
+def place(row: sqlite3.Row) -> str:
     return row["note"] + f" ({row['port_name']})" if row["note"] else row["port_name"]
 
 
-def _when(row: sqlite3.Row) -> str:
+def when(row: sqlite3.Row) -> str:
     start = date.fromisoformat(row["local_date"])
     when = f"du {_fr_date(start)} {start.year}"
     if row["end_date"]:
@@ -666,11 +772,11 @@ def registered_message(member: sqlite3.Row, row: sqlite3.Row, by: str,
     app = mailer.APP_NAME
     day = _fr_date(date.fromisoformat(row["local_date"]))
     if waiting_position is None:
-        what = f"{by} vous a inscrit au créneau {_when(row)} : {_place(row)}."
+        what = f"{by} vous a inscrit au créneau {when(row)} : {place(row)}."
         subject = f"{app} : inscription au créneau du {day}"
     else:
-        what = (f"{by} vous a placé en file d'attente (n° {waiting_position}) pour le créneau {_when(row)} : "
-                f"{_place(row)}.\nCe créneau est complet : vous serez prévenu(e) par e-mail si une place se libère.")
+        what = (f"{by} vous a placé en file d'attente (n° {waiting_position}) pour le créneau {when(row)} : "
+                f"{place(row)}.\nCe créneau est complet : vous serez prévenu(e) par e-mail si une place se libère.")
         subject = f"{app} : file d'attente pour le créneau du {day}"
     body = f"""{accounts.greeting(member)}
 
@@ -696,7 +802,7 @@ def promoted_message(member: sqlite3.Row, row: sqlite3.Row, can_unregister: bool
                  "de votre structure pour laisser la place au suivant.\nVos créneaux :")
     body = f"""{accounts.greeting(member)}
 
-Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {_when(row)} : {_place(row)}.
+Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {when(row)} : {place(row)}.
 
 {leave}
 {mailer.link('mes-creneaux.html')}
@@ -707,7 +813,7 @@ Une place s'est libérée : vous êtes maintenant inscrit(e) au créneau {_when(
     return member["email"], f"{app} : une place s'est libérée pour le créneau du {_fr_date(date.fromisoformat(row['local_date']))}", body
 
 
-def _notify(messages: list[tuple[str, str, str]]) -> None:
+def notify(messages: list[tuple[str, str, str]]) -> None:
     try:
         errors = mailer.send_many(messages)
     except mailer.MailError as e:
@@ -715,6 +821,97 @@ def _notify(messages: list[tuple[str, str, str]]) -> None:
     for (to, _, _), err in zip(messages, errors):
         if err:
             print(f"[inscription] e-mail non envoyé à {to} : {err}", file=sys.stderr, flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Créneau retiré ou déplacé : ses inscrits (confirmés et file d'attente) sont prévenus par e-mail, s'il est à venir
+# ---------------------------------------------------------------------------
+
+def _members_to_notify(structure_id: int, row: sqlite3.Row) -> list[sqlite3.Row]:
+    """Inscrits (confirmés et file d'attente) d'un créneau à venir qui ont une adresse e-mail ; [] sans envoi
+    d'e-mails ou pour un créneau passé."""
+    if not mailer.enabled() or (row["end_date"] or row["local_date"]) < _today():
+        return []
+    members = (db.get_user(r["user_id"], structure_id) for r in db.list_registrations(structure_id, row["id"]))
+    return [m for m in members if m is not None and m["email"]]
+
+
+def cancelled_message(member: sqlite3.Row, row: sqlite3.Row, by: str, reason: str | None) -> tuple[str, str, str]:
+    app = mailer.APP_NAME
+    why = f"\nMotif : {reason}\n" if reason else ""
+    body = f"""{accounts.greeting(member)}
+
+Le créneau {when(row)} : {place(row)}, auquel vous étiez inscrit(e), est annulé par {by}.
+{why}
+Votre inscription est retirée. Les autres créneaux de votre structure :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+    day = _fr_date(date.fromisoformat(row["local_date"]))
+    return member["email"], f"{app} : créneau du {day} annulé", body
+
+
+def moved_message(member: sqlite3.Row, row: sqlite3.Row, before_when: str, before_place: str) -> tuple[str, str, str]:
+    """Créneau modifié (jour, heure de rendez-vous, lieu) : l'ancien et le nouveau."""
+    app = mailer.APP_NAME
+    body = f"""{accounts.greeting(member)}
+
+Le créneau auquel vous êtes inscrit(e) a été modifié.
+
+Avant : {before_when} : {before_place}.
+Désormais : {when(row)} : {place(row)}.
+
+Votre inscription est conservée. Si vous ne pouvez plus venir, désinscrivez-vous (ou prévenez un administrateur
+si le délai de désinscription est passé) :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+    day = _fr_date(date.fromisoformat(row["local_date"]))
+    return member["email"], f"{app} : créneau du {day} modifié", body
+
+
+def _notify_moved(background: BackgroundTasks, structure_id: int, selection_id: int,
+                  before_when: str, before_place: str) -> None:
+    row = db.get_selection(structure_id, selection_id)
+    if row is None or (when(row), place(row)) == (before_when, before_place):
+        return   # rien de visible n'a changé (intitulé seul, même jour et même heure)
+    messages = [moved_message(m, row, before_when, before_place) for m in _members_to_notify(structure_id, row)]
+    if messages:
+        background.add_task(notify, messages)
+
+
+def notify_rdv_changes(structure_id: int, before: dict[int, str]) -> list[tuple[str, str, str]]:
+    """Messages à envoyer quand l'heure de RDV de créneaux à venir a changé (délai de rendez-vous de la structure
+    modifié) : UN e-mail par membre, qui liste ses créneaux concernés. before : {id du créneau: ancien _when}."""
+    per_member: dict[int, tuple[sqlite3.Row, list[str]]] = {}
+    for sel_id, old in before.items():
+        row = db.get_selection(structure_id, sel_id)
+        if row is None or when(row) == old:
+            continue
+        for m in _members_to_notify(structure_id, row):
+            per_member.setdefault(m["id"], (m, []))[1].append(f"- {place(row)} : {when(row)} (au lieu de {old})")
+    app = mailer.APP_NAME
+    messages = []
+    for member, lines in per_member.values():
+        listing = "\n".join(lines)
+        body = f"""{accounts.greeting(member)}
+
+Votre structure a changé l'heure de rendez-vous de ses créneaux. Les vôtres :
+
+{listing}
+
+Vos créneaux :
+{mailer.link('mes-creneaux.html')}
+
+-- 
+{app}
+"""
+        messages.append((member["email"], f"{app} : nouvelle heure de rendez-vous", body))
+    return messages
 
 
 @router.post("/selections/{selection_id}/registrations")
@@ -755,7 +952,7 @@ def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegi
                 position = waiting_now.index(uid) + 1 if uid in waiting_now else None
                 messages.append(registered_message(member, row, by, position))
         if messages:
-            background.add_task(_notify, messages)
+            background.add_task(notify, messages)
     out = _one_out(sid, selection_id, actor["id"])
     out["added"] = len(added)
     return out
@@ -771,6 +968,38 @@ def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar
     _, waiting_before = _status(sid, selection_id)
     db.delete_registration(selection_id, user_id)
     _notify_promotions(background, sid, selection_id, waiting_before)
+    return _one_out(sid, selection_id, actor["id"])
+
+
+# ---------------------------------------------------------------------------
+# Feuille de présence : à partir du jour du créneau, l'administration ou le profil « Inscriptions » pointe qui est
+# venu (présent), absent ou excusé. Sert aux statistiques de la structure.
+# ---------------------------------------------------------------------------
+
+Attendance = Literal["present", "absent", "excused"]
+
+
+class AttendanceEntry(BaseModel):
+    user_id: int
+    attendance: Attendance | None    # None : efface le pointage
+
+
+class AttendanceIn(BaseModel):
+    entries: list[AttendanceEntry] = Field(min_length=1, max_length=500)
+
+
+@router.put("/selections/{selection_id}/attendance")
+def set_attendance(selection_id: int, body: AttendanceIn, actor: CurrentRegistrar):
+    sid = actor["structure_id"]
+    row = db.get_selection(sid, selection_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["local_date"] > _today():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Les présences se pointent à partir du jour du créneau")
+    registered = {r["user_id"] for r in db.list_registrations(sid, selection_id)}
+    if any(e.user_id not in registered for e in body.entries):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ce membre n'est pas inscrit sur ce créneau")
+    db.set_attendance(selection_id, {e.user_id: e.attendance for e in body.entries}, _now_iso())
     return _one_out(sid, selection_id, actor["id"])
 
 

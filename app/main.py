@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import account_security, admin, audit, communication, ops, quality, auth, dashboard, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
+from . import account_security, admin, audit, communication, ops, quality, auth, dashboard, structure_home, user_bulk, structure_profile, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -79,6 +79,9 @@ app.include_router(newsletters.router)
 app.include_router(divers.router)
 app.include_router(audit.router)
 app.include_router(dashboard.router)
+app.include_router(structure_home.router)
+app.include_router(user_bulk.router)
+app.include_router(structure_profile.router)
 app.include_router(account_security.router)
 app.include_router(communication.router)
 app.include_router(ops.router)

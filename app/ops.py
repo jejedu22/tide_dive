@@ -134,6 +134,8 @@ SCHEDULE: list[Scheduled] = [
     Scheduled("backup", "30 3 * * *", "python -m app.backup", "Sauvegarde de la base", "backup", "chaque jour à 3 h 30"),
     Scheduled("health", "5 7 * * *", "python -m app.health --notify",
               "Contrôle de santé (e-mail aux administrateurs si nouvelle erreur)", "health", "chaque jour à 7 h 05"),
+    Scheduled("reminders", "20 7 * * *", "python -m app.reminders",
+              "Rappels et alertes par e-mail des structures", "reminders", "chaque jour à 7 h 20"),
     Scheduled("calibrate", "30 4 2 * *", "python -m app.jobs enqueue calibrate --all",
               "Recalage du calcul FES sur api-maree.fr", "calibrate", "le 2 de chaque mois à 4 h 30"),
     Scheduled("school_holidays", "0 4 1 * *", "python -m app.jobs enqueue school-holidays",
@@ -224,7 +226,7 @@ def run_now(key: str, admin: CurrentSuperAdmin):
         from . import newsletter_send
         ids = [i for i in (jobs.enqueue("newsletter_send", {"newsletter_id": n}, "programmation")
                            for n in newsletter_send.queue_due()) if i]
-    elif key in ("fetch_models", "school_holidays", "backup", "health"):
+    elif key in ("fetch_models", "school_holidays", "backup", "health", "reminders"):
         ids = [i for i in [jobs.enqueue(key, {}, who)] if i]
     else:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tâche automatique inconnue")

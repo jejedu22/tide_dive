@@ -128,7 +128,11 @@ function registrationsCell(p) {
   const places = !p.past && canPick()
     ? `<button type="button" class="btn-quiet btn-small" data-act="capacity" title="Nombre de places de ce créneau">Places…</button>`
     : "";
-  return `<div class="regs">${count}${mine}${button}${others}${places}</div>`;
+  const marked = p.registrations.filter(r => r.attendance).length;
+  const presence = p.attendance_open && canRegisterOthers() && p.registrations.length
+    ? `<button type="button" class="btn-quiet btn-small" data-act="attendance" title="Feuille de présence : qui est venu">Présences${marked ? ` (${marked}/${p.registrations.length})` : "…"}</button>`
+    : "";
+  return `<div class="regs">${count}${mine}${button}${others}${places}${presence}</div>`;
 }
 
 // Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
@@ -156,6 +160,8 @@ const currentsButton = p => (!p.end_date && hasCurrentSites
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
 // Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
 const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
+// Dupliquer : créneau personnalisé seulement (un créneau d'étale suit la marée de son jour)
+const duplicateButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="duplicate" title="Copier ce créneau à un autre jour">Dupliquer…</button>` : "");
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
 
 // Séjour sur plusieurs jours (créneau personnalisé) : dernier jour, nombre de jours, mention affichée
@@ -195,7 +201,7 @@ function slotCard(p) {
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
         <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
-        <span class="slot-acts">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${removeButton()}</span>
+        <span class="slot-acts">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -244,7 +250,8 @@ function renderPop() {
       : "";
     const by = r.registered_by ? `<span class="reg-by">inscrit par ${esc(r.registered_by)}</span>` : "";
     const rank = r.waiting ? `<span class="reg-rank">${r.position}.</span> ` : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${by}</span>${remove}</li>`;
+    const att = r.attendance ? ` <span class="att att-${r.attendance}">${ATTENDANCE[r.attendance]}</span>` : "";
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${att}${by}</span>${remove}</li>`;
   };
   const confirmed = p.registrations.filter(r => !r.waiting);
   const waiting = p.registrations.filter(r => r.waiting);
@@ -472,7 +479,7 @@ function renderTable(list) {
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${removeButton()}</td>
+          <td class="c-actions">${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -545,8 +552,30 @@ function renderTypeFilter() {
 // même ordre que le serveur : jour, puis RDV (un créneau personnalisé n'a pas d'heure d'étale)
 const byWhen = (a, b) => (a.date + a.rdv.date + a.rdv.time + (a.time || "")).localeCompare(b.date + b.rdv.date + b.rdv.time + (b.time || ""));
 
+// Fiche de la structure (logo, contact) : saisie par ses administrateurs, onglet « Ma structure »
+async function loadStructureCard() {
+  const el = $("structure-card");
+  let c;
+  try {
+    c = await Session.api("/api/me/structure-card");
+  } catch {
+    el.hidden = true;
+    return;
+  }
+  const lines = [
+    c.address ? esc(c.address) : "",
+    c.contact_email ? `<a href="mailto:${esc(c.contact_email)}">${esc(c.contact_email)}</a>` : "",
+    c.contact_phone ? `<a href="tel:${esc(c.contact_phone.replace(/\s/g, ""))}">${esc(c.contact_phone)}</a>` : "",
+    c.website ? `<a href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website.replace(/^https?:\/\//, ""))}</a>` : "",
+  ].filter(Boolean);
+  el.hidden = !lines.length && !c.logo_url;
+  el.innerHTML = `${c.logo_url ? `<img src="${esc(c.logo_url)}" alt="" class="structure-logo">` : ""}
+    <div><strong>${esc(c.name)}</strong>${lines.length ? `<p>${lines.join(" · ")}</p>` : ""}</div>`;
+}
+
 async function load() {
   closePop();
+  loadStructureCard();
   statusEl.textContent = "Chargement…";
   try {
     let sites;
@@ -637,21 +666,51 @@ picksEl.addEventListener("click", async e => {
   const btn = e.target.closest("button[data-act=remove]");
   if (!btn) return;
   const id = holderId(btn);
-  const n = picks.find(p => p.id === id)?.registrations.length || 0;
-  if (n && !confirm(`${n} membre(s) inscrit(s) sur ce créneau : le retirer annule leur inscription. Continuer ?`)) return;
-  btn.disabled = true;
-  try {
-    await Session.api(`/api/selections/${id}`, { method: "DELETE" });
-  } catch (err) {
-    if (err.status !== 404) {
+  const p = picks.find(x => x.id === id);
+  const n = p?.registrations.length || 0;
+  const removed = () => {
+    picks = picks.filter(x => x.id !== id);
+    renderTypeFilter();
+    render();
+  };
+  const remove = async query => {
+    try {
+      await Session.api(`/api/selections/${id}${query}`, { method: "DELETE" });
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+    removed();
+  };
+  if (!n || p.past) {   // personne à prévenir
+    btn.disabled = true;
+    try {
+      await remove("?notify=false");
+    } catch (err) {
       statusEl.textContent = `Retrait impossible : ${err.message}`;
       btn.disabled = false;
-      return;
     }
+    return;
   }
-  picks = picks.filter(p => p.id !== id);
-  renderTypeFilter();
-  render();
+  const mail = Session.config.password_reset;   // envoi d'e-mails configuré
+  openDialog({
+    title: "Retirer le créneau",
+    submitLabel: "Retirer le créneau",
+    body: `
+      <p class="dialog-hint">${n} membre(s) inscrit(s) sur ce créneau du ${esc(formatLong(p.date))} (${esc(p.note || p.port)}) : le retirer annule leur inscription.</p>
+      ${mail ? `
+      <label class="check"><input type="checkbox" name="notify" checked> Prévenir les inscrits par e-mail</label>
+      <label>Motif <span class="field-hint">(facultatif, repris dans l'e-mail)</span>
+        <textarea name="reason" maxlength="300" rows="2" placeholder="ex. météo défavorable, bateau en panne"></textarea></label>`
+      : `<p class="muted">L'envoi d'e-mails n'est pas configuré : pensez à prévenir les inscrits.</p>`}`,
+    onSubmit: async form => {
+      const notify = mail && form.notify.checked;
+      const reason = mail ? form.reason.value.trim() : "";
+      const q = new URLSearchParams({ notify: String(notify) });
+      if (notify && reason) q.set("reason", reason);
+      await remove(`?${q}`);
+      statusEl.textContent = notify ? `Créneau retiré : ${n} inscrit(s) prévenu(s) par e-mail.` : "Créneau retiré.";
+    },
+  });
 });
 
 // ---- Inscrire d'autres membres (administration ou profil « Inscriptions ») ----
@@ -724,6 +783,51 @@ picksEl.addEventListener("click", e => {
   if (!btn) return;
   const p = picks.find(x => x.id === holderId(btn));
   if (p) openRegisterOthers(p);
+});
+
+// ---- Feuille de présence (à partir du jour du créneau ; administration ou profil « Inscriptions ») ----
+
+const ATTENDANCE = { present: "présent", absent: "absent", excused: "excusé" };
+
+function openAttendance(p) {
+  const row = r => `
+    <li class="att-row">
+      <span>${esc(r.display_name)}${r.waiting ? ` <span class="muted">(file d'attente)</span>` : ""}</span>
+      <span class="att-choices" role="radiogroup" aria-label="Présence de ${esc(r.display_name)}">
+        ${["present", "absent", "excused"].map(v => `
+        <label class="att-choice"><input type="radio" name="att-${r.user_id}" value="${v}"${r.attendance === v ? " checked" : ""}> ${ATTENDANCE[v]}</label>`).join("")}
+      </span>
+    </li>`;
+  const form = openDialog({
+    title: "Feuille de présence",
+    body: `
+      <p class="dialog-hint">Créneau du ${esc(formatLong(p.date))}, ${esc(p.note || p.port)}. Pointez qui est venu : les présences alimentent les statistiques de la structure.</p>
+      <p><button type="button" class="btn-quiet btn-small" data-all-present>Tous présents</button></p>
+      <ul class="att-list">${p.registrations.map(row).join("")}</ul>`,
+    onSubmit: async form => {
+      const entries = p.registrations.map(r => ({
+        user_id: r.user_id,
+        attendance: form.querySelector(`[name="att-${r.user_id}"]:checked`)?.value ?? null,
+      }));
+      const updated = await Session.api(`/api/selections/${p.id}/attendance`, { method: "PUT", body: { entries } });
+      picks = picks.map(x => (x.id === p.id ? updated : x));
+      render();
+      statusEl.textContent = "Présences enregistrées.";
+    },
+  });
+  form.querySelector("[data-all-present]").addEventListener("click", () => {
+    for (const r of p.registrations.filter(x => !x.waiting)) {
+      const box = form.querySelector(`[name="att-${r.user_id}"][value=present]`);
+      if (!form.querySelector(`[name="att-${r.user_id}"]:checked`)) box.checked = true;
+    }
+  });
+}
+
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=attendance]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (p) openAttendance(p);
 });
 
 // ---- Créneaux personnalisés (administration) : ajout et modification ----
@@ -799,6 +903,18 @@ async function openCustomDialog(p = null) {
       ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
       <label>Intitulé <span class="field-hint">(facultatif)</span>
         <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>
+      ${p && !p.past && p.registrations.length && Session.config.password_reset ? `
+      <label class="check"><input type="checkbox" name="notify" checked> Prévenir les ${p.registrations.length} inscrit(s) par e-mail si le jour, l'heure ou le lieu change</label>` : ""}
+      ${p ? "" : `<fieldset class="repeat-field">
+        <legend><label class="check"><input type="checkbox" name="repeat"> Répéter</label></legend>
+        <div class="repeat-detail" hidden>
+          <label>Toutes les <select name="every_weeks">
+            <option value="1">semaines</option><option value="2">2 semaines</option>
+            <option value="3">3 semaines</option><option value="4">4 semaines</option></select></label>
+          <label>Jusqu'au <input type="date" name="until" min="${addDays(day, 7)}"></label>
+          <p class="field-hint">Un créneau par date, au même lieu et à la même heure ; les jours indisponibles sont sautés.</p>
+        </div>
+      </fieldset>`}
       ${p ? "" : `<label>Places <span class="field-hint">(vide : illimité)</span>
         <input type="number" name="max_registrations" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité"
           value="${Session.user?.structure?.default_max_registrations ?? ""}"></label>`}`,
@@ -813,10 +929,24 @@ async function openCustomDialog(p = null) {
         time: f.get("time").slice(0, 5),
         note: f.get("note").trim() || null,
       };
+      if (p) body.notify = !form.notify || form.notify.checked;
       if (!p) {
         body.type_id = Number(f.get("type_id"));
         const places = String(f.get("max_registrations") ?? "").trim();
         body.max_registrations = places === "" ? null : Number(places);   // toujours envoyé : vide = illimité, pas « défaut »
+      }
+      if (!p && form.repeat.checked) {
+        if (!f.get("until")) throw new Error("Indiquez la date de fin de la série.");
+        if (body.end_date) throw new Error("Une série ne peut pas être un séjour sur plusieurs jours.");
+        body.until = f.get("until");
+        body.every_weeks = Number(f.get("every_weeks"));
+        const r = await Session.api("/api/selections/custom/series", { method: "POST", body });
+        picks = [...picks, ...r.created].sort(byWhen);
+        renderTypeFilter();
+        render();
+        statusEl.textContent = `${r.created.length} créneau(x) ajouté(s)` + (r.skipped.length
+          ? ` ; ${r.skipped.length} jour(s) sauté(s), indisponible(s) : ${r.skipped.map(x => formatDay(x.date)).join(", ")}.` : ".");
+        return;
       }
       const saved = await Session.api(p ? `/api/selections/${p.id}` : "/api/selections/custom",
         { method: p ? "PATCH" : "POST", body });
@@ -834,6 +964,14 @@ async function openCustomDialog(p = null) {
     form.end_date.min = addDays(form.date.value, 1);
     if (form.end_date.value && form.end_date.value <= form.date.value) form.end_date.value = "";
   });
+  // série : choix de la fréquence et de la date de fin
+  if (!p) {
+    form.repeat.addEventListener("change", () => {
+      form.querySelector(".repeat-detail").hidden = !form.repeat.checked;
+      form.until.required = form.repeat.checked;
+    });
+    form.date.addEventListener("change", () => { if (form.date.value) form.until.min = addDays(form.date.value, 7); });
+  }
   // « Autre lieu… » : affiche le champ libre et le rend obligatoire
   const place = form.querySelector(".location-field");
   form.port_id.addEventListener("change", () => {
@@ -850,6 +988,29 @@ picksEl.addEventListener("click", e => {
   if (!btn) return;
   const p = picks.find(x => x.id === holderId(btn));
   if (p) (p.custom ? openCustomDialog(p) : openNoteDialog(p));
+});
+
+// Dupliquer un créneau personnalisé à un autre jour (même heure, lieu, type, intitulé et places ; sans les inscrits)
+picksEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act=duplicate]");
+  if (!btn) return;
+  const p = picks.find(x => x.id === holderId(btn));
+  if (!p) return;
+  const suggested = addDays(p.date < todayISO() ? todayISO() : p.date, 7);
+  openDialog({
+    title: "Dupliquer le créneau",
+    submitLabel: "Dupliquer",
+    body: `
+      <p class="dialog-hint">${esc(p.note || p.port)}, rendez-vous à ${esc(p.rdv.time)}${p.end_date ? `, séjour de ${spanDays(p)} jours` : ""}. La copie reprend le lieu, l'heure, le type, l'intitulé et les places, sans les inscrits.</p>
+      <label>Nouveau jour <input type="date" name="date" required value="${suggested}"></label>`,
+    onSubmit: async form => {
+      const saved = await Session.api(`/api/selections/${p.id}/duplicate`, { method: "POST", body: { date: form.date.value } });
+      picks = [...picks, saved].sort(byWhen);
+      renderTypeFilter();
+      if (view === "cal") selectDay(saved.date); else render();
+      statusEl.textContent = `Créneau dupliqué au ${formatLong(saved.date)}.`;
+    },
+  });
 });
 
 // Intitulé d'un créneau d'étale : distingue plusieurs créneaux choisis sur la même étale (« Bateau 2 »…)
@@ -953,6 +1114,10 @@ const EXPORT_COLUMNS = [
     r.display_name + (r.registered_by ? ` (inscrit par ${r.registered_by})` : "")).join(", ") },
   { header: "File d'attente", width: 40, value: p => p.registrations.filter(r => r.waiting).map(r =>
     `${r.position}. ${r.display_name}`).join(", ") },
+  { header: "Présents", type: "int", width: 9, value: p => (p.registrations.some(r => r.attendance)
+    ? p.registrations.filter(r => r.attendance === "present").length : null) },
+  { header: "Absents / excusés", width: 30, value: p => p.registrations.filter(r => r.attendance && r.attendance !== "present")
+    .map(r => `${r.display_name} (${ATTENDANCE[r.attendance]})`).join(", ") },
   { header: "Inscrit (moi)", width: 12, value: p => (p.my_status === "waiting" ? `file d'attente n° ${p.my_position}` : p.registered ? "oui" : "") },
   { header: "Choisi / ajouté par", width: 18, value: p => p.picked_by || "compte supprimé" },
 ];

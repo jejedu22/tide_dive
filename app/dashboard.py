@@ -18,6 +18,7 @@ from fastapi import APIRouter
 
 from . import db, health
 from .auth import CurrentSuperAdmin
+from .structure_home import setting_issues
 
 router = APIRouter(prefix="/api/admin")
 
@@ -47,13 +48,7 @@ def _structures(today: date, since: str) -> list[dict]:
     out = []
     stale = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_ADMIN_DAYS)).isoformat()
     for r in rows:
-        issues = []
-        if not r["managers"]:
-            issues.append("aucun administrateur")
-        if not r["active_types"]:
-            issues.append("aucun type de créneau proposé")
-        if r["default_port_id"] is None:
-            issues.append("pas de port par défaut")
+        issues = setting_issues(r, r["active_types"], r["managers"])
         if r["managers"] and (not r["last_admin_login"] or r["last_admin_login"] < stale):
             issues.append(f"aucun administrateur connecté depuis {INACTIVE_ADMIN_DAYS} jours")
         if r["members"] and not r["selections"]:
