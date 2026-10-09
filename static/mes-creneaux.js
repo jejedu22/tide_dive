@@ -85,6 +85,10 @@ let selectedDay = null;  // jour dont les créneaux sont détaillés sous le cal
 // ---- Morceaux communs aux trois rendus ----
 
 function typeCell(p) {
+  return typeSelect(p) + levelBadge(p);
+}
+
+function typeSelect(p) {
   if (!canPick()) return `<span class="type-pill" style="--type-color:${esc(p.type.color)}">${esc(p.type.label)}</span>`;
   // un type désactivé reste affiché sur les choix existants, sans pouvoir être rechoisi
   const options = types.map(t =>
@@ -101,6 +105,12 @@ function placesLabel(p) {
   return `${p.confirmed_count}/${p.max_registrations}`;
 }
 
+// Niveau minimal du créneau, comparé à la fiche plongeur du compte
+const levelOk = p => !p.min_level || (Session.user?.diver?.rank ?? -1) >= p.min_level.rank;
+const levelBadge = p => (p.min_level ? `<span class="level-badge" title="Niveau minimal pour s'inscrire">${esc(p.min_level.label.split(" (")[0])} min.</span>` : "");
+let diverLevels = {};
+const typeLevel = p => types.find(t => t.id === p.type.id)?.min_level || null;
+
 function registrationsCell(p) {
   const open = popFor === p.id;
   const waiting = p.waiting_count
@@ -114,7 +124,9 @@ function registrationsCell(p) {
   const button = p.past
     ? ""
     : !p.registered
-      ? p.can_register
+      ? !levelOk(p)
+        ? `<span class="reg-locked" title="Ce créneau demande le niveau ${esc(p.min_level.label)} au moins (votre fiche plongeur). Un encadrant peut vous inscrire.">🔒 Niveau ${esc(p.min_level.label)}</span>`
+        : p.can_register
         ? `<button type="button" class="btn-primary btn-small" data-act="register"
              title="${p.full ? "Créneau complet : vous serez placé en file d'attente. " : ""}Inscription possible jusqu'au ${formatDay(p.register_until)} inclus">${p.full ? "Rejoindre la file d'attente" : "S'inscrire"}</button>`
         : `<span class="reg-locked" title="Inscriptions closes depuis le ${formatDay(nextDay(p.register_until))} : contactez un administrateur de la structure">🔒 Inscriptions closes</span>`
@@ -126,7 +138,7 @@ function registrationsCell(p) {
     ? `<button type="button" class="btn-quiet btn-small" data-act="register-others" title="Inscrire d'autres membres de la structure">+ Inscrire…</button>`
     : "";
   const places = !p.past && canPick()
-    ? `<button type="button" class="btn-quiet btn-small" data-act="capacity" title="Nombre de places de ce créneau">Places…</button>`
+    ? `<button type="button" class="btn-quiet btn-small" data-act="capacity" title="Nombre de places et niveau minimal de ce créneau">Places…</button>`
     : "";
   const marked = p.registrations.filter(r => r.attendance).length;
   const presence = p.attendance_open && canRegisterOthers() && p.registrations.length
@@ -577,6 +589,10 @@ async function load() {
   closePop();
   loadStructureCard();
   statusEl.textContent = "Chargement…";
+  // niveaux de plongeur, pour régler le niveau minimal d'un créneau (chargés une fois)
+  if (canPick() && !Object.keys(diverLevels).length) {
+    Session.api("/api/divers/levels").then(r => { diverLevels = r.levels; }).catch(() => {});
+  }
   try {
     let sites;
     [types, picks, unavailabilities, sites] = await Promise.all([
@@ -1051,12 +1067,16 @@ function openCapacityDialog(p) {
       <label>Places <span class="field-hint">(vide : illimité)</span>
         <input type="number" name="max" min="1" max="500" step="1" inputmode="numeric" placeholder="illimité"
           value="${p.max_registrations ?? ""}"></label>
-      <p class="dialog-hint" data-effect></p>`,
+      <p class="dialog-hint" data-effect></p>
+      <label>Niveau minimal <span class="field-hint">(vide : celui du type${typeLevel(p) ? `, ${esc(diverLevels[typeLevel(p)] || "")}` : ", aucun"})</span>
+        <select name="min_level"><option value="">Celui du type</option>${Object.entries(diverLevels).map(([k, v]) =>
+          `<option value="${esc(k)}"${k === p.min_level_own ? " selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`,
     onSubmit: async form => {
       const raw = form.max.value.trim();
       const n = raw === "" ? null : Number(raw);
       if (n !== null && (!Number.isInteger(n) || n < 1 || n > 500)) throw new Error("Nombre entier de 1 à 500, ou vide pour ne pas limiter.");
-      const saved = await Session.api(`/api/selections/${p.id}`, { method: "PATCH", body: { max_registrations: n } });
+      const saved = await Session.api(`/api/selections/${p.id}`, { method: "PATCH",
+        body: { max_registrations: n, min_level: form.min_level.value || null } });
       picks = picks.map(x => (x.id === p.id ? saved : x));
       render();
       if (popFor === p.id) renderPop();

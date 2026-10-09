@@ -232,6 +232,7 @@ from .db_selections import (  # noqa: F401
     create_custom_selection,
     update_custom_selection,
     update_selection_note,
+    update_selection_min_level,
     update_selection_type,
     delete_selection,
     list_registrations,

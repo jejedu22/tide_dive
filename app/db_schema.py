@@ -69,6 +69,8 @@ SLOT_SELECTIONS_COLUMNS = """(
     -- places : au-delà, les inscriptions passent en file d'attente (par ordre d'inscription). NULL : illimité.
     -- Copiée de structures.default_max_registrations à la création du créneau, puis modifiable.
     max_registrations INTEGER CHECK (max_registrations IS NULL OR max_registrations BETWEEN 1 AND 500),
+    -- niveau de plongeur minimal pour s'inscrire (diver.DIVER_LEVELS) ; NULL : celui du type
+    min_level TEXT,
     -- étale : tous ses champs ; personnalisé : aucun
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
            AND (ts_utc IS NULL) = (height_m IS NULL)),
@@ -622,6 +624,7 @@ CREATE TABLE IF NOT EXISTS slot_types (
     color TEXT NOT NULL DEFAULT '#118ab2',  -- #rrggbb, pastille dans les listes
     position INTEGER NOT NULL DEFAULT 0,    -- ordre d'affichage
     active INTEGER NOT NULL DEFAULT 1,      -- 0 : plus proposé, mais conservé sur les choix existants
+    min_level TEXT,                         -- niveau de plongeur minimal (diver.DIVER_LEVELS) ; NULL : aucun
     UNIQUE (structure_id, label)
 );
 

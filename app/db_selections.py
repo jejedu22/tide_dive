@@ -49,7 +49,7 @@ def create_slot_type(structure_id: int, label: str, color: str, active: bool) ->
         return cur.lastrowid
 
 
-_SLOT_TYPE_FIELDS = {"label", "color", "active"}
+_SLOT_TYPE_FIELDS = {"label", "color", "active", "min_level"}
 
 
 def update_slot_type(type_id: int, **fields) -> None:
@@ -79,7 +79,7 @@ def delete_slot_type(type_id: int) -> None:
 
 _SELECTION_SQL = """
     SELECT s.*, COALESCE(p.name, s.location) AS port_name,  -- lieu affiché : port, ou lieu libre
-           t.label AS type_label, t.color AS type_color, t.active AS type_active,
+           t.label AS type_label, t.color AS type_color, t.active AS type_active, t.min_level AS type_min_level,
            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                AS picked_by_name
     FROM slot_selections s
@@ -117,6 +117,12 @@ def update_selection_tide(selection_id: int, ts_utc: str, snapshot: dict) -> Non
             (ts_utc, snapshot["kind"], snapshot["date"], snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"],
              snapshot["height_m"], snapshot["coefficient"], selection_id),
         )
+
+
+def update_selection_min_level(structure_id: int, selection_id: int, min_level: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE slot_selections SET min_level = ? WHERE id = ? AND structure_id = ?",
+                     (min_level, selection_id, structure_id))
 
 
 def update_selection_rdvs(rdvs: list[tuple[str, str, int]]) -> None:

@@ -2025,3 +2025,5 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .account-dialog .notif-group legend { font-weight: 700; padding: 0 0.3rem; }
 .account-dialog .notif-types { display: flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; margin: 0 0 0.4rem 1.6rem; }
 .account-dialog .notif-types .dialog-hint { flex-basis: 100%; margin: 0; }
+.level-badge { display: inline-block; margin-left: 0.35rem; font-size: 0.72rem; font-weight: 700; padding: 0 0.4rem;
+  border-radius: 999px; background: #e9e3fb; color: #4b2fa3; white-space: nowrap; vertical-align: middle; }

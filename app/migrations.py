@@ -412,6 +412,13 @@ def _m017_mail_preferences(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE memberships ADD COLUMN digest_types TEXT")
 
 
+def _m018_min_level(conn: sqlite3.Connection) -> None:
+    """Niveau de plongeur minimal d'un type de créneau, et d'un créneau (sinon celui de son type)."""
+    for table in ("slot_types", "slot_selections"):
+        if "min_level" not in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN min_level TEXT")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -430,6 +437,7 @@ MIGRATIONS: list[Migration] = [
     Migration(15, "rappels et alertes par e-mail", _m015_reminders),
     Migration(16, "fiche de la structure, logo et demandes d'adhésion", _m016_structure_profile),
     Migration(17, "préférences d'e-mails et récapitulatif des nouveaux créneaux", _m017_mail_preferences),
+    Migration(18, "niveau de plongeur minimal des types et des créneaux", _m018_min_level),
 ]
 
 

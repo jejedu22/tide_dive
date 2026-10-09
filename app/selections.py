@@ -76,10 +76,22 @@ def _clean_label(v: str) -> str:
     return v
 
 
+def _check_level(v: str | None) -> str | None:
+    if v and v not in diver.DIVER_LEVELS:
+        raise ValueError("niveau inconnu")
+    return v or None
+
+
 class SlotTypeIn(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     color: str = Field("#118ab2", pattern=COLOR_PATTERN)
     active: bool = True
+    min_level: str | None = None     # niveau de plongeur minimal (diver.DIVER_LEVELS)
+
+    @field_validator("min_level")
+    @classmethod
+    def _level(cls, v: str | None) -> str | None:
+        return _check_level(v)
 
     @field_validator("label")
     @classmethod
@@ -91,6 +103,12 @@ class SlotTypePatch(BaseModel):
     label: str | None = Field(None, min_length=1, max_length=40)
     color: str | None = Field(None, pattern=COLOR_PATTERN)
     active: bool | None = None
+    min_level: str | None = None     # null : aucun
+
+    @field_validator("min_level")
+    @classmethod
+    def _level(cls, v: str | None) -> str | None:
+        return _check_level(v)
 
     @field_validator("label")
     @classmethod
@@ -240,6 +258,13 @@ class SelectionPatch(BaseModel):
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # tout créneau ; 0 ou null : illimité
     # créneau personnalisé déplacé (jour, heure, lieu) : prévenir ses inscrits par e-mail
     notify: bool = True
+    # niveau de plongeur minimal de ce créneau ; null : celui de son type
+    min_level: str | None = None
+
+    @field_validator("min_level")
+    @classmethod
+    def _level(cls, v: str | None) -> str | None:
+        return _check_level(v)
 
     @field_validator("note")
     @classmethod
@@ -265,6 +290,7 @@ def _type_out(row: sqlite3.Row) -> dict:
         "position": row["position"],
         "active": bool(row["active"]),
         "uses": row["uses"],
+        "min_level": row["min_level"],
     }
 
 
@@ -353,6 +379,9 @@ def _selection_out(
             "color": row["type_color"],
             "active": bool(row["type_active"]),
         },
+        # niveau minimal : celui du créneau, sinon celui de son type ; own : fixé sur le créneau lui-même
+        "min_level": _level_out(row["min_level"] or row["type_min_level"]),
+        "min_level_own": row["min_level"],
         "picked_by": row["picked_by_name"],   # None : compte supprimé depuis
         "created_at": row["created_at"],
         "registrations": registrations,       # par ordre d'inscription : les confirmés, puis la file d'attente
@@ -372,6 +401,11 @@ def _selection_out(
         # le délai protège les places confirmées ; un membre en file d'attente n'en occupe aucune : il peut la quitter
         "can_unregister": _today() <= unreg_until or (mine is not None and mine["waiting"]),
     }
+
+
+def _level_out(key: str | None) -> dict | None:
+    return {"key": key, "label": diver.DIVER_LEVELS[key], "rank": diver.LEVEL_RANK[key]} \
+        if key in diver.DIVER_LEVELS else None
 
 
 def _one_out(structure_id: int, selection_id: int, me_id: int) -> dict:
@@ -600,6 +634,8 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         db.update_selection_type(sid, selection_id, body.type_id)
     if "note" in sent and not sent & custom_fields:   # sinon déjà enregistré avec les champs du créneau personnalisé
         db.update_selection_note(sid, selection_id, body.note)
+    if "min_level" in sent:
+        db.update_selection_min_level(sid, selection_id, body.min_level)
     if "max_registrations" in sent:
         # plus de places : les premiers de la file sont confirmés (et prévenus) ; moins de places : les derniers
         # inscrits repassent en file d'attente
@@ -700,7 +736,11 @@ def register(selection_id: int, user: CurrentMember):
     sid = user["structure_id"]
     row = _upcoming_selection_or_error(sid, selection_id)
     _check_open(row, db.get_lock_days(sid)["register_lock_days"], "Inscriptions closes")
-    _check_caci(db.get_user(user["id"], sid), row)
+    member = db.get_user(user["id"], sid)
+    _check_caci(member, row)
+    msg = diver.level_block(member, row["min_level"] or row["type_min_level"])
+    if msg:
+        raise HTTPException(status.HTTP_409_CONFLICT, msg)
     try:
         db.add_registration(selection_id, user["id"], _now_iso())
     except sqlite3.IntegrityError:
@@ -1027,6 +1067,8 @@ def admin_create_type(body: SlotTypeIn, actor: CurrentManager, structure_id: int
     sid = scope_structure(actor, structure_id)
     try:
         type_id = db.create_slot_type(sid, body.label, body.color.lower(), body.active)
+        if body.min_level:
+            db.update_slot_type(type_id, min_level=body.min_level)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Le type « {body.label} » existe déjà")
     return _type_out(db.get_slot_type(type_id))
@@ -1046,7 +1088,7 @@ def admin_reorder_types(body: SlotTypeOrder, actor: CurrentManager, structure_id
 @router.patch("/admin/slot-types/{type_id}")
 def admin_update_type(type_id: int, body: SlotTypePatch, actor: CurrentManager):
     _managed_type_or_404(actor, type_id)
-    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None or k == "min_level"}
     if "color" in fields:
         fields["color"] = fields["color"].lower()
     try:

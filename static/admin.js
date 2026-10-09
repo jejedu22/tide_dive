@@ -2387,6 +2387,18 @@ unavBody.addEventListener("click", async e => {
   loadUnavailabilities();
 });
 
+// Niveaux de plongeur (niveau minimal d'un type de créneau), chargés une fois
+let diverLevels = {};
+Session.api("/api/divers/levels").then(r => {
+  diverLevels = r.levels;
+  for (const sel of document.querySelectorAll("select[data-levels]")) {
+    sel.insertAdjacentHTML("beforeend", Object.entries(diverLevels).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join(""));
+  }
+  renderTypes();
+}).catch(() => {});
+const levelOptions = selected => `<option value="">Aucun</option>` + Object.entries(diverLevels).map(([k, v]) =>
+  `<option value="${esc(k)}"${k === selected ? " selected" : ""}>${esc(v)}</option>`).join("");
+
 function renderTypes() {
   typesBody.innerHTML = slotTypes.length ? slotTypes.map((t, i) => `
     <tr data-id="${t.id}" class="${t.active ? "" : "inactive"}">
@@ -2397,6 +2409,7 @@ function renderTypes() {
         </span>
       </td>
       <th scope="row"><span class="type-pill" style="--type-color:${esc(t.color)}">${esc(t.label)}</span></th>
+      <td data-label="Niveau minimal">${t.min_level ? esc(diverLevels[t.min_level] || t.min_level) : `<span class="muted">—</span>`}</td>
       <td data-label="Proposé"><input type="checkbox" data-act="active" ${t.active ? "checked" : ""} aria-label="Proposer ${esc(t.label)}"></td>
       <td class="num" data-label="Utilisé">${t.uses}</td>
       <td class="actions">
@@ -2404,7 +2417,7 @@ function renderTypes() {
         <button type="button" class="btn-danger" data-act="delete" ${t.uses ? `disabled title="Utilisé : décochez « Proposé » à la place"` : ""}>Supprimer</button>
       </td>
     </tr>`).join("")
-    : `<tr><td colspan="5" class="empty">Aucun type : cette structure ne peut pas encore choisir de créneau.</td></tr>`;
+    : `<tr><td colspan="6" class="empty">Aucun type : cette structure ne peut pas encore choisir de créneau.</td></tr>`;
 }
 
 typeForm.addEventListener("submit", async e => {
@@ -2414,7 +2427,8 @@ typeForm.addEventListener("submit", async e => {
   try {
     const t = await Session.api(`/api/admin/slot-types${typesQS()}`, {
       method: "POST",
-      body: { label: typeForm.label.value.trim(), color: typeForm.color.value, active: typeForm.active.checked },
+      body: { label: typeForm.label.value.trim(), color: typeForm.color.value, active: typeForm.active.checked,
+              min_level: typeForm.min_level.value || null },
     });
     st.textContent = `« ${t.label} » ajouté.`;
     typeForm.label.value = "";
@@ -2477,6 +2491,8 @@ function editType(t) {
       <h2>Modifier le type</h2>
       <label>Libellé <input name="label" required maxlength="40" value="${esc(t.label)}"></label>
       <label>Couleur <input name="color" type="color" value="${esc(t.color)}"></label>
+      <label>Niveau minimal <select name="min_level">${levelOptions(t.min_level)}</select></label>
+      <p class="dialog-hint">L'inscription d'un membre qui n'a pas ce niveau (fiche plongeur) est refusée ; un administrateur peut toujours l'inscrire. Un créneau peut fixer son propre niveau.</p>
       <p class="dialog-hint">${t.uses ? `Le nouveau libellé s'appliquera aux ${t.uses} créneau(x) déjà choisi(s).` : ""}</p>
       <p class="dialog-error" role="alert"></p>
       <div class="dialog-actions">
@@ -2493,7 +2509,7 @@ function editType(t) {
     try {
       await Session.api(`/api/admin/slot-types/${t.id}`, {
         method: "PATCH",
-        body: { label: form.label.value.trim(), color: form.color.value },
+        body: { label: form.label.value.trim(), color: form.color.value, min_level: form.min_level.value || null },
       });
       d.close();
       loadTypes();
