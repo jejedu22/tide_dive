@@ -54,6 +54,9 @@ class StructureSettingsIn(BaseModel):
     use_calibration: bool | None = None
     # Recherche proposée aux membres : par étale, par hauteur d'eau, les deux (super administrateurs seulement)
     search_modes: Literal["tides", "heights", "both"] | None = None
+    # Certificat médical (CACI) : inscription refusée sans CACI valable le jour du créneau ; durée de validité (mois)
+    caci_check: bool | None = None
+    caci_validity_months: int | None = Field(None, ge=1, le=60)
 
 
 def _out(row: sqlite3.Row) -> dict:
@@ -73,6 +76,8 @@ def _out(row: sqlite3.Row) -> dict:
         "use_api_maree": bool(row["use_api_maree"]),
         "use_calibration": bool(row["use_calibration"]),
         "search_modes": row["search_modes"],
+        "caci_check": bool(row["caci_check"]),
+        "caci_validity_months": row["caci_validity_months"],
     }
 
 
@@ -129,7 +134,9 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
         elif not actor["is_admin"] and fields["search_modes"] != before["search_modes"]:
             raise HTTPException(status.HTTP_403_FORBIDDEN,
                                 "La recherche proposée à la structure est réglée par les super administrateurs")
-    for flag in ("use_api_maree", "use_calibration"):
+    if fields.get("caci_validity_months", 0) is None:
+        del fields["caci_validity_months"]
+    for flag in ("use_api_maree", "use_calibration", "caci_check"):
         if flag in fields:
             if fields[flag] is None:
                 del fields[flag]          # null : inchangé

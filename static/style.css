@@ -1861,3 +1861,20 @@ main > .panel + .panel { margin-top: 1.25rem; }
 .leaflet-tooltip.map-label { padding: 1px 5px; font-size: 0.72rem; font-weight: 600; color: var(--blue-deep); }
 .map-small .leaflet-control-attribution, .map-pick .leaflet-control-attribution { font-size: 0.6rem; }
 #sites-map { margin: 0.6rem 0; }
+
+/* --- Fiche plongeur : QR code de la licence, certificat médical (CACI) --- */
+.licence-qr:empty { display: none; }
+.licence-qr { width: 9rem; margin: 0.2rem 0 0.8rem; padding: 0.4rem; background: white; border: 1px solid #cfe3ea; border-radius: 8px; }
+.licence-qr svg { display: block; width: 100%; height: auto; }
+.caci-box { margin: 0.6rem 0 0.4rem; padding: 0.6rem 0.8rem; border: 1px solid #cfe3ea; border-radius: 8px; }
+.caci-box legend { padding: 0 0.3rem; font-weight: 600; color: var(--blue-deep); }
+.caci-box.caci-alert { border-color: #ef476f; background: #fff5f7; }
+.caci-status { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.caci-tag { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.caci-tag.valid { background: #d8f6ec; color: #04704f; }
+.caci-tag.pending { background: #fff1cc; color: #8a5a00; }
+.caci-tag.expired, .caci-tag.missing { background: #ffe0e7; color: #b0203f; }
+.licence-qr-big { width: min(16rem, 70vw); margin: 0.5rem auto; }
+.divers-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.6rem; }
+.divers-bar p { margin: 0; }
+.caci-note { border-color: #ef476f; background: #fff5f7; }

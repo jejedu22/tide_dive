@@ -343,6 +343,17 @@ function calendarDays(m) {
 const unavailableOn = day => unavailabilities.filter(u => u.start_date <= day && day <= u.end_date);
 const unavText = u => `${u.label}${u.reason ? ` (${u.reason})` : ""}`;
 
+// Certificat médical absent ou expiré alors que la structure le vérifie : l'inscription sera refusée
+function renderCaciNote(user) {
+  const el = $("caci-note");
+  el.hidden = !Session.caciBlocks(user);
+  if (el.hidden) return;
+  el.innerHTML = `<strong>Certificat médical (CACI) requis.</strong> ${Session.caciText(user.caci)} Votre structure refuse
+    l'inscription sans certificat valable le jour de la plongée.
+    <button type="button" class="btn-quiet btn-small" id="caci-open">Ma fiche plongeur</button>`;
+  $("caci-open").addEventListener("click", () => Session.openDiver());
+}
+
 function renderUnavNote() {
   const el = $("unav-note");
   el.hidden = !unavailabilities.length;
@@ -1004,7 +1015,7 @@ typeFilter.addEventListener("change", () => { closePop(); render(); });
 showPast.addEventListener("change", () => { closePop(); render(); });
 onlyMine.addEventListener("change", () => { closePop(); render(); });
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.help]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
 Session.onChange(user => {
   const member = !!user?.can.view_selections;
   picksEl.hidden = !member;
@@ -1027,6 +1038,7 @@ Session.onChange(user => {
     ? "Liste commune à la structure. Les heures sont celles calculées au moment du choix. Retirer un créneau le rend de nouveau disponible dans la recherche. « + Créneau personnalisé » ajoute un créneau à l'heure de votre choix, en dehors des étales proposées."
     : "Liste commune à la structure : inscrivez-vous sur les créneaux qui vous intéressent. Seuls ses administrateurs choisissent les créneaux. Les heures sont celles calculées au moment du choix." +
       (user.can.manage_registrations ? " « + Inscrire… » inscrit d'autres membres de la structure." : "");
+  renderCaciNote(user);
   load();
 });
 Session.init();

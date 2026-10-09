@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plongeurs — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="index.html" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Plongeurs <span id="structure-name" class="h1-sub"></span></h1>
+        <p class="subtitle">Niveaux, licences et certificats médicaux des membres.</p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main>
+    <p id="gate" class="gate" hidden></p>
+    <p id="flash" class="flash" role="status"></p>
+
+    <section id="divers-view" class="panel" hidden>
+      <div class="divers-bar">
+        <p id="caci-policy" class="hint"></p>
+        <label>Afficher
+          <select id="divers-filter">
+            <option value="">tous les membres</option>
+            <option value="pending">CACI à valider</option>
+            <option value="blocked">CACI absent ou expiré</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="users divers">
+          <thead>
+            <tr>
+              <th scope="col">Membre</th>
+              <th scope="col">Niveau</th>
+              <th scope="col">Encadrement</th>
+              <th scope="col">Licence</th>
+              <th scope="col">Certificat médical (CACI)</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="divers-body"></tbody>
+        </table>
+      </div>
+      <p class="hint">Un CACI saisi par un membre est « en attente » jusqu'à sa validation par un gestionnaire (profil « Gestionnaire ») ; une date saisie par un gestionnaire est validée d'office. La vérification à l'inscription se règle dans Administration → Créneaux.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="plongeurs.js"></script>
+</body>
+</html>

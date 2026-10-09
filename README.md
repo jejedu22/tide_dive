@@ -370,10 +370,21 @@ En plus de son rôle (visualisation ou administration), un compte peut recevoir 
 
 | Profil | Ouvre |
 |---|---|
-| **Gestionnaire** | les [newsletters](#newsletters) de la structure : rédaction, envoi et suivi des envois. Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
+| **Gestionnaire** | les [newsletters](#newsletters) de la structure : rédaction, envoi et suivi des envois ; la [validation des certificats médicaux](#fiche-plongeur-et-certificat-médical-caci) (page **Plongeurs**). Un administrateur n'y a pas accès d'office : il se l'attribue s'il en a besoin |
 | **Inscriptions** | [inscrire d'autres membres](#inscrire-dautres-membres) de la structure sur les créneaux, et retirer leur inscription (un encadrant qui inscrit ses élèves, par exemple). Un administrateur de structure a ce droit d'office |
 
 Le catalogue des profils est dans `app/accounts.py` (`PROFILES`) ; les profils d'un compte, dans la table `user_profiles` (par structure).
+
+### Fiche plongeur et certificat médical (CACI)
+
+Chaque compte a une **fiche plongeur** (`app/diver.py`), qu'il remplit dans le menu du compte → **Ma fiche plongeur** : niveau de plongeur et d'encadrement (catalogues FFESSM `DIVER_LEVELS`, `INSTRUCTOR_LEVELS`), autres qualifications, numéro de licence et **lien du QR code** de la licence numérique (adresse `https://`, affichée en QR code dans l'application grâce à [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), licence MIT, hébergé dans `static/vendor/qrcode/`, chargé à la demande).
+
+- **CACI** : le membre saisit la **date** de son certificat (jamais le document). Elle est **en attente** jusqu'à sa validation par un compte au profil **Gestionnaire** de la structure (ou un super administrateur) ; une date saisie par un gestionnaire est validée d'office, une date changée redevient en attente.
+- **Validité** : `caci_validity_months` mois à compter de la date (12 par défaut), réglable par structure.
+- **Vérification** (`/admin.html` → **Créneaux** → *Certificat médical*, désactivée par défaut) : l'inscription à un créneau est **refusée** sans CACI, ou si le CACI n'est plus valable **le jour de la plongée** (dernier jour pour un séjour), validé ou non ; une date **en attente** et valable ne bloque pas. Le contrôle vaut aussi quand un administrateur ou le profil Inscriptions inscrit un membre (tous ou aucun, avec le motif par membre). Le membre est prévenu par un bandeau dans « Créneaux choisis ».
+- **Page Plongeurs** (`/plongeurs.html`, administrateurs et gestionnaires de la structure) : niveaux, licences (QR code), état des CACI, filtre « à valider » / « absent ou expiré », bouton **Valider** (gestionnaires), modification d'une fiche.
+- API : `PATCH /api/me/profile` (champs de la fiche et `caci_date`), `GET /api/divers/levels`, `GET /api/divers`, `PUT /api/divers/{id}`, `POST /api/divers/{id}/caci/validate`.
+- **Mise à jour d'une base existante** (migration n° 9) : fiches vides, vérification désactivée dans toutes les structures.
 
 ### Voir comme un autre rôle (super administrateur)
 
@@ -835,6 +846,8 @@ app/
   passwords.py      politique de mots de passe et génération
   recovery.py       mot de passe oublié (provisoire par e-mail), invitations (liens à usage unique)
   user_import.py    import CSV de comptes
+  diver.py          fiche plongeur : niveaux, licence, CACI (validité, vérification à l'inscription)
+  divers.py         page Plongeurs : fiches des membres, validation des CACI
   calendar_feed.py  créneaux dans l'agenda du téléphone : fichier .ics d'un créneau ou d'une structure, abonnements « Mon agenda »
   ical.py           mise en forme iCalendar (RFC 5545) des créneaux
   mailer.py         envoi d'e-mails (SMTP ou console)
@@ -864,7 +877,9 @@ static/             frontend (index.html, app.js, style.css)
   xlsx-export.js    export Excel (.xlsx) des tableaux, généré dans le navigateur
   carte.js          cartes Leaflet partagées (fonds OpenStreetMap / photo IGN, marqueurs des ports et des sites)
   carte.*           page publique « Carte » des ports et des sites de plongée
+  plongeurs.*       fiches plongeurs des membres (administrateurs, gestionnaires), validation des CACI
   vendor/leaflet/   bibliothèque Leaflet 1.9.4 (licence BSD), hébergée localement
+  vendor/qrcode/    qrcode-generator 1.4.4 (licence MIT) : QR code de la licence
   session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
   demande-structure.*  formulaire public de demande de création de structure

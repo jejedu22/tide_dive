@@ -54,7 +54,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import accounts, db, mailer, passwords, security
+from . import accounts, db, diver, mailer, passwords, security
 from .accounts import (
     ROLE_LABELS, USERNAME_PATTERN, clean_email, clean_name, clean_phone, display_name, iso as _iso,
     now as _now, permissions, public_user as _public_user, token_hash as _token_hash,
@@ -403,8 +403,9 @@ class UserUpdate(_ProfileValidators):
         return _clean_profiles(v) if v is not None else None
 
 
-class ProfileUpdate(_ProfileValidators):
-    """Profil modifié par le titulaire du compte. Changer d'e-mail exige le mot de passe."""
+class ProfileUpdate(_ProfileValidators, diver.DiverFields):
+    """Profil modifié par le titulaire du compte (fiche plongeur comprise). Changer d'e-mail exige le mot de
+    passe. La date de CACI qu'il saisit attend la validation d'un gestionnaire (sauf s'il l'est lui-même)."""
     first_name: str | None = None
     last_name: str | None = None
     email: str | None = None
@@ -516,6 +517,8 @@ def change_own_password(body: PasswordChange, user: CurrentUser, response: Respo
 @router.patch("/me/profile")
 def update_own_profile(body: ProfileUpdate, user: CurrentUser):
     sent = body.model_fields_set - {"current_password"}
+    diver_sent = sent & set(diver.DIVER_KEYS)
+    sent -= diver_sent
     changes = {k: getattr(body, k) for k in sent}
     for k in ("first_name", "last_name", "email"):
         if k in changes and changes[k] is None:
@@ -531,6 +534,9 @@ def update_own_profile(body: ProfileUpdate, user: CurrentUser):
         db.update_user(user["id"], **changes)
     except sqlite3.IntegrityError as e:
         raise _integrity_conflict(e)
+    if diver_sent:
+        can_validate = accounts.permissions(user)["validate_caci"]
+        diver.apply(user["id"], body, diver_sent, validator_name=accounts.display_name(user) if can_validate else None)
     return {"user": _own_view(user)}
 
 

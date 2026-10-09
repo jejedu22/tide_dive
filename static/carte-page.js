@@ -65,7 +65,7 @@ async function init() {
 }
 
 Session.mountAccount(document.getElementById("account"),
-  [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.help]);
+  [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.divers, Session.LINKS.help]);
 // la session d'abord : les sites dépendent de la structure du compte (connexion ou changement de structure :
 // la page se recharge)
 Session.init().then(() => {

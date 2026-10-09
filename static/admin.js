@@ -1405,6 +1405,8 @@ function loadSettings() {
   $("default-max-registrations").value = st.default_max_registrations ?? "";
   $("use-api-maree").checked = st.use_api_maree ?? true;
   $("use-calibration").checked = st.use_calibration ?? true;
+  $("caci-check").checked = !!st.caci_check;
+  $("caci-validity-months").value = st.caci_validity_months ?? 12;
   const offset = st.rdv_offset_minutes ?? 120;
   rdvInputs.hours.value = Math.floor(offset / 60);
   rdvInputs.minutes.value = offset % 60;
@@ -1449,6 +1451,14 @@ settingsForm.addEventListener("submit", async e => {
   body.default_port_id = defaultPortSelect.value ? Number(defaultPortSelect.value) : null;
   body.use_api_maree = $("use-api-maree").checked;
   body.use_calibration = $("use-calibration").checked;
+  body.caci_check = $("caci-check").checked;
+  const months = Number($("caci-validity-months").value);
+  if (!Number.isInteger(months) || months < 1 || months > 60) {
+    status.textContent = "Validité du certificat : de 1 à 60 mois.";
+    $("caci-validity-months").focus();
+    return;
+  }
+  body.caci_validity_months = months;
   status.textContent = "";
   try {
     const saved = await Session.api(`/api/admin/structures/${st.id}/settings`, { method: "PATCH", body });
@@ -2499,6 +2509,6 @@ async function onSessionChange(user) {
   showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.map, Session.LINKS.help]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
 Session.onChange(onSessionChange);
 Session.init();

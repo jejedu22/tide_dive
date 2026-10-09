@@ -282,6 +282,16 @@
               <span>jour(s) avant le créneau</span>
             </span>
           </div>
+          <h2>Certificat médical (CACI)</h2>
+          <label class="check"><input type="checkbox" id="caci-check" name="caci_check"> Refuser l'inscription sans certificat médical valable le jour de la plongée</label>
+          <div class="field">
+            <label for="caci-validity-months">Validité du certificat</label>
+            <span class="lock-days">
+              <input id="caci-validity-months" name="caci_validity_months" type="number" min="1" max="60" step="1" inputmode="numeric" required>
+              <span>mois à compter de sa date</span>
+            </span>
+          </div>
+          <p class="hint">Les membres saisissent la date de leur CACI dans « Ma fiche plongeur ». Une date en attente de validation (page <a href="plongeurs.html">Plongeurs</a>, profil « Gestionnaire ») ne bloque pas l'inscription ; un certificat absent ou expiré le jour de la plongée la bloque, y compris quand un administrateur inscrit le membre.</p>
           <button type="submit" class="btn-primary">Enregistrer</button>
           <p id="lock-days-preview" class="hint"></p>
           <p id="settings-form-status" class="form-status" role="status"></p>

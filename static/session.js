@@ -489,6 +489,96 @@ const Session = (() => {
       "afterend", `<p class="dialog-notice">Complétez votre profil : prénom, nom et adresse e-mail.</p>`);
   }
 
+  // ---- Fiche plongeur : niveaux, licence (QR code), certificat médical (CACI) ----
+
+  const fmtDate = iso => (iso ? new Date(iso + "T12:00:00").toLocaleDateString("fr-FR") : "");
+  const CACI_STATES = { missing: "aucun", pending: "en attente de validation", valid: "validé", expired: "expiré" };
+  let levelsCatalog = null;
+
+  // État du CACI en une ligne (fiche du membre, liste des plongeurs)
+  function caciText(c) {
+    if (!c || c.state === "missing") return "Aucun certificat médical (CACI) enregistré.";
+    const until = `valable jusqu'au ${fmtDate(c.valid_until)}`;
+    if (c.state === "expired") return `Certificat du ${fmtDate(c.date)} : expiré (${until}).`;
+    if (c.state === "pending") return `Certificat du ${fmtDate(c.date)}, ${until} : en attente de validation par un gestionnaire.`;
+    return `Certificat du ${fmtDate(c.date)}, ${until} : validé${c.validated_by ? ` par ${esc(c.validated_by)}` : ""}.`;
+  }
+
+  // QR code (SVG) d'une adresse : lien de la licence numérique, à montrer à un encadrant
+  function qrSvg(text, cell = 4) {
+    if (!text || typeof qrcode === "undefined") return "";
+    const qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    return qr.createSvgTag({ cellSize: cell, margin: 2, scalable: true, alt: "QR code de la licence" });
+  }
+
+  // le CACI empêche-t-il de s'inscrire (structure qui le vérifie, certificat absent ou expiré) ?
+  const caciBlocks = u => !!(u?.structure?.caci_check && ["missing", "expired"].includes(u.caci?.state));
+
+  // bibliothèque QR code (vendor/qrcode, licence MIT) chargée à la demande
+  let qrLoading = null;
+  function loadQr() {
+    if (typeof qrcode !== "undefined") return Promise.resolve();
+    qrLoading ??= new Promise(resolve => {
+      const sc = document.createElement("script");
+      sc.src = "vendor/qrcode/qrcode.js";
+      sc.onload = sc.onerror = () => resolve();
+      document.head.append(sc);
+    });
+    return qrLoading;
+  }
+
+  async function openDiver() {
+    [levelsCatalog] = await Promise.all([
+      levelsCatalog ?? api("/api/divers/levels").catch(() => ({ levels: {}, instructor_levels: {} })),
+      loadQr(),
+    ]);
+    const u = user, dv = u.diver || {};
+    const opts = (catalog, value) => `<option value="">—</option>` + Object.entries(catalog).map(([k, label]) =>
+      `<option value="${k}"${k === value ? " selected" : ""}>${esc(label)}</option>`).join("");
+    const today = new Date().toISOString().slice(0, 10);
+    const check = u.structure?.caci_check;
+    openForm({
+      title: "Ma fiche plongeur",
+      intro: `<p class="dialog-hint">Vos niveaux, votre licence FFESSM et votre certificat médical (CACI), vus par les
+        administrateurs et gestionnaires de votre structure.</p>`,
+      submitLabel: "Enregistrer",
+      fields: [],
+      extra: `
+        <label>Niveau de plongeur <select name="diver_level">${opts(levelsCatalog.levels, dv.diver_level)}</select></label>
+        <label>Niveau d'encadrement <select name="instructor_level">${opts(levelsCatalog.instructor_levels, dv.instructor_level)}</select></label>
+        <label>Autres qualifications <input name="qualifications" maxlength="200" placeholder="ex. Nitrox confirmé, RIFAP, TIV"
+          value="${esc(dv.qualifications ?? "")}"></label>
+        <label>Numéro de licence FFESSM <input name="licence_number" maxlength="30" placeholder="ex. A-14-123456"
+          value="${esc(dv.licence_number ?? "")}"></label>
+        <label>Lien du QR code de la licence <input name="licence_url" type="url" maxlength="500" placeholder="https://…"
+          value="${esc(dv.licence_url ?? "")}">
+          <small class="field-hint">Scannez le QR code de votre licence numérique avec votre téléphone et collez ici l'adresse obtenue :
+            un encadrant pourra le scanner depuis l'application.</small></label>
+        <div class="licence-qr" data-qr>${dv.licence_url ? qrSvg(dv.licence_url) : ""}</div>
+        <fieldset class="caci-box${caciBlocks(u) ? " caci-alert" : ""}">
+          <legend>Certificat médical (CACI)</legend>
+          <p class="caci-status">${caciText(u.caci)}</p>
+          ${check ? `<p class="dialog-hint">Votre structure vérifie le CACI : sans certificat valable le jour de la plongée
+            (${u.structure.caci_validity_months} mois à compter de sa date), l'inscription est refusée.</p>` : ""}
+          <label>Date du certificat <input name="caci_date" type="date" max="${today}" value="${esc(u.caci?.date ?? "")}">
+            <small class="field-hint">Une nouvelle date doit être validée par un gestionnaire de votre structure.</small></label>
+        </fieldset>`,
+      onSubmit: async v => {
+        const body = Object.fromEntries(["diver_level", "instructor_level", "qualifications", "licence_number",
+                                         "licence_url", "caci_date"].map(k => [k, v[k] || null]));
+        setUser((await api("/api/me/profile", { method: "PATCH", body })).user);
+      },
+      setup: f => {
+        f.licence_url.addEventListener("input", () => {
+          const url = f.licence_url.value.trim();
+          f.querySelector("[data-qr]").innerHTML = /^https:\/\/\S+$/.test(url) ? qrSvg(url) : "";
+        });
+      },
+    });
+  }
+
   // Super administrateur : structures proposées dans le sélecteur de l'en-tête
   let structures = null;      // null : pas encore chargées
   let structuresLoading = null;
@@ -795,6 +885,9 @@ const Session = (() => {
             title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
             : ` <span class="account-dot" title="Profil à compléter">!</span>`}</span></button>
+          ${u.structure ? `<button type="button" class="account-item" data-act="diver"
+            title="Niveaux, licence FFESSM, certificat médical (CACI)">${icon("wave")}<span>Ma fiche plongeur${caciBlocks(u)
+            ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
           <button type="button" class="account-item" data-act="logout">${icon("logout")}<span>Se déconnecter</span></button>
         </div>`;
     };
@@ -813,6 +906,7 @@ const Session = (() => {
       if (act && act !== "structure") closeMenu();
       if (act === "login") openLogin();
       if (act === "profile") openProfile();
+      if (act === "diver") openDiver();
       if (act === "logout") logout();
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
@@ -873,6 +967,7 @@ const Session = (() => {
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", icon: "calendar", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", icon: "gear", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", icon: "mail", show: u => u.can.newsletters },
+    divers: { href: "plongeurs.html", label: "Plongeurs", icon: "user", show: u => u.can.view_divers },
     map: { href: "carte.html", label: "Carte", icon: "map" },
     help: { href: "aide.html", label: "Aide", icon: "help" },
   };
@@ -910,6 +1005,7 @@ const Session = (() => {
     onChange: fn => listeners.push(fn),
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
+    openDiver, caciText, qrSvg, caciBlocks, loadQr,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
     openPreview, openAgenda, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };

@@ -15,9 +15,9 @@ import re
 import secrets
 import sqlite3
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from . import db, mailer, passwords
+from . import db, diver, mailer, passwords
 
 INVITE_TTL = timedelta(days=int(os.environ.get("INVITE_DAYS", "7")))
 RESET_TTL = timedelta(minutes=int(os.environ.get("RESET_TOKEN_MINUTES", "60")))
@@ -130,7 +130,7 @@ def display_name(row: sqlite3.Row) -> str:
 PROFILES = {
     "gestionnaire": {
         "label": "Gestionnaire",
-        "description": "Newsletters : rédaction, envoi et suivi des envois",
+        "description": "Newsletters (rédaction, envoi, suivi) ; validation des certificats médicaux (CACI) des membres",
     },
     "inscriptions": {
         "label": "Inscriptions",
@@ -163,6 +163,10 @@ def permissions(row: sqlite3.Row) -> dict:
         # newsletters : profil « gestionnaire » exigé, y compris pour un administrateur
         # (il se l'attribue lui-même s'il en a besoin)
         "newsletters": in_structure and "gestionnaire" in profiles_of(row),
+        # certificats médicaux (CACI) des membres : profil « gestionnaire » (ou super administrateur)
+        "validate_caci": is_super or (in_structure and "gestionnaire" in profiles_of(row)),
+        # fiches plongeurs des membres (niveaux, licence, CACI) : administration ou gestionnaire
+        "view_divers": manager or (in_structure and "gestionnaire" in profiles_of(row)),
     }
 
 
@@ -196,6 +200,9 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
         "email": row["email"],
         "phone": row["phone"],
         "profile_complete": bool(row["first_name"] and row["last_name"] and row["email"]),
+        "diver": diver.diver_out(row),
+        # CACI vu aujourd'hui, avec la durée de validité de la structure active
+        "caci": diver.caci_state(row, date.today(), row["structure_caci_validity_months"]),
         "is_admin": bool(row["is_admin"]),
         "structure": (
             {"id": row["structure_id"], "name": row["structure_name"],
@@ -205,7 +212,10 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
              "search_modes": row["structure_search_modes"],
              # horaires de marée vus par la structure (réglages de ses administrateurs) : note de source des pages
              "tide_sources": {"api_maree": bool(row["structure_use_api_maree"]),
-                              "calibration": bool(row["structure_use_calibration"])}}
+                              "calibration": bool(row["structure_use_calibration"])},
+             # vérification du CACI à l'inscription, et sa durée de validité
+             "caci_check": bool(row["structure_caci_check"]),
+             "caci_validity_months": row["structure_caci_validity_months"]}
             if row["structure_id"] is not None else None
         ),
         "role": row["structure_role"],

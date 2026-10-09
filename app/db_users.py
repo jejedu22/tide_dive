@@ -35,7 +35,10 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
            st.default_max_registrations AS structure_default_max_registrations,
            st.search_modes AS structure_search_modes,
            st.use_api_maree AS structure_use_api_maree, st.use_calibration AS structure_use_calibration,
+           st.caci_check AS structure_caci_check, st.caci_validity_months AS structure_caci_validity_months,
            u.first_name, u.last_name, u.email, u.phone,
+           u.diver_level, u.instructor_level, u.qualifications, u.licence_number, u.licence_url,
+           u.caci_date, u.caci_validated_at, u.caci_validated_by,
            u.must_change_password, u.password_changed_at,
            substr(u.password_hash, 1, 1) = '!' AS pending_invite,
            (SELECT MAX(t.expires_at) FROM user_tokens t
@@ -105,7 +108,9 @@ def existing_logins(usernames: list[str], emails: list[str]) -> tuple[set[str], 
     return taken_u, taken_e
 
 
-_PROFILE_FIELDS = ("first_name", "last_name", "email", "phone")
+_PROFILE_FIELDS = ("first_name", "last_name", "email", "phone",
+                   # fiche plongeur ; caci_date passe par set_caci (validation)
+                   "diver_level", "instructor_level", "qualifications", "licence_number", "licence_url")
 
 
 def _insert_user(conn: sqlite3.Connection, u: dict) -> int:
@@ -233,7 +238,8 @@ def get_session_user(token_hash: str, now: str) -> sqlite3.Row | dict | None:
 PREVIEW_ROLES = ("manager", "viewer", "none")
 _STRUCTURE_FIELDS = ("structure_id", "structure_role", "structure_name", "structure_rdv_offset_minutes",
                      "structure_default_port_id", "structure_default_max_registrations", "structure_search_modes",
-                     "structure_use_api_maree", "structure_use_calibration", "profiles")
+                     "structure_use_api_maree", "structure_use_calibration", "structure_caci_check",
+                     "structure_caci_validity_months", "profiles")
 
 
 def _previewed(row: sqlite3.Row, role: str, profiles: str | None) -> dict:
@@ -417,3 +423,21 @@ def delete_calendar_feed(user_id: int, structure_id: int) -> bool:
     with get_conn() as conn:
         return conn.execute("DELETE FROM calendar_feeds WHERE user_id = ? AND structure_id = ?",
                             (user_id, structure_id)).rowcount > 0
+
+
+def set_caci(user_id: int, caci_date: str | None, validated_by: str | None, now: str) -> None:
+    """Date du CACI (None : effacée). validated_by : nom de qui la valide en la saisissant (gestionnaire) ; None :
+    en attente de validation. Une date inchangée garde sa validation."""
+    with get_conn() as conn:
+        old = conn.execute("SELECT caci_date FROM users WHERE id = ?", (user_id,)).fetchone()
+        if old is not None and old["caci_date"] == caci_date and validated_by is None:
+            return
+        conn.execute("UPDATE users SET caci_date = ?, caci_validated_at = ?, caci_validated_by = ? WHERE id = ?",
+                     (caci_date, now if validated_by and caci_date else None,
+                      validated_by if caci_date else None, user_id))
+
+
+def validate_caci(user_id: int, validated_by: str, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET caci_validated_at = ?, caci_validated_by = ? "
+                     "WHERE id = ? AND caci_date IS NOT NULL", (now, validated_by, user_id))
