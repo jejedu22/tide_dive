@@ -12,6 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import db, security  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _totp_optional(monkeypatch):
+    """Double authentification facultative pour les super administrateurs, sauf dans les tests qui la
+    rendent obligatoire (tests/test_account_security.py)."""
+    from app import accounts
+    monkeypatch.setattr(accounts, "TOTP_REQUIRED_FOR_SUPER_ADMINS", False)
+
+
 @pytest.fixture()
 def tmp_db(tmp_path, monkeypatch):
     """Base vierge et isolée : chaque test part de zéro."""

@@ -478,6 +478,28 @@ Depuis la liste, le bouton **Mot de passe…** renvoie l'invitation, envoie un l
 
 Les liens pointent vers `/mot-de-passe.html#token=…` : le jeton est dans le fragment, donc jamais envoyé au serveur dans l'URL (absent des logs du reverse proxy et de l'en-tête Referer). Seule son empreinte SHA-256 est stockée ; il est invalidé dès que le mot de passe change. Choisir un mot de passe par ce lien ferme toutes les sessions du compte et connecte le navigateur.
 
+### Double authentification, suspension et données des comptes
+
+**Double authentification (TOTP)** (`app/totp.py`, `app/account_security.py`) : en plus du mot de passe, un code à 6 chiffres donné par une application d'authentification (Google Authenticator, Microsoft Authenticator, FreeOTP, Aegis, 2FAS…) est demandé à chaque connexion. Mise en place depuis **Sécurité et données** (menu du compte) : QR code (ou clé à saisir), premier code pour l'activer, puis **10 codes de secours** à usage unique, affichés une seule fois (téléchargeables) et renouvelables. Un code accepté ne peut pas resservir ; une dérive d'horloge de 30 s est tolérée. La seconde étape de la connexion dure 5 minutes et accepte 5 essais.
+
+- **Obligatoire pour les super administrateurs** (`TOTP_SUPER_ADMINS=0` pour la rendre facultative) : tant qu'elle n'est pas activée, l'API leur refuse tout le reste (403, en-tête `X-Totp-Setup-Required: 1`) et l'interface impose sa mise en place à la connexion.
+- **Proposée à tous les autres comptes**, recommandée aux administrateurs de structure.
+- Activer la double authentification ferme les autres sessions du compte. La désactiver demande le mot de passe.
+- Le secret est chiffré en base par `SECRETS_KEY` quand elle est définie (sinon stocké tel quel), les codes de secours sont hachés (SHA-256).
+- Téléphone perdu : un super administrateur la retire depuis la liste des comptes (**Sécurité…**), ou en ligne de commande `python -m app.auth reset-totp <identifiant>`.
+
+**Sessions** : chacun voit le nombre de ses sessions ouvertes et peut déconnecter ses autres appareils.
+
+**Super administrateur** (bouton **Sécurité…** de la liste des comptes) : **suspendre** un compte (motif facultatif ; connexion refusée — le message ne s'affiche qu'avec le bon mot de passe —, toutes ses sessions et ses liens en cours fermés, données conservées) puis le **réactiver** (`python -m app.auth unsuspend <identifiant>` en dépannage), **fermer toutes ses sessions**, réinitialiser sa double authentification, exporter ses données.
+
+**Doublons et fusion** : le panneau **Doublons probables** (super administrateur) regroupe les comptes de même prénom et nom (accents et casse ignorés), de même numéro de licence ou de même téléphone. **Fusionner** garde le compte coché : il reçoit les structures de l'autre (le rôle le plus élevé l'emporte), ses profils, inscriptions, préférences, abonnements calendrier, groupes d'envoi et son historique, et complète ses champs vides (téléphone, fiche plongeur, CACI le plus récent…) ; l'autre compte est supprimé. La recherche de la liste des comptes (« Toutes les structures ») porte aussi sur le numéro de licence.
+
+**RGPD** :
+
+- **Export** : chacun télécharge ses données (« Sécurité et données » → **Télécharger mes données**, JSON : compte, structures, profils, fiche plongeur, inscriptions, préférences, abonnements, groupes, newsletters reçues, historique de ses actions ; jamais de mot de passe, jeton ou secret). L'administrateur de la structure (bouton **Exporter**) et le super administrateur peuvent faire de même pour répondre à une demande d'accès.
+- **Effacement** : supprimer un compte efface ses données et son nom du journal d'activité (auteur et cible deviennent « compte supprimé »).
+- **Comptes inactifs** : le panneau **Comptes inactifs** (super administrateur) liste les comptes sans connexion depuis 1, 2 ou 3 ans (jamais connectés : créés avant), hors super administrateurs, à supprimer en lot après vérification.
+
 ### Import CSV
 
 **`/admin.html` → Utilisateurs → Importer** crée des comptes en masse. Un [modèle](static/modele-import-utilisateurs.csv) est téléchargeable depuis la page.
@@ -535,6 +557,9 @@ python -m app.auth create-admin jerome --email jerome@example.fr --first-name J�
 # Changer un mot de passe (identifiant ou e-mail), lister les comptes
 python -m app.auth set-password jerome
 python -m app.auth list
+# Téléphone perdu : retirer la double authentification ; réactiver un compte suspendu
+python -m app.auth reset-totp jerome
+python -m app.auth unsuspend jerome
 ```
 
 Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session dans un cookie `HttpOnly` / `SameSite=Lax` dont seule l'empreinte SHA-256 est stockée en base. Changer un mot de passe ferme les sessions ouvertes du compte et invalide ses liens en cours. **Derrière HTTPS, mettre `COOKIE_SECURE=1`.**
@@ -543,6 +568,7 @@ Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session
 |---|---|---|
 | `COOKIE_SECURE` | `0` | `1` : cookie de session envoyé uniquement en HTTPS |
 | `SESSION_DAYS` | `30` | Durée de validité d'une connexion |
+| `TOTP_SUPER_ADMINS` | `1` | Double authentification obligatoire pour les super administrateurs (`0` : facultative) |
 | `PASSWORD_MIN_LENGTH` | `12` | Longueur minimale des nouveaux mots de passe (8 au minimum) |
 
 ## Créneaux choisis
@@ -665,6 +691,7 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | Méthode et route | Accès | Rôle |
 |---|---|---|
 | `POST /api/auth/login` | public | `{username, password}` (`username` : identifiant ou e-mail) → cookie de session |
+| `POST /api/auth/login/totp` | public | seconde étape si la réponse de `/login` est `{totp_required: true, challenge}` : `{challenge, code}` (code de l'application ou code de secours) → cookie de session |
 | `POST /api/auth/logout` | public | ferme la session |
 | `GET /api/auth/me` | public | `{user}` ou `{user: null}` |
 | `GET /api/auth/config` | public | `{password_reset, password_policy}` : mot de passe oublié disponible, règles des mots de passe |
@@ -674,6 +701,19 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `PATCH /api/me/profile` | connecté | `{first_name?, last_name?, email?, phone?, current_password?}` (mot de passe requis pour changer d'e-mail) |
 | `POST /api/me/password` | connecté | `{current_password, new_password}` |
 | `GET` / `PUT` / `DELETE /api/me/preferences` | connecté | `{form, filters}` |
+| `GET /api/me/totp` | connecté | état de la double authentification `{enabled, enabled_at, recovery_left, required}` |
+| `POST /api/me/totp/setup`, `/enable`, `/recovery-codes`, `/disable` | connecté | nouveau secret `{secret, uri}` / activation `{code}` → codes de secours / nouveaux codes `{code}` / désactivation `{password}` |
+| `GET /api/me/sessions`, `POST /api/me/sessions/close-others` | connecté | nombre de sessions ouvertes / fermeture des autres |
+| `GET /api/me/export` | connecté | ses données (RGPD), fichier JSON |
+| `POST` / `DELETE /api/admin/users/{id}/suspend` | super admin | suspension `{reason?}` / réactivation |
+| `POST /api/admin/users/{id}/sessions/close` | super admin | ferme toutes les sessions du compte |
+| `DELETE /api/admin/users/{id}/totp` | super admin | retire la double authentification du compte |
+| `GET /api/admin/users/{id}/export` | admin. structure / super admin | données du compte (RGPD), fichier JSON |
+| `GET /api/admin/accounts/search?q=` | super admin | recherche dans tous les comptes (nom, identifiant, e-mail, téléphone, licence) avec leurs structures |
+| `GET /api/admin/accounts/duplicates` | super admin | doublons probables `[{reason, accounts}]` |
+| `POST /api/admin/accounts/merge` | super admin | `{keep_id, remove_id}` : fusion |
+| `GET /api/admin/accounts/inactive?months=` | super admin | comptes sans connexion depuis `months` mois (6 à 120) |
+| `POST /api/admin/accounts/purge-inactive` | super admin | `{months, ids}` : suppression des comptes encore inactifs |
 | `GET` / `PUT /api/me/water-preferences` | connecté | préférences de la recherche par hauteur d'eau `{form, filters}` |
 | `PUT` / `DELETE /api/me/preview` | super admin | aperçu d'un autre rôle `{role, structure_id?, profiles?}` (lecture seule) / fin de l'aperçu |
 | `GET /api/me/calendar-feeds` | connecté | « Mon agenda » : pour chaque structure du compte, son abonnement calendrier et ses types |
@@ -781,6 +821,7 @@ Le résultat s'affiche en haut de l'administration (`GET /api/admin/health`). Un
 
 ### Sécurité
 
+- **Double authentification** obligatoire pour les super administrateurs, proposée à tous (voir [Double authentification, suspension et données des comptes](#double-authentification-suspension-et-données-des-comptes)).
 - **Tentatives de connexion limitées** : 8 échecs par identifiant et 30 par adresse IP sur 15 minutes, puis erreur 429 avec `Retry-After` (même avec le bon mot de passe, pendant le blocage). Mot de passe oublié, liens de réinitialisation, demande de structure et désinscription ont aussi leurs limites. Compteurs en mémoire (remis à zéro au redémarrage) ; `RATE_LIMIT=0` les désactive. L'adresse IP vient de `X-Forwarded-For` côté Traefik : `TRUSTED_PROXY_HOPS` (1 par défaut, 0 sans proxy).
 - **CORS fermé** : le site est servi par l'API elle-même. `CORS_ORIGINS` ouvre l'API à d'autres origines au cas par cas.
 - **Origine contrôlée** : une requête `POST/PUT/PATCH/DELETE` d'un navigateur venant d'une autre origine est refusée (403), en plus du cookie `SameSite=Lax`.

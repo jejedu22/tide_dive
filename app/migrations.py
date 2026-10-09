@@ -276,6 +276,22 @@ def _m010_audit_log(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_structure ON audit_log(structure_id, id)")
 
 
+ACCOUNT_SECURITY_COLUMNS = {
+    "totp_secret": "TEXT", "totp_enabled_at": "TEXT", "totp_recovery": "TEXT", "totp_last_step": "INTEGER",
+    "suspended_at": "TEXT", "suspended_reason": "TEXT",
+}
+
+
+def _m011_account_security(conn: sqlite3.Connection) -> None:
+    """Double authentification (TOTP) et suspension des comptes ; table login_challenges (db.SCHEMA)."""
+    existing = _columns(conn, "users")
+    for col, ddl in ACCOUNT_SECURITY_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+    conn.execute("CREATE TABLE IF NOT EXISTS login_challenges (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL "
+                 "REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -287,6 +303,7 @@ MIGRATIONS: list[Migration] = [
     Migration(8, "sites de plongée rattachés aux structures", _m008_dive_sites_by_structure),
     Migration(9, "fiche plongeur (niveaux, licence, CACI) et vérification du CACI", _m009_diver_profile),
     Migration(10, "journal d'activité", _m010_audit_log),
+    Migration(11, "double authentification et suspension des comptes", _m011_account_security),
 ]
 
 

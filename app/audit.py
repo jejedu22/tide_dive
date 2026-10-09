@@ -90,6 +90,17 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/newsletters/{newsletter_id}/send"): "Newsletter envoyée",
     ("POST", "/api/newsletters/{newsletter_id}/schedule"): "Newsletter programmée",
     ("POST", "/api/newsletters/{newsletter_id}/unschedule"): "Programmation de newsletter annulée",
+    ("POST", "/api/me/totp/setup"): "Double authentification en cours de mise en place",
+    ("POST", "/api/me/totp/enable"): "Double authentification activée",
+    ("POST", "/api/me/totp/disable"): "Double authentification désactivée",
+    ("POST", "/api/me/totp/recovery-codes"): "Codes de secours renouvelés",
+    ("POST", "/api/me/sessions/close-others"): "Autres sessions fermées (titulaire)",
+    ("POST", "/api/admin/users/{user_id}/suspend"): "Compte suspendu",
+    ("DELETE", "/api/admin/users/{user_id}/suspend"): "Compte réactivé",
+    ("POST", "/api/admin/users/{user_id}/sessions/close"): "Sessions d'un compte fermées",
+    ("DELETE", "/api/admin/users/{user_id}/totp"): "Double authentification d'un compte réinitialisée",
+    ("POST", "/api/admin/accounts/merge"): "Comptes fusionnés",
+    ("POST", "/api/admin/accounts/purge-inactive"): "Comptes inactifs supprimés",
     ("PUT", "/api/divers/{user_id}"): "Fiche plongeur modifiée",
     ("POST", "/api/divers/{user_id}/caci/validate"): "Certificat médical (CACI) validé",
 }
@@ -211,6 +222,9 @@ def install(app: FastAPI) -> None:
             target = _from_response(body)
             response = Response(body, status_code=response.status_code, headers=dict(response.headers),
                                 media_type=response.media_type)
+        if route == "/api/admin/users/{user_id}" and request.method == "DELETE" \
+                and db.get_user(int(request.path_params["user_id"])) is None:
+            target = "compte supprimé"   # effacement : son nom ne reste pas dans le journal
         query_sid = request.query_params.get("structure_id")
         structure_id = (int(query_sid) if query_sid and query_sid.isdigit() else None) or target_structure \
             or actor["structure_id"]

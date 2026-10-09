@@ -23,6 +23,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_unavailabilities.py plages d'indisponibilité des structures
   db_water.py       hauteurs d'eau des ports, créneaux de hauteur d'eau
   db_audit.py       journal d'activité
+  db_accounts.py    double authentification, suspension, recherche, doublons, fusion, export (RGPD)
   db_currents.py    sites de plongée des structures, courant de marée à chaque site (atlas du SHOM)
   db_requests.py    demandes de création de structure
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
@@ -252,6 +253,31 @@ from .db_water import (  # noqa: F401
     delete_threshold,
     create_water_selection,
     water_selections_between,
+)
+from .db_accounts import (  # noqa: F401
+    _ACCOUNT_COLUMNS,
+    _EXPORT_USER_FIELDS,
+    _FILL_FIELDS,
+    get_totp,
+    set_totp_pending,
+    enable_totp,
+    set_totp_step,
+    set_totp_recovery,
+    disable_totp,
+    create_login_challenge,
+    get_login_challenge,
+    fail_login_challenge,
+    delete_login_challenge,
+    count_sessions,
+    close_sessions,
+    suspend_user,
+    search_accounts,
+    all_accounts,
+    get_account,
+    inactive_accounts,
+    merge_users,
+    export_account,
+    anonymize_audit,
 )
 from .db_audit import (  # noqa: F401
     add_audit,

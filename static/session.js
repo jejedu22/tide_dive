@@ -57,6 +57,7 @@ const Session = (() => {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       if (res.headers.get("X-Password-Change-Required")) init();  // mot de passe provisoire
+      if (res.headers.get("X-Totp-Setup-Required")) init();       // double authentification à mettre en place
       const err = new Error(errorMessage(data, res));
       err.status = res.status;
       err.body = data;
@@ -76,6 +77,13 @@ const Session = (() => {
       user = null;
       notify();
       openPasswordChange({ forced: u });
+      return;
+    }
+    // Super administrateur : double authentification obligatoire, à mettre en place avant tout
+    if (u?.totp_setup_required) {
+      user = null;
+      notify();
+      openTotpSetup({ forced: u });
       return;
     }
     user = u;
@@ -208,10 +216,36 @@ const Session = (() => {
   }
 
   async function login(username, password) {
-    const u = (await api("/api/auth/login", { method: "POST", body: { username, password } })).user;
-    // mot de passe provisoire : d'abord le changement obligatoire (voir openPasswordChange)
-    if (!u.must_change_password && goAfterLogin(u)) return;
+    const r = await api("/api/auth/login", { method: "POST", body: { username, password } });
+    if (r.totp_required) { openTotpLogin(r.challenge); return; }
+    loggedIn(r.user);
+  }
+
+  function loggedIn(u) {
+    // mot de passe provisoire, double authentification à mettre en place : d'abord l'étape obligatoire
+    if (!u.must_change_password && !u.totp_setup_required && goAfterLogin(u)) return;
     setUser(u);
+  }
+
+  // Seconde étape de la connexion : code de l'application d'authentification, ou code de secours
+  function openTotpLogin(challenge) {
+    openForm({
+      title: "Double authentification",
+      intro: `<p class="dialog-hint">Saisissez le code à 6 chiffres affiché par votre application d'authentification,
+        ou l'un de vos codes de secours.</p>`,
+      submitLabel: "Valider",
+      fields: [{ name: "code", label: "Code", autocomplete: "one-time-code" }],
+      setup: f => { f.code.inputMode = "numeric"; f.code.maxLength = 20; },
+      onSubmit: async v => {
+        try {
+          const r = await api("/api/auth/login/totp", { method: "POST", body: { challenge, code: v.code.trim() } });
+          loggedIn(r.user);
+        } catch (e) {
+          if (/expirée/.test(e.message)) { openLogin(); return true; }
+          throw e;
+        }
+      },
+    });
   }
 
   async function logout() {
@@ -434,10 +468,7 @@ const Session = (() => {
           method: "POST",
           body: { current_password: v.current_password, new_password: v.new_password },
         });
-        if (forced) {
-          const u = (await api("/api/auth/me")).user;
-          if (!goAfterLogin(u)) setUser(u);
-        }
+        if (forced) loggedIn((await api("/api/auth/me")).user);
       },
     });
   }
@@ -577,6 +608,143 @@ const Session = (() => {
         });
       },
     });
+  }
+
+  // ---- Sécurité et données du compte : double authentification, sessions, export (RGPD) ----
+
+  const fmtDay = iso => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+  function recoveryCodesHtml(codes) {
+    return `<p>Notez ces <strong>codes de secours</strong> et gardez-les en lieu sûr : chacun permet <strong>une</strong>
+      connexion si vous n'avez plus votre téléphone. Ils ne seront plus affichés.</p>
+      <ol class="recovery-codes">${codes.map(c => `<li><code>${esc(c)}</code></li>`).join("")}</ol>
+      <p><a class="btn-secondary btn-small" download="calendive-codes-de-secours.txt"
+        href="data:text/plain;charset=utf-8,${encodeURIComponent("Calendive : codes de secours (un usage chacun)\n\n" + codes.join("\n") + "\n")}">Télécharger les codes</a></p>`;
+  }
+
+  // forced : super administrateur qui doit la mettre en place pour continuer
+  async function openTotpSetup({ forced = null } = {}) {
+    let setup;
+    try {
+      [setup] = await Promise.all([api("/api/me/totp/setup", { method: "POST" }), loadQr()]);
+    } catch (e) {
+      openMessage("Double authentification", `<p>${esc(e.message)}</p>`);
+      return;
+    }
+    openForm({
+      title: forced ? "Activez la double authentification" : "Mettre en place la double authentification",
+      intro: `${forced ? `<p class="dialog-hint">Bonjour ${esc(forced.first_name || forced.username)}, la double
+          authentification est obligatoire pour les super administrateurs.</p>` : ""}
+        <ol class="totp-steps">
+          <li>Installez une application d'authentification sur votre téléphone (Google Authenticator, Microsoft
+            Authenticator, FreeOTP, Aegis, 2FAS…).</li>
+          <li>Scannez ce QR code avec l'application :
+            <div class="totp-qr">${qrSvg(setup.uri, 4).replace("QR code de la licence", "QR code de la double authentification")}</div>
+            <small class="field-hint">Ou saisissez la clé : <code class="totp-secret">${esc(setup.secret.replace(/(.{4})/g, "$1 ").trim())}</code></small></li>
+          <li>Saisissez le code à 6 chiffres qu'elle affiche.</li>
+        </ol>`,
+      submitLabel: "Activer",
+      locked: !!forced,
+      cancelLabel: forced ? "Se déconnecter" : "Annuler",
+      onCancel: forced ? logout : undefined,
+      fields: [{ name: "code", label: "Code affiché par l'application", autocomplete: "one-time-code" }],
+      setup: f => { f.code.inputMode = "numeric"; f.code.maxLength = 8; },
+      onSubmit: async v => {
+        const r = await api("/api/me/totp/enable", { method: "POST", body: { code: v.code.trim() } });
+        showRecoveryCodes("Double authentification activée", r.recovery_codes, !!forced);
+        return true;
+      },
+    });
+  }
+
+  function showRecoveryCodes(title, codes, afterForced) {
+    openMessage(title, recoveryCodesHtml(codes));
+    // OK, croix ou Échap : la fenêtre se ferme, le compte est rechargé
+    ensureDialog().addEventListener("close", async () => {
+      const u = (await api("/api/auth/me")).user;
+      if (afterForced) loggedIn(u); else setUser(u);
+    }, { once: true });
+  }
+
+  async function openSecurity() {
+    let state, sessions;
+    try {
+      [state, sessions] = await Promise.all([api("/api/me/totp"), api("/api/me/sessions")]);
+    } catch (e) {
+      openMessage("Sécurité et données", `<p>${esc(e.message)}</p>`);
+      return;
+    }
+    const d = ensureDialog();
+    d.dataset.locked = "";
+    d.innerHTML = `
+      <form method="dialog" class="security-dialog">
+        <h2>Sécurité et données</h2>
+        <section>
+          <h3>Double authentification</h3>
+          ${state.enabled
+            ? `<p>✓ Activée depuis le ${esc(fmtDay(state.enabled_at))}. ${state.recovery_left} code${state.recovery_left > 1 ? "s" : ""}
+                de secours restant${state.recovery_left > 1 ? "s" : ""}.</p>
+               <p class="dialog-actions-inline">
+                 <button type="button" class="btn-secondary btn-small" data-sec="codes">Nouveaux codes de secours</button>
+                 <button type="button" class="btn-quiet btn-small" data-sec="disable">Désactiver</button></p>`
+            : `<p class="dialog-hint">En plus du mot de passe, un code à 6 chiffres donné par une application de votre
+                 téléphone est demandé à chaque connexion : votre compte reste protégé même si votre mot de passe fuite.
+                 ${state.required ? "<strong>Obligatoire pour les super administrateurs.</strong>" : "Recommandée pour les administrateurs."}</p>
+               <p><button type="button" class="btn-primary btn-small" data-sec="setup">Mettre en place</button></p>`}
+        </section>
+        <section>
+          <h3>Sessions</h3>
+          <p>${sessions.count} session${sessions.count > 1 ? "s" : ""} ouverte${sessions.count > 1 ? "s" : ""}
+            (navigateurs ou appareils connectés à votre compte, celui-ci compris).</p>
+          ${sessions.count > 1 ? `<p><button type="button" class="btn-secondary btn-small" data-sec="close">Déconnecter les autres appareils</button></p>` : ""}
+        </section>
+        <section>
+          <h3>Mes données</h3>
+          <p class="dialog-hint">Tout ce que Calendive enregistre sur vous (compte, structures, fiche plongeur, inscriptions,
+            préférences, newsletters reçues, historique de vos actions), dans un fichier JSON.</p>
+          <p><a class="btn-secondary btn-small" href="/api/me/export" download>Télécharger mes données</a></p>
+          <p class="dialog-hint">Pour supprimer votre compte, adressez-vous à l'administrateur de votre structure
+            (voir les <a href="mentions-legales.html">mentions légales</a>).</p>
+        </section>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button type="submit" class="btn-primary" value="close">Fermer</button></div>
+      </form>`;
+    const errEl = d.querySelector(".dialog-error");
+    d.querySelector("form").addEventListener("click", async e => {
+      const act = e.target.closest("[data-sec]")?.dataset.sec;
+      if (!act) return;
+      errEl.textContent = "";
+      if (act === "setup") openTotpSetup();
+      if (act === "close") {
+        try { await api("/api/me/sessions/close-others", { method: "POST" }); openSecurity(); }
+        catch (err) { errEl.textContent = err.message; }
+      }
+      if (act === "codes") openForm({
+        title: "Nouveaux codes de secours",
+        intro: `<p class="dialog-hint">Les codes actuels ne vaudront plus rien.</p>`,
+        submitLabel: "Générer",
+        fields: [{ name: "code", label: "Code affiché par l'application", autocomplete: "one-time-code" }],
+        onSubmit: async v => {
+          const r = await api("/api/me/totp/recovery-codes", { method: "POST", body: { code: v.code.trim() } });
+          showRecoveryCodes("Nouveaux codes de secours", r.recovery_codes, false);
+          return true;
+        },
+      });
+      if (act === "disable") openForm({
+        title: "Désactiver la double authentification",
+        intro: state.required ? `<p class="dialog-hint">Obligatoire pour votre compte : vous devrez la remettre en place
+          aussitôt (avec un nouveau téléphone, par exemple).</p>` : "",
+        submitLabel: "Désactiver",
+        fields: [{ name: "password", label: "Mot de passe", type: "password", autocomplete: "current-password" }],
+        onSubmit: async v => {
+          await api("/api/me/totp/disable", { method: "POST", body: { password: v.password } });
+          setUser((await api("/api/auth/me")).user);
+          if (!state.required) openSecurity();
+          return true;
+        },
+      });
+    });
+    if (!d.open) d.showModal();
   }
 
   // ---- Croix de fermeture en haut à droite de toutes les fenêtres (<dialog>) de l'application ----
@@ -722,6 +890,7 @@ const Session = (() => {
     invite: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     map: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
+    lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
   };
   const icon = (name, size = 18) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -921,6 +1090,8 @@ const Session = (() => {
           ${u.structure ? `<button type="button" class="account-item" data-act="diver"
             title="Niveaux, licence FFESSM, certificat médical (CACI)">${icon("wave")}<span>Ma fiche plongeur${caciBlocks(u)
             ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
+          <button type="button" class="account-item" data-act="security"
+            title="Double authentification, sessions ouvertes, export de vos données">${icon("lock")}<span>Sécurité et données</span></button>
           <button type="button" class="account-item" data-act="logout">${icon("logout")}<span>Se déconnecter</span></button>
         </div>`;
     };
@@ -940,6 +1111,7 @@ const Session = (() => {
       if (act === "login") openLogin();
       if (act === "profile") openProfile();
       if (act === "diver") openDiver();
+      if (act === "security") openSecurity();
       if (act === "logout") logout();
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
@@ -1038,7 +1210,7 @@ const Session = (() => {
     onChange: fn => listeners.push(fn),
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
-    openDiver, caciText, qrSvg, caciBlocks, loadQr,
+    openDiver, caciText, qrSvg, caciBlocks, loadQr, openSecurity, openTotpSetup,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
     openPreview, openAgenda, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };

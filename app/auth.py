@@ -29,6 +29,8 @@ Premier administrateur (ou dépannage) en ligne de commande :
     python -m app.auth create-admin jerome --email jerome@example.fr --first-name Jérôme --last-name Martin
     python -m app.auth set-password jerome
     python -m app.auth list
+    python -m app.auth reset-totp jerome     # téléphone perdu : retire la double authentification
+    python -m app.auth unsuspend jerome      # réactive un compte suspendu
 
 Avec Docker :
 
@@ -54,7 +56,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import accounts, db, diver, mailer, passwords, security
+from . import accounts, db, diver, mailer, passwords, security, totp
 from .accounts import (
     ROLE_LABELS, USERNAME_PATTERN, clean_email, clean_name, clean_phone, display_name, iso as _iso,
     now as _now, permissions, public_user as _public_user, token_hash as _token_hash,
@@ -67,6 +69,8 @@ LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_FAILS_PER_USER = 8
 LOGIN_MAX_FAILS_PER_IP = 30
 SESSION_TTL = timedelta(days=int(os.environ.get("SESSION_DAYS", "30")))
+LOGIN_CHALLENGE_TTL = timedelta(minutes=5)
+LOGIN_CHALLENGE_MAX_ATTEMPTS = 5
 # À mettre à 1 derrière HTTPS (Traefik) : le cookie n'est alors jamais envoyé en clair
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").lower() in ("1", "true", "yes")
 
@@ -147,12 +151,19 @@ SessionCookie = Annotated[str | None, Cookie(alias=COOKIE_NAME)]
 
 # Seules routes accessibles avec un mot de passe provisoire pas encore changé
 _ALLOWED_WHILE_MUST_CHANGE = {"/api/auth/me", "/api/auth/logout", "/api/auth/config", "/api/me/password"}
+# ... et tant qu'un super administrateur n'a pas activé la double authentification obligatoire
+_ALLOWED_WHILE_TOTP_SETUP = _ALLOWED_WHILE_MUST_CHANGE | {"/api/me/totp", "/api/me/totp/setup", "/api/me/totp/enable"}
 
 
 def optional_user(session: SessionCookie = None) -> sqlite3.Row | None:
     if not session:
         return None
-    return db.get_session_user(_token_hash(session), _iso(_now()))
+    user = db.get_session_user(_token_hash(session), _iso(_now()))
+    # compte suspendu : ses sessions sont fermées à la suspension ; garde-fou si l'une a survécu
+    return None if user is not None and user["suspended_at"] else user
+
+
+totp_setup_required = accounts.totp_setup_required
 
 
 # Aperçu d'un super administrateur : lecture seule, sauf pour changer ou quitter l'aperçu et se déconnecter
@@ -171,6 +182,12 @@ def current_user(request: Request, user: Annotated[sqlite3.Row | None, Depends(o
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Changez d'abord votre mot de passe provisoire",
             headers={"X-Password-Change-Required": "1"},
+        )
+    if totp_setup_required(user) and request.url.path not in _ALLOWED_WHILE_TOTP_SETUP:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Activez d'abord la double authentification, obligatoire pour les super administrateurs",
+            headers={"X-Totp-Setup-Required": "1"},
         )
     if (in_preview(user) and request.method not in _READ_METHODS
             and request.url.path not in _ALLOWED_IN_PREVIEW):
@@ -472,8 +489,55 @@ def login(creds: Credentials, response: Response, request: Request):
         # les autres sessions et efface liens et mot de passe provisoire.
         db.update_user(row["id"], password_hash=temp_hash, must_change_password=True, now=_iso(_now()))
     security.limiter.clear(user_key)
+    if row["suspended_at"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Ce compte est suspendu : contactez l'administrateur du site.")
+    if row["totp_enabled_at"]:
+        # double authentification : la session ne s'ouvre qu'avec le code (POST /api/auth/login/totp)
+        challenge = secrets.token_urlsafe(32)
+        now = _now()
+        db.create_login_challenge(_token_hash(challenge), row["id"], _iso(now + LOGIN_CHALLENGE_TTL), _iso(now))
+        return {"user": None, "totp_required": True, "challenge": challenge}
     open_session(response, row["id"])
     return {"user": _public_user(db.get_user(row["id"]), with_structures=True)}
+
+
+class TotpLogin(BaseModel):
+    challenge: str = Field(max_length=100)
+    code: str = Field(max_length=20, description="Code à 6 chiffres de l'application, ou code de secours")
+
+
+@router.post("/auth/login/totp")
+def login_totp(body: TotpLogin, response: Response, request: Request):
+    """Seconde étape de la connexion : code de l'application d'authentification ou code de secours."""
+    ip_key = f"login:ip:{security.client_ip(request)}"
+    wait = security.limiter.retry_after(ip_key, LOGIN_MAX_FAILS_PER_IP, LOGIN_WINDOW)
+    if wait:
+        raise security.too_many(wait, "Trop de tentatives de connexion : réessayez dans quelques minutes.")
+    ch_hash = _token_hash(body.challenge)
+    ch = db.get_login_challenge(ch_hash, _iso(_now()))
+    if ch is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion expirée : saisissez de nouveau votre mot de passe")
+    row = db.get_totp(ch["user_id"])
+    ok = False
+    if row and row["totp_enabled_at"] and row["totp_secret"]:
+        step = totp.match(totp.unseal(row["totp_secret"]), body.code)
+        if step is not None:
+            ok = db.set_totp_step(row["id"], step)
+        else:
+            rest = totp.use_recovery_code(row["totp_recovery"], body.code)
+            if rest is not None:
+                db.set_totp_recovery(row["id"], rest)
+                ok = True
+    if not ok:
+        security.limiter.add(ip_key, LOGIN_WINDOW)
+        db.fail_login_challenge(ch_hash, LOGIN_CHALLENGE_MAX_ATTEMPTS)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code incorrect")
+    db.delete_login_challenge(ch_hash)
+    user = db.get_user_credentials_by_id(ch["user_id"])
+    if user is None or user["suspended_at"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Ce compte est suspendu : contactez l'administrateur du site.")
+    open_session(response, ch["user_id"])
+    return {"user": _public_user(db.get_user(ch["user_id"]), with_structures=True)}
 
 
 @router.post("/auth/logout", status_code=204)
@@ -855,8 +919,10 @@ def admin_delete_user(user_id: int, actor: CurrentManager, structure_id: int | N
         return
     if target["is_admin"] and db.count_admins() <= 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Il doit rester au moins un super administrateur")
-    # sessions, jetons et préférences suivent (CASCADE) ; ses créneaux choisis restent à la structure
+    # sessions, jetons et préférences suivent (CASCADE) ; ses créneaux choisis restent à la structure ;
+    # son nom disparaît du journal d'activité
     db.delete_user(user_id)
+    db.anonymize_audit(user_id, display_name(target))
 
 
 # ---------------------------------------------------------------------------
@@ -887,6 +953,10 @@ def main(argv: list[str] | None = None) -> int:
     p_admin.add_argument("--last-name")
     p_pw = sub.add_parser("set-password", help="Changer le mot de passe d'un compte")
     p_pw.add_argument("username", help="identifiant ou adresse e-mail")
+    p_totp = sub.add_parser("reset-totp", help="Retirer la double authentification d'un compte (téléphone perdu)")
+    p_totp.add_argument("username", help="identifiant ou adresse e-mail")
+    p_unsusp = sub.add_parser("unsuspend", help="Réactiver un compte suspendu")
+    p_unsusp.add_argument("username", help="identifiant ou adresse e-mail")
     sub.add_parser("list", help="Lister les comptes")
     args = parser.parse_args(argv)
 
@@ -927,6 +997,15 @@ def main(argv: list[str] | None = None) -> int:
     if row is None:
         print(f"Compte « {args.username} » introuvable.", file=sys.stderr)
         return 1
+    if args.cmd == "reset-totp":
+        db.disable_totp(row["id"])
+        db.close_sessions(row["id"])
+        print("Double authentification retirée et sessions fermées ; à remettre en place à la prochaine connexion.")
+        return 0
+    if args.cmd == "unsuspend":
+        db.suspend_user(row["id"], None, None)
+        print("Compte réactivé.")
+        return 0
     db.update_user(
         row["id"], password_hash=hash_password(_ask_password(*_personal(row))),
         must_change_password=False, now=_iso(_now()),

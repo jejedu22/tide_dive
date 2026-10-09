@@ -1860,6 +1860,8 @@ function statusTags(u) {
     tags.push(`<span class="tag tag-pending" title="Mot de passe à changer à la prochaine connexion">mot de passe provisoire</span>`);
   }
   if (!u.profile_complete) tags.push(`<span class="tag tag-warn" title="Prénom, nom ou adresse e-mail manquant">profil incomplet</span>`);
+  if (u.suspended) tags.push(`<span class="tag tag-error" title="${esc(u.suspended.reason || "Connexion refusée")}">suspendu</span>`);
+  if (u.totp_enabled) tags.push(`<span class="tag" title="Double authentification activée">2FA</span>`);
   return tags.join(" ");
 }
 
@@ -1881,7 +1883,8 @@ function renderUsers() {
   const me = Session.user;
   const q = $("users-search").value.trim().toLowerCase();
   const shown = q
-    ? users.filter(u => [u.display_name, u.username, u.email, u.phone].some(v => v && v.toLowerCase().includes(q)))
+    ? users.filter(u => [u.display_name, u.username, u.email, u.phone, u.diver?.licence_number]
+      .some(v => v && v.toLowerCase().includes(q)))
     : users;
   usersBody.innerHTML = shown.length ? shown.map(u => {
     const self = u.id === me.id;
@@ -1903,6 +1906,8 @@ function renderUsers() {
         <td class="actions">
           <button type="button" class="btn-quiet" data-act="edit">Modifier</button>
           ${self || isShared(u) ? "" : `<button type="button" class="btn-quiet" data-act="password">Mot de passe…</button>`}
+          ${isSuper() ? `<button type="button" class="btn-quiet" data-act="security" title="Suspension, sessions, double authentification, export des données">Sécurité…</button>`
+            : `<a class="btn-quiet btn-small" href="/api/admin/users/${u.id}/export" download title="Données du compte (demande d'accès RGPD), en JSON">Exporter</a>`}
           ${self ? "" : deleteButtons(u)}
         </td>
       </tr>`;
@@ -2247,6 +2252,9 @@ usersBody.addEventListener("click", async e => {
       case "edit":
         editUser(user);
         return;
+      case "security":
+        accountSecurity(user);
+        return;
       case "remove": {
         const scope = isSuper() ? `?structure_id=${$("users-filter").value}` : "";
         if (!confirm(`Retirer « ${user.display_name} » de cette structure ? Son compte reste membre de ses autres structures ; ses inscriptions à ses créneaux sont retirées.`)) return;
@@ -2263,6 +2271,153 @@ usersBody.addEventListener("click", async e => {
     usersStatus.textContent = err.message;
   }
 });
+
+// ---- Sécurité d'un compte, doublons, comptes inactifs (super administrateur) ----
+
+function accountSecurity(user) {
+  const self = user.id === Session.user.id;
+  const d = document.createElement("dialog");
+  d.className = "account-dialog";
+  d.innerHTML = `
+    <form method="dialog" class="security-dialog">
+      <h2>Sécurité de ${esc(user.display_name)}</h2>
+      <section>
+        <h3>Suspension</h3>
+        ${user.suspended
+          ? `<p>Suspendu depuis le ${stamp(user.suspended.at)}${user.suspended.reason ? ` : ${esc(user.suspended.reason)}` : ""}.</p>
+             <p><button type="button" class="btn-primary btn-small" data-sec="unsuspend">Réactiver le compte</button></p>`
+          : self ? `<p class="muted">Vous ne pouvez pas suspendre votre propre compte.</p>`
+          : `<p class="hint">La connexion est refusée et toutes ses sessions sont fermées ; ses données sont conservées.</p>
+             <label>Motif (facultatif) <input name="reason" maxlength="300"></label>
+             <p><button type="button" class="btn-danger btn-small" data-sec="suspend">Suspendre le compte</button></p>`}
+      </section>
+      <section>
+        <h3>Sessions</h3>
+        <p><button type="button" class="btn-secondary btn-small" data-sec="sessions">Fermer toutes ses sessions</button>
+          <span class="muted">${self ? "(sauf celle-ci)" : "(déconnecte tous ses appareils)"}</span></p>
+      </section>
+      <section>
+        <h3>Double authentification</h3>
+        ${user.totp_enabled
+          ? `<p>Activée. <button type="button" class="btn-quiet btn-small" data-sec="totp">Réinitialiser (téléphone perdu)</button></p>`
+          : `<p class="muted">Non activée.</p>`}
+      </section>
+      <section>
+        <h3>Données (RGPD)</h3>
+        <p><a class="btn-secondary btn-small" href="/api/admin/users/${user.id}/export" download>Exporter ses données (JSON)</a></p>
+      </section>
+      <p class="dialog-error" role="alert"></p>
+      <div class="dialog-actions"><button type="submit" class="btn-primary" value="close">Fermer</button></div>
+    </form>`;
+  document.body.append(d);
+  d.addEventListener("close", () => d.remove());
+  const errEl = d.querySelector(".dialog-error");
+  d.querySelector("form").addEventListener("click", async e => {
+    const act = e.target.closest("[data-sec]")?.dataset.sec;
+    if (!act) return;
+    errEl.textContent = "";
+    try {
+      if (act === "suspend") {
+        if (!confirm(`Suspendre « ${user.display_name} » ? Il ne pourra plus se connecter.`)) return;
+        await Session.api(`/api/admin/users/${user.id}/suspend`, { method: "POST", body: { reason: d.querySelector("[name=reason]").value.trim() || null } });
+      }
+      if (act === "unsuspend") await Session.api(`/api/admin/users/${user.id}/suspend`, { method: "DELETE" });
+      if (act === "sessions") {
+        const r = await Session.api(`/api/admin/users/${user.id}/sessions/close`, { method: "POST" });
+        flash(`${r.closed} session(s) de « ${esc(user.display_name)} » fermée(s).`);
+      }
+      if (act === "totp") {
+        if (!confirm(`Retirer la double authentification de « ${user.display_name} » ? Il pourra se connecter avec son seul mot de passe${user.is_admin ? " et devra la remettre en place aussitôt" : ""}.`)) return;
+        await Session.api(`/api/admin/users/${user.id}/totp`, { method: "DELETE" });
+      }
+      d.close();
+      loadUsers();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  });
+  d.showModal();
+}
+
+const accountLine = a => `
+  <strong>${esc(a.display_name)}</strong> <span class="muted">${esc(a.username)}${a.email ? ` · ${esc(a.email)}` : ""}${a.phone ? ` · ${esc(a.phone)}` : ""}${a.licence_number ? ` · licence ${esc(a.licence_number)}` : ""}</span><br>
+  <span class="muted">${a.structures.length ? a.structures.map(s => `${esc(s.name)} (${s.role === "manager" ? "admin." : "membre"})`).join(", ") : "aucune structure"}
+  · ${a.registrations} inscription(s) · ${a.last_login_at ? `connecté le ${stamp(a.last_login_at)}` : "jamais connecté"}</span>`;
+
+async function loadDuplicates() {
+  const box = $("duplicates-list");
+  let groups;
+  try {
+    groups = await Session.api("/api/admin/accounts/duplicates");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    return;
+  }
+  box.innerHTML = groups.length ? groups.map((g, gi) => `
+    <fieldset class="dup-group" data-group="${gi}">
+      <legend>${esc(g.reason)}</legend>
+      ${g.accounts.map(a => `<label class="dup-account"><input type="radio" name="keep-${gi}" value="${a.id}"> <span>${accountLine(a)}</span></label>`).join("")}
+      <p><button type="button" class="btn-secondary btn-small" data-merge="${gi}">Fusionner dans le compte coché</button></p>
+    </fieldset>`).join("") : `<p class="muted">Aucun doublon probable.</p>`;
+  box.onclick = async e => {
+    const gi = e.target.closest("[data-merge]")?.dataset.merge;
+    if (gi === undefined) return;
+    const g = groups[gi];
+    const keep = Number(box.querySelector(`[name=keep-${gi}]:checked`)?.value);
+    if (!keep) { alert("Cochez le compte à conserver."); return; }
+    const others = g.accounts.filter(a => a.id !== keep);
+    const kept = g.accounts.find(a => a.id === keep);
+    if (!confirm(`Fusionner ${others.map(a => `« ${a.display_name} » (${a.username})`).join(", ")} dans « ${kept.display_name} » (${kept.username}) ? `
+      + "Les comptes fusionnés sont supprimés : leurs titulaires se connecteront avec l'identifiant et le mot de passe du compte conservé.")) return;
+    try {
+      for (const o of others) {
+        await Session.api("/api/admin/accounts/merge", { method: "POST", body: { keep_id: keep, remove_id: o.id } });
+      }
+      flash(`Comptes fusionnés dans « ${esc(kept.display_name)} ».`);
+      loadDuplicates();
+      loadUsers();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+}
+
+async function loadInactive() {
+  const box = $("inactive-list");
+  const months = Number($("inactive-months").value);
+  let rows;
+  try {
+    rows = await Session.api(`/api/admin/accounts/inactive?months=${months}`);
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    return;
+  }
+  box.innerHTML = rows.length ? `
+    <p><label class="check"><input type="checkbox" data-inactive-all> Tout cocher (${rows.length})</label></p>
+    <ul class="inactive-list">${rows.map(a => `<li><label class="dup-account"><input type="checkbox" value="${a.id}"> <span>${accountLine(a)}</span></label></li>`).join("")}</ul>
+    <p><button type="button" class="btn-danger btn-small" data-inactive-delete>Supprimer les comptes cochés</button></p>`
+    : `<p class="muted">Aucun compte inactif depuis cette durée.</p>`;
+  box.onchange = e => {
+    if (e.target.matches("[data-inactive-all]")) for (const c of box.querySelectorAll(".inactive-list input")) c.checked = e.target.checked;
+  };
+  box.onclick = async e => {
+    if (!e.target.closest("[data-inactive-delete]")) return;
+    const ids = [...box.querySelectorAll(".inactive-list input:checked")].map(c => Number(c.value));
+    if (!ids.length) { alert("Cochez les comptes à supprimer."); return; }
+    if (!confirm(`Supprimer définitivement ${ids.length} compte(s) et leurs données (inscriptions, préférences) ?`)) return;
+    try {
+      const r = await Session.api("/api/admin/accounts/purge-inactive", { method: "POST", body: { months, ids } });
+      flash(`${r.deleted} compte(s) supprimé(s).`);
+      loadInactive();
+      loadUsers();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+}
+
+$("duplicates-load").addEventListener("click", loadDuplicates);
+$("inactive-load").addEventListener("click", loadInactive);
 
 // ---- Import CSV ----
 
