@@ -495,14 +495,33 @@ def clear_port_data(port_id: int) -> None:
 
 
 def years_available(port_id: int) -> list[int]:
-    """Années pour lesquelles des hauteurs d'eau sont en base pour ce port."""
+    """Années pour lesquelles des hauteurs d'eau sont en base pour ce port.
+
+    Une sonde de l'index (port_id, ts_utc) par année entre la première et la dernière hauteur, plutôt qu'un
+    parcours des ~52 000 hauteurs de chaque année : le contrôle de santé l'appelle pour chaque port."""
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT CAST(substr(ts_utc, 1, 4) AS INTEGER) AS y "
-            "FROM tide_heights WHERE port_id = ? ORDER BY y",
-            (port_id,),
-        ).fetchall()
-        return [r["y"] for r in rows]
+        first, last = conn.execute("SELECT MIN(ts_utc), MAX(ts_utc) FROM tide_heights WHERE port_id = ?",
+                                   (port_id,)).fetchone()
+        if first is None:
+            return []
+        return [y for y in range(int(first[:4]), int(last[:4]) + 1)
+                if conn.execute("SELECT 1 FROM tide_heights WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ? LIMIT 1",
+                                (port_id, f"{y:04d}-01-01", f"{y + 1:04d}-01-01")).fetchone()]
+
+
+def stored_year_fingerprint(port_id: int, year: int) -> tuple:
+    """Empreinte peu coûteuse de ce qui est en base pour un port et une année (étales de toutes sources,
+    horaires solaires, périodes couvertes) : change dès que l'une de ces données est réécrite ou modifiée."""
+    start, end = f"{year:04d}-01-01", f"{year + 1:04d}-01-01"
+    with get_conn() as conn:
+        ex = conn.execute("SELECT COUNT(*), TOTAL(rowid), TOTAL(height_m), TOTAL(coefficient) FROM tide_extrema "
+                          "WHERE port_id = ? AND ts_utc >= ? AND ts_utc < ?", (port_id, start, end)).fetchone()
+        sun = conn.execute("SELECT COUNT(*), TOTAL(rowid) FROM sun_times WHERE port_id = ? AND date >= ? AND date <= ?",
+                           (port_id, start, f"{year:04d}-12-31")).fetchone()
+        cov = conn.execute("SELECT GROUP_CONCAT(source || start_utc || end_utc) FROM tide_coverage WHERE port_id = ?",
+                           (port_id,)).fetchone()
+        tz = conn.execute("SELECT timezone FROM ports WHERE id = ?", (port_id,)).fetchone()
+    return (tuple(ex), tuple(sun), cov[0], tz[0] if tz else None)
 
 
 def insert_heights(port_id: int, rows: list[tuple[str, float]], source: str = "fes") -> None:

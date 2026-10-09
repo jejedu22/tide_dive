@@ -91,5 +91,7 @@ def test_tableau_de_bord(setup, new_client):
     a = by_name["Club A"]
     assert (a["members"], a["managers"], a["sites"]) == (3, 1, 1)
     assert "aucun type de créneau proposé" in a["issues"] and "pas de port par défaut" in a["issues"]
-    assert set(data["health"]) >= {"ok", "errors", "warnings", "problems"}
+    assert "health" not in data          # chargée à part, pour un affichage immédiat
+    health = _client(new_client, "root").get("/api/admin/health").json()
+    assert set(health) >= {"ok", "errors", "warnings", "problems"}
     assert data["recent"][0]["action"] == "Site de plongée ajouté"

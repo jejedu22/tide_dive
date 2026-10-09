@@ -108,6 +108,7 @@ from .db_tides import (  # noqa: F401
     short_term_windows,
     clear_port_data,
     years_available,
+    stored_year_fingerprint,
     insert_heights,
     insert_extrema,
     insert_sun_times,

@@ -11,6 +11,8 @@ autour de l'étale, type de lumière du jour requis).
 from __future__ import annotations
 
 import mimetypes
+import sys
+import threading
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -95,6 +97,17 @@ app.include_router(quality.router)
 @app.on_event("startup")
 def _startup() -> None:
     db.init_db()
+    # contrôles des années de marée (santé, tableau de bord) préparés en arrière-plan : le premier affichage
+    # de l'administration n'attend pas leur calcul
+    threading.Thread(target=_warm_health, name="warm-health", daemon=True).start()
+
+
+def _warm_health() -> None:
+    from . import health
+    try:
+        health.collect()
+    except Exception as exc:   # jamais bloquant : la page la recalculera
+        print(f"[santé] préparation impossible : {exc}", file=sys.stderr, flush=True)
 
 
 @app.get("/healthz", include_in_schema=False)

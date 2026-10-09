@@ -143,14 +143,24 @@ async function loadStatus() {
 }
 
 // Santé : données manquantes ou incohérentes, tâches en échec, sauvegarde, disque (app/health.py)
+// Santé (contrôles des données) : chargée à part, elle sert au bandeau et au tableau de bord. Un seul appel en
+// cours à la fois : le tableau de bord réutilise celui du bandeau.
+let lastHealth = null;
+let healthPromise = null;
+function fetchHealth() {
+  healthPromise ??= Session.api("/api/admin/health").finally(() => { healthPromise = null; });
+  return healthPromise;
+}
+
 async function loadHealth() {
   const box = $("health-banner");
   let health;
   try {
-    health = await Session.api("/api/admin/health");
+    health = lastHealth = await fetchHealth();
   } catch (e) {
     return;
   }
+  renderDashHealth();
   const items = health.problems;
   box.hidden = !items.length;
   if (!items.length) return;
@@ -571,6 +581,16 @@ const journalLine = r => `
   <li><span class="journal-at">${esc(fmtStamp.format(new Date(r.at)))}</span>
   <span><strong>${esc(r.actor || "?")}</strong> · ${esc(r.action)}${r.target ? ` : <em>${esc(r.target)}</em>` : ""}${r.structure ? ` <span class="tag">${esc(r.structure)}</span>` : ""}</span></li>`;
 
+// Santé dans le tableau de bord (indicateur et liste), dès qu'elle est chargée
+function renderDashHealth() {
+  const h = lastHealth;
+  const kpiEl = $("dash-health-kpi");
+  if (h && kpiEl) kpiEl.innerHTML = `<strong>${h.ok ? "✓" : h.errors}</strong><span>${h.ok ? "santé" : "erreurs de santé"}</span>`;
+  $("dash-health").innerHTML = !h ? `<li class="muted">Contrôle en cours…</li>` : h.problems.length ? h.problems.map(p => `
+    <li><span><span class="tag ${p.level === "error" ? "tag-error" : "tag-warn"}">${p.level === "error" ? "erreur" : "avertissement"}</span> ${esc(p.message)}</span></li>`).join("")
+    : `<li class="muted">Aucun problème détecté.</li>`;
+}
+
 async function loadDashboard() {
   let d;
   try {
@@ -588,8 +608,10 @@ async function loadDashboard() {
     kpi(d.users.pending_invites, "invitations en attente"),
     kpi(d.selections.upcoming, "créneaux à venir"),
     kpi(d.selections.registrations_30d, "inscriptions (30 j)"),
-    kpi(d.health.ok ? "✓" : d.health.errors, d.health.ok ? "santé" : "erreurs de santé"),
+    `<div class="kpi" id="dash-health-kpi"><strong>…</strong><span>santé</span></div>`,
   ].join("");
+  renderDashHealth();
+  if (!lastHealth) loadHealth();
   $("dash-structures").innerHTML = d.structures.length ? d.structures.map(s => `
     <tr${s.issues.length ? ' class="dash-warn"' : ""}>
       <th scope="row">${esc(s.name)}${s.caci_check ? ' <span class="tag" title="Vérification du CACI à l\'inscription">CACI</span>' : ""}</th>
@@ -605,9 +627,7 @@ async function loadDashboard() {
     ${p.years.length ? p.years.map(y => `<span class="tag${y === year ? "" : " tag-quiet"}">${y}</span>`).join(" ") : '<span class="muted">aucune année calculée</span>'}
     ${p.has_current_year ? "" : `<span class="tag tag-warn">${year} manquante</span>`}</li>`).join("")
     : `<li class="muted">Aucun port.</li>`;
-  $("dash-health").innerHTML = d.health.problems.length ? d.health.problems.map(p => `
-    <li><span><span class="tag ${p.level === "error" ? "tag-error" : "tag-warn"}">${p.level === "error" ? "erreur" : "avertissement"}</span> ${esc(p.message)}</span></li>`).join("")
-    : `<li class="muted">Aucun problème détecté.</li>`;
+
   $("dash-recent").innerHTML = d.recent.length ? d.recent.map(journalLine).join("") : `<li class="muted">Aucune action enregistrée.</li>`;
 }
 

@@ -60,9 +60,10 @@ def _data_problems(today: date) -> list[Problem]:
     ports = db.list_ports()
     year, next_year = today.year, today.year + 1
     annual = [p for p in ports if p["auto_precompute"]]
+    available = {p["id"]: db.years_available(p["id"]) for p in ports}   # une fois par port
 
     for p in ports:
-        years = db.years_available(p["id"])
+        years = available[p["id"]]
         if not years:
             out.append(Problem(WARNING, f"no-data:{p['id']}", f"{p['name']} : aucune donnée de marée calculée."))
             continue
@@ -71,14 +72,14 @@ def _data_problems(today: date) -> list[Problem]:
                                f"{p['name']} : l'année en cours ({year}) n'est pas calculée."))
         for y in (year, next_year):
             if y in years:
-                report = checks.validate_stored_year(p["id"], y)
+                report = checks.validate_stored_year_cached(p["id"], y)
                 for err in report.errors:
                     out.append(Problem(ERROR, f"inconsistent:{p['id']}:{y}", f"{p['name']} {y} : {err}"))
 
     # Année suivante : prérequis dès octobre, absence = erreur à partir du 20 décembre
     if (today.month, today.day) >= PREREQUISITES_FROM:
         for p in annual:
-            if p["offset_zh_m"] is None and db.years_available(p["id"]):
+            if p["offset_zh_m"] is None and available[p["id"]]:
                 out.append(Problem(WARNING, f"no-offset:{p['id']}",
                                    f"{p['name']} : niveau moyen (offset_zh_m) non renseigné, "
                                    f"exclu du précalcul annuel {next_year}."))
@@ -95,7 +96,7 @@ def _data_problems(today: date) -> list[Problem]:
                                    f"le précalcul {next_year} échouera. Lancer « fetch-models » depuis l'administration."))
     if (today.month, today.day) >= NEXT_YEAR_DUE_FROM:
         for p in annual:
-            if p["offset_zh_m"] is not None and db.years_available(p["id"]) and next_year not in db.years_available(p["id"]):
+            if p["offset_zh_m"] is not None and available[p["id"]] and next_year not in available[p["id"]]:
                 out.append(Problem(ERROR, f"missing-year:{p['id']}:{next_year}",
                                    f"{p['name']} : l'année {next_year} n'est pas calculée."))
     return out

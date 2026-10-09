@@ -176,6 +176,21 @@ def validate_year(extrema: Sequence[tuple], sun_rows: Sequence[tuple], year: int
     return report
 
 
+_STORED_CACHE: dict[tuple[int, int], tuple[tuple, Report]] = {}
+
+
+def validate_stored_year_cached(port_id: int, year: int) -> Report:
+    """validate_stored_year, refait seulement quand les données de l'année ont changé (empreinte en base) : le
+    contrôle de santé (tableau de bord du super administrateur) n'a pas à revalider des années inchangées."""
+    fp = db.stored_year_fingerprint(port_id, year)
+    hit = _STORED_CACHE.get((port_id, year))
+    if hit and hit[0] == fp:
+        return hit[1]
+    report = validate_stored_year(port_id, year)
+    _STORED_CACHE[(port_id, year)] = (fp, report)
+    return report
+
+
 def validate_stored_year(port_id: int, year: int) -> Report:
     """Mêmes contrôles sur ce qui est actuellement en base, pour chaque calcul FES de l'année : corrigé et brut
     (chaque structure voit l'un ou l'autre). Les horaires api-maree.fr ne couvrent qu'un mois : ils ne sont
