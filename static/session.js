@@ -3,6 +3,17 @@
 // changement de mot de passe (y compris forcé après un mot de passe provisoire),
 // liste de contrôle de la politique de mot de passe, encart « compte » de l'en-tête.
 
+// Thème choisi sur cet appareil (« Auto » : celui du système) ; appliqué dès le chargement du script
+const THEMES = { auto: "Auto", light: "Clair", dark: "Sombre" };
+function currentTheme() {
+  try { return localStorage.getItem("theme") || "auto"; } catch { return "auto"; }
+}
+function applyTheme(theme) {
+  if (theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+}
+applyTheme(currentTheme());
+
 const Session = (() => {
   let user = null;
   const listeners = [];
@@ -1262,6 +1273,7 @@ const Session = (() => {
             ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
           <button type="button" class="account-item" data-act="security"
             title="Double authentification, sessions ouvertes, export de vos données">${icon("lock")}<span>Sécurité et données</span></button>
+          <button type="button" class="account-item" data-act="theme" title="Clair, sombre, ou comme le système de l'appareil">${icon("eye")}<span>Thème : <span data-theme-label>${THEMES[currentTheme()]}</span></span></button>
           <button type="button" class="account-item" data-act="logout">${icon("logout")}<span>Se déconnecter</span></button>
         </div>`;
     };
@@ -1275,6 +1287,14 @@ const Session = (() => {
           e.target.closest("[data-act]").setAttribute("aria-expanded", "true");
           menu.querySelector("a, button, select")?.focus();
         } else closeMenu();
+        return;
+      }
+      if (act === "theme") {     // Auto → Clair → Sombre → Auto, sans fermer le menu
+        const order = Object.keys(THEMES);
+        const next = order[(order.indexOf(currentTheme()) + 1) % order.length];
+        try { localStorage.setItem("theme", next); } catch { /* navigation privée : le temps de la page */ }
+        applyTheme(next);
+        el.querySelector("[data-theme-label]").textContent = THEMES[next];
         return;
       }
       if (act && act !== "structure") closeMenu();
