@@ -142,6 +142,8 @@ from .db_users import (  # noqa: F401
     create_user,
     create_users_bulk,
     update_user,
+    set_caci,
+    validate_caci,
     set_user_profiles,
     delete_user,
     count_admins,

@@ -215,7 +215,10 @@ CREATE TABLE IF NOT EXISTS structures (
     use_api_maree INTEGER NOT NULL DEFAULT 1,
     use_calibration INTEGER NOT NULL DEFAULT 1,
     -- recherche proposée aux membres (réglée par les super administrateurs) : par étale, par hauteur d'eau, les deux
-    search_modes TEXT NOT NULL DEFAULT 'tides' CHECK (search_modes IN ('tides', 'heights', 'both'))
+    search_modes TEXT NOT NULL DEFAULT 'tides' CHECK (search_modes IN ('tides', 'heights', 'both')),
+    -- certificat médical (CACI) : 1 = inscription refusée sans CACI valable le jour du créneau ; durée de validité
+    caci_check INTEGER NOT NULL DEFAULT 0,
+    caci_validity_months INTEGER NOT NULL DEFAULT 12 CHECK (caci_validity_months BETWEEN 1 AND 60)
 );
 
 -- Comptes utilisateurs (créés par un administrateur, pas d'inscription libre).
@@ -246,7 +249,18 @@ CREATE TABLE IF NOT EXISTS users (
     -- devient le mot de passe du compte (must_change_password = 1).
     temp_password_hash TEXT,
     temp_password_expires_at TEXT,  -- ISO8601 UTC
-    temp_password_sent_at TEXT      -- anti-rafale (un envoi toutes les 2 min)
+    temp_password_sent_at TEXT,     -- anti-rafale (un envoi toutes les 2 min)
+    -- Fiche plongeur (accounts.DIVER_LEVELS, INSTRUCTOR_LEVELS) : niveau, encadrement, autres qualifications,
+    -- licence FFESSM (numéro, lien du QR code de la licence numérique)
+    diver_level TEXT,
+    instructor_level TEXT,
+    qualifications TEXT,
+    licence_number TEXT,
+    licence_url TEXT,
+    -- CACI : date du certificat ; validée par un gestionnaire de structure (sinon en attente)
+    caci_date TEXT,
+    caci_validated_at TEXT,
+    caci_validated_by TEXT          -- nom de qui l'a validée (le compte peut disparaître)
 );
 
 -- Jetons à usage unique envoyés par e-mail : invitation (définir son premier

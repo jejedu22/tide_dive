@@ -47,7 +47,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import accounts, db, mailer
+from . import accounts, db, diver, mailer
 from .auth import (
     CurrentManager, CurrentMember, CurrentPicker, CurrentRegistrar, CurrentUser, can_manage_structure, scope_structure,
 )
@@ -549,6 +549,13 @@ def _check_open(row: sqlite3.Row, lock_days: int | None, what: str) -> None:
         )
 
 
+def _check_caci(member: sqlite3.Row, row: sqlite3.Row) -> None:
+    """Certificat médical valable le jour du créneau (dernier jour d'un séjour), si la structure le vérifie."""
+    msg = diver.registration_block(member, db.get_structure(row["structure_id"]), row["end_date"] or row["local_date"])
+    if msg:
+        raise HTTPException(status.HTTP_409_CONFLICT, msg)
+
+
 def _upcoming_selection_or_error(structure_id: int, selection_id: int) -> sqlite3.Row:
     row = db.get_selection(structure_id, selection_id)  # filtré par structure
     if row is None:
@@ -593,6 +600,7 @@ def register(selection_id: int, user: CurrentMember):
     sid = user["structure_id"]
     row = _upcoming_selection_or_error(sid, selection_id)
     _check_open(row, db.get_lock_days(sid)["register_lock_days"], "Inscriptions closes")
+    _check_caci(db.get_user(user["id"], sid), row)
     try:
         db.add_registration(selection_id, user["id"], _now_iso())
     except sqlite3.IntegrityError:
@@ -719,6 +727,13 @@ def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegi
     unknown = [u for u in body.user_ids if u not in members]
     if unknown:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Membre inconnu dans votre structure")
+    # certificat médical : tous les membres doivent pouvoir être inscrits, sinon personne (message par membre)
+    already = {r["user_id"] for r in db.list_registrations(sid, selection_id)}
+    refused = [msg for uid in dict.fromkeys(body.user_ids) if uid not in already
+               if (msg := diver.registration_block(db.get_user(uid, sid), db.get_structure(sid),
+                                                   row["end_date"] or row["local_date"], own=uid == actor["id"]))]
+    if refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, " ".join(refused))
     by = accounts.display_name(actor)
     now = _now_iso()
     added = []

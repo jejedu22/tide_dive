@@ -248,6 +248,26 @@ def _m008_dive_sites_by_structure(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE dive_sites_old")
 
 
+DIVER_COLUMNS = {
+    "diver_level": "TEXT", "instructor_level": "TEXT", "qualifications": "TEXT", "licence_number": "TEXT",
+    "licence_url": "TEXT", "caci_date": "TEXT", "caci_validated_at": "TEXT", "caci_validated_by": "TEXT",
+}
+
+
+def _m009_diver_profile(conn: sqlite3.Connection) -> None:
+    """Fiche plongeur des comptes (niveaux, licence, CACI) et vérification du CACI par structure (désactivée)."""
+    existing = _columns(conn, "users")
+    for col, ddl in DIVER_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+    existing = _columns(conn, "structures")
+    if "caci_check" not in existing:
+        conn.execute("ALTER TABLE structures ADD COLUMN caci_check INTEGER NOT NULL DEFAULT 0")
+    if "caci_validity_months" not in existing:
+        conn.execute("ALTER TABLE structures ADD COLUMN caci_validity_months INTEGER NOT NULL DEFAULT 12 "
+                     "CHECK (caci_validity_months BETWEEN 1 AND 60)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -257,6 +277,7 @@ MIGRATIONS: list[Migration] = [
     Migration(6, "recherche par hauteur d'eau", _m006_water_heights),
     Migration(7, "aperçu des rôles par un super administrateur", _m007_preview),
     Migration(8, "sites de plongée rattachés aux structures", _m008_dive_sites_by_structure),
+    Migration(9, "fiche plongeur (niveaux, licence, CACI) et vérification du CACI", _m009_diver_profile),
 ]
 
 
