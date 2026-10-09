@@ -1,6 +1,6 @@
 """Préférences de notification des membres et récapitulatif des nouveaux créneaux."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 
