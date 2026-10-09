@@ -1833,3 +1833,30 @@ section[id] { scroll-margin-top: 1rem; }
 .agenda-choice label.check { margin: 0; }
 .agenda-choice select { flex: 1 1 10rem; }
 .agenda-status { color: #40606d; }
+
+/* --- Cartes (Leaflet) : page Carte, administration, fenêtre Courants --- */
+
+.map { width: 100%; height: 22rem; border-radius: 10px; background: #dfeef3; z-index: 0; }
+.map-page { height: min(70vh, 40rem); }
+.map-small { height: 14rem; margin: 0.4rem 0 0.6rem; }
+.map-pick { height: 16rem; margin: 0.4rem 0; cursor: crosshair; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; margin: 0.5rem 0 0; font-size: 0.8rem; color: #4a6572; }
+.map-legend i, .map-places .dot {
+  display: inline-block; width: 0.75rem; height: 0.75rem; margin-right: 0.3rem; border-radius: 50%;
+  border: 2px solid white; box-shadow: 0 0 0 1px #cfe3ea; vertical-align: -1px;
+}
+.map-places { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.8rem 1.5rem; }
+.map-place h3 { margin: 0 0 0.3rem; font-size: 1rem; color: var(--blue-deep); }
+.map-place ul { margin: 0; padding: 0; list-style: none; font-size: 0.9rem; }
+.map-place li { margin: 0.15rem 0; }
+.map-hint { font-size: 0.8rem; color: #607d8b; margin: 0; }
+.leaflet-container { font: inherit; }
+.leaflet-popup-content { font-size: 0.85rem; line-height: 1.4; }
+.link-button {
+  padding: 0; border: 0; background: none; font: inherit; color: var(--blue-deep);
+  cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: #b8d6e0;
+}
+.link-button:hover { text-decoration-color: currentColor; }
+main > .panel + .panel { margin-top: 1.25rem; }
+.leaflet-tooltip.map-label { padding: 1px 5px; font-size: 0.72rem; font-weight: 600; color: var(--blue-deep); }
+.map-small .leaflet-control-attribution, .map-pick .leaflet-control-attribution { font-size: 0.6rem; }

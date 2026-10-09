@@ -812,7 +812,7 @@ prefsRestoreBtn.addEventListener("click", () => {
   } catch (e) {
     statusEl.textContent = "Erreur réseau : le serveur est-il lancé ?";
   }
-  Session.mountAccount(document.getElementById("account"), [Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.help]);
+  Session.mountAccount(document.getElementById("account"), [Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.help]);
   // connexion depuis la recherche : les membres d'une structure vont directement à leurs créneaux choisis
   Session.redirectAfterLogin = u => (u.can.view_selections ? "mes-creneaux.html" : null);
   Session.onChange(onSessionChange);

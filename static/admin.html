@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Administration — Calendive</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
@@ -149,6 +150,12 @@
             </table>
           </div>
           <p class="hint">Seuls les ports ayant au moins une année calculée sont proposés sur la page de recherche. Après une modification des coordonnées ou du niveau moyen, relancez le calcul des années concernées. Pour les ports dotés d'un site api-maree.fr, les horaires de J−1 à J+29 sont repris chaque jour d'api-maree.fr (« 30 jours ») ; au-delà, le calcul FES est recalé chaque mois sur api-maree.fr (« Recaler »), et un recalage qui change sensiblement relance de lui-même le calcul des années à venir.</p>
+        </div>
+
+        <div class="panel" id="ports-map-panel">
+          <h2>Carte des ports et des sites</h2>
+          <div id="ports-map" class="map" role="region" aria-label="Carte des ports et des sites de plongée"></div>
+          <div id="ports-map-legend"></div>
         </div>
 
         <div class="panel" id="currents-panel">
@@ -595,7 +602,9 @@
     </div>
   </main>
 
+  <script src="vendor/leaflet/leaflet.js"></script>
   <script src="session.js"></script>
+  <script src="carte.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

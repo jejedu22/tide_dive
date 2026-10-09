@@ -289,6 +289,7 @@ Le courant change beaucoup d'un point à l'autre : il est donné **site par site
 - **Calcul** (`app/current_calc.py`, méthode des atlas du SHOM) : pleine mer de référence la plus proche et son coefficient, interpolation dans le temps puis entre les coefficients 45 et 95 (extrapolée au-delà) ; vitesse en nœuds, direction vers laquelle porte le courant.
 - **Créneaux choisis** : un bouton **Courants** sur chaque créneau d'un port qui a au moins un site avec courant ouvre une fenêtre avec, pour **chaque site du port**, la courbe de vitesse toutes les 15 minutes, la direction où porte le courant (flèches toutes les demi-heures), l'**étale de courant** (courant le plus faible, souvent décalée de l'étale de hauteur) et le **courant le plus fort**. Période : étale ± 3 h, plage de hauteur d'eau ± 1 h, ou 6 h à partir du RDV d'un créneau personnalisé (pas de courant pour un séjour ou un lieu libre).
 - Indicatif : courant de surface d'un modèle, hors vent et houle ; à n'utiliser qu'en complément des documents nautiques officiels.
+- **Cartes** ([Leaflet](https://leafletjs.com) 1.9.4, licence BSD, hébergé dans `static/vendor/leaflet/` : la CSP n'autorise que les scripts du site) : page publique **`/carte.html`** (tous les ports de la recherche et leurs sites, liste cliquable), carte des ports et des sites dans l'administration (onglet **Ports**), **saisie d'un site d'un clic** sur la carte (fenêtre *Sites* : latitude et longitude remplies, marqueur déplaçable) et petite carte des sites dans la fenêtre **Courants**. Trois fonds au choix, retenus dans le navigateur : plan [OpenStreetMap](https://www.openstreetmap.org/copyright), **carte marine** (« Carte littorale » de la Géoplateforme de l'IGN : cartes marines du SHOM et cartes terrestres de l'IGN, sans clé, niveaux de zoom 6 à 16, non destinée à la navigation) ou photo aérienne de l'IGN, utile pour repérer roches et épaves ; plus le **balisage** [OpenSeaMap](https://www.openseamap.org/) (bouées, feux, épaves) à superposer. Le service de cartes marines de data.shom.fr, lui, est soumis à abonnement. Les tuiles sont chargées depuis ces services (CSP `img-src https:`), ce que signalent les mentions légales.
 
 ```bash
 python -m app.shom_currents --download GOLFE_NORMAND_BRETON   # télécharge, extrait, met à jour les sites
@@ -860,6 +861,9 @@ static/             frontend (index.html, app.js, style.css)
   admin.html/.js    administration (structures, ports, données, types de créneaux, comptes)
   mes-creneaux.*    créneaux choisis par la structure de l'utilisateur connecté
   xlsx-export.js    export Excel (.xlsx) des tableaux, généré dans le navigateur
+  carte.js          cartes Leaflet partagées (fonds OpenStreetMap / photo IGN, marqueurs des ports et des sites)
+  carte.*           page publique « Carte » des ports et des sites de plongée
+  vendor/leaflet/   bibliothèque Leaflet 1.9.4 (licence BSD), hébergée localement
   session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
   demande-structure.*  formulaire public de demande de création de structure
