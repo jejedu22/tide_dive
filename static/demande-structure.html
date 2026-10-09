@@ -18,12 +18,12 @@
   .request-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; }
   .request-form .span-all { grid-column: 1 / -1; }
   .request-form input, .request-form textarea {
-    font: inherit; padding: 0.55rem 0.65rem; border: 1px solid #b0c4cc; border-radius: 8px; background: #fff;
+    font: inherit; padding: 0.55rem 0.65rem; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--input-bg); color: var(--text);
   }
   .request-form textarea { min-height: 8rem; resize: vertical; }
   .request-form .check { align-items: flex-start; padding-bottom: 0; }
   .request-form .check input { margin-top: 0.2rem; }
-  .request-form .optional { font-weight: 400; color: #607d8b; }
+  .request-form .optional { font-weight: 400; color: var(--muted); }
   /* champ piège pour les robots : hors écran, ignoré des lecteurs d'écran */
   .request-form .trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
   .request-done { border-left: 4px solid var(--teal, #06d6a0); padding-left: 1rem; }
