@@ -53,8 +53,9 @@ import sys
 from datetime import timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, Security, status
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import accounts, db, diver, mailer, passwords, security, totp
@@ -156,12 +157,53 @@ _ALLOWED_WHILE_MUST_CHANGE = {"/api/auth/me", "/api/auth/logout", "/api/auth/con
 _ALLOWED_WHILE_TOTP_SETUP = _ALLOWED_WHILE_MUST_CHANGE | {"/api/me/totp", "/api/me/totp/setup", "/api/me/totp/enable"}
 
 
-def optional_user(session: SessionCookie = None) -> sqlite3.Row | None:
-    if not session:
+# Deux façons de s'identifier, décrites dans la documentation de l'API (/api-docs.html) : le cookie de session
+# de l'application, ou un jeton d'API (api_tokens.py) dans l'en-tête Authorization: Bearer
+_cookie_scheme = APIKeyCookie(
+    name=COOKIE_NAME, auto_error=False, scheme_name="session",
+    description="Cookie de session posé par `POST /api/auth/login` : celui du navigateur connecté à l'application.",
+)
+_bearer_scheme = HTTPBearer(
+    auto_error=False, scheme_name="jeton", bearerFormat="cdv_…",
+    description="Jeton créé dans l'application (menu du compte → Jetons d'API), envoyé dans l'en-tête "
+                "`Authorization: Bearer cdv_…`. Il agit avec les droits du compte, dans sa structure.",
+)
+API_TOKEN_PREFIX = "cdv_"
+API_TOKEN_RATE_PER_MIN = int(os.environ.get("API_TOKEN_RATE_PER_MIN", "120"))
+_TOKEN_TOUCH_EVERY = timedelta(minutes=5)   # « dernière utilisation » : une écriture au plus toutes les 5 min
+
+
+def api_token_user(token: str, *, count: bool = True) -> dict | None:
+    """Compte d'un jeton d'API valide, vu dans la structure du jeton (None : jeton inconnu, expiré, compte
+    suspendu ou super administrateur). count : requête comptée (limite par minute, dernière utilisation)."""
+    if not token.startswith(API_TOKEN_PREFIX):
         return None
-    user = db.get_session_user(_token_hash(session), _iso(_now()))
-    # compte suspendu : ses sessions sont fermées à la suspension ; garde-fou si l'une a survécu
-    return None if user is not None and user["suspended_at"] else user
+    now = _now()
+    row = db.get_api_token(_token_hash(token), _iso(now))
+    if row is None:
+        return None
+    user = db.get_user(row["user_id"], row["structure_id"])
+    if user is None or user["suspended_at"] or user["is_admin"]:
+        return None
+    if count:
+        security.limiter.hit(f"api-token:{row['id']}", API_TOKEN_RATE_PER_MIN, 60,
+                             "Trop de requêtes avec ce jeton d'API : réessayez dans une minute.")
+        if row["last_used_at"] is None or row["last_used_at"] < _iso(now - _TOKEN_TOUCH_EVERY):
+            db.touch_api_token(row["id"], _iso(now))
+    return {**dict(user), "api_token_id": row["id"], "api_token_scope": row["scope"]}
+
+
+def optional_user(
+    session: Annotated[str | None, Security(_cookie_scheme)] = None,
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
+) -> sqlite3.Row | dict | None:
+    if session:
+        user = db.get_session_user(_token_hash(session), _iso(_now()))
+        # compte suspendu : ses sessions sont fermées à la suspension ; garde-fou si l'une a survécu
+        return None if user is not None and user["suspended_at"] else user
+    if bearer is not None:
+        return api_token_user(bearer.credentials)
+    return None
 
 
 totp_setup_required = accounts.totp_setup_required
@@ -176,9 +218,34 @@ def in_preview(user: sqlite3.Row | dict | None) -> bool:
     return user is not None and "preview_role" in user.keys()
 
 
+# Avec un jeton d'API : jamais le compte lui-même (mot de passe, double authentification, sessions, jetons,
+# export de ses données, liens d'agenda), ni aucune modification sous /api/me et /api/auth
+_TOKEN_FORBIDDEN = ("/api/me/api-tokens", "/api/me/export", "/api/me/sessions", "/api/me/totp",
+                    "/api/me/calendar-feeds")
+_TOKEN_READ_ONLY = ("/api/me", "/api/auth/")
+
+
+def via_api_token(user: sqlite3.Row | dict | None) -> bool:
+    return user is not None and "api_token_scope" in user.keys()
+
+
+def _check_api_token(request: Request, user: dict) -> None:
+    path, write = request.url.path, request.method not in _READ_METHODS
+    if path.startswith(_TOKEN_FORBIDDEN) or (write and path.startswith(_TOKEN_READ_ONLY)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Action impossible avec un jeton d'API : connectez-vous à l'application")
+    if write and user["api_token_scope"] != "write":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Jeton d'API en lecture seule")
+
+
 def current_user(request: Request, user: Annotated[sqlite3.Row | None, Depends(optional_user)]) -> sqlite3.Row:
     if user is None:
+        if request.headers.get("authorization", "").lower().startswith("bearer "):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Jeton d'API invalide ou expiré",
+                                headers={"WWW-Authenticate": "Bearer"})
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion requise")
+    if via_api_token(user):
+        _check_api_token(request, user)
     if user["must_change_password"] and request.url.path not in _ALLOWED_WHILE_MUST_CHANGE:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Changez d'abord votre mot de passe provisoire",

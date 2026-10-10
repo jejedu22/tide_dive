@@ -30,6 +30,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_requests.py    demandes de création de structure
   db_structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
+  db_api_tokens.py  jetons d'API des comptes (outils tiers)
 Les évolutions nouvelles du schéma : migrations.py.
 """
 
@@ -394,4 +395,12 @@ from .db_newsletters import (  # noqa: F401
     save_mailing_group,
     delete_mailing_group,
     structure_members,
+)
+from .db_api_tokens import (  # noqa: F401, E402
+    create_api_token,
+    delete_api_token,
+    delete_user_api_tokens,
+    get_api_token,
+    list_api_tokens,
+    touch_api_token,
 )

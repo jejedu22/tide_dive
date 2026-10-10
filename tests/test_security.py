@@ -73,7 +73,9 @@ def test_en_tetes_de_securite(client):
     assert "script-src 'self'" in r.headers["content-security-policy"]
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["x-frame-options"] == "DENY"
-    assert "content-security-policy" not in client.get("/docs").headers   # Swagger charge un CDN
+    # documentation de l'API : Swagger UI hébergé par le site, sous la même CSP
+    assert "script-src 'self'" in client.get("/api-docs.html").headers["content-security-policy"]
+    assert "script-src 'self'" in client.get("/api/openapi.json").headers["content-security-policy"]
 
 
 def test_aucun_cors_par_defaut(client):

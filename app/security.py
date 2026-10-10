@@ -121,7 +121,6 @@ CSP = "; ".join([
     "form-action 'self'",
     "frame-ancestors 'none'",
 ])
-_NO_CSP_PATHS = ("/docs", "/redoc", "/openapi.json")   # documentation Swagger : charge ses scripts depuis un CDN
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # Appelés par des serveurs (Mailjet, messageries) : pas d'en-tête Origin de navigateur à contrôler
 _SERVER_TO_SERVER = ("/api/mailjet/events/", "/api/newsletters/unsubscribe/")
@@ -150,6 +149,5 @@ def install(app: FastAPI) -> None:
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-        if not path.startswith(_NO_CSP_PATHS):
-            response.headers.setdefault("Content-Security-Policy", CSP)
+        response.headers.setdefault("Content-Security-Policy", CSP)
         return response

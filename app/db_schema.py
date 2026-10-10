@@ -688,6 +688,21 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
 
+-- Jetons d'API (api_tokens.py) : accès des outils tiers au nom d'un compte, dans une structure
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    structure_id INTEGER REFERENCES structures(id) ON DELETE CASCADE,   -- structure où le jeton agit
+    name TEXT NOT NULL,                  -- nom donné par le membre (outil qui s'en sert)
+    token_hash TEXT NOT NULL UNIQUE,     -- SHA-256 du jeton : le jeton lui-même n'est montré qu'une fois
+    prefix TEXT NOT NULL,                -- début du jeton, pour le reconnaître dans la liste
+    scope TEXT NOT NULL CHECK (scope IN ('read', 'write')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT,                     -- NULL : sans expiration
+    last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
 -- Météo marine (weather.py) : dernières prévisions d'Open-Meteo par port
 CREATE TABLE IF NOT EXISTS weather_cache (
     port_id INTEGER PRIMARY KEY REFERENCES ports(id) ON DELETE CASCADE,

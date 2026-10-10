@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="vendor/swagger-ui/swagger-ui.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  /* Swagger UI n'a qu'un thème clair : la zone de documentation reste claire, même en mode sombre */
+  .api-main { max-width: 72rem; }
+  .api-intro { margin-bottom: 1rem; font-size: 0.92rem; line-height: 1.5; }
+  .api-intro p { margin: 0.3rem 0; }
+  #swagger-ui { background: #fff; color: #3b4151; border-radius: 12px; padding: 0.5rem 0; color-scheme: light; }
+  #swagger-ui .information-container { padding: 0 1rem; }
+  #swagger-ui .topbar { display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="index.html" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>API de Calendive</h1>
+        <p class="subtitle"><a href="index.html">Retour à l'application</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="api-main">
+    <section class="panel api-intro">
+      <p>Documentation interactive de l'API, pour brancher des outils tiers (tableur, automate, site du club…).
+        Pour un outil, créez un <strong>jeton d'API</strong> dans l'application : menu du compte →
+        <strong>Jetons d'API</strong>, puis collez-le dans le bouton <strong>Authorize</strong> ci-dessous pour essayer
+        les routes. Connecté à l'application dans ce navigateur, vous pouvez aussi les essayer directement.</p>
+      <p>Description OpenAPI brute : <a href="/api/openapi.json">/api/openapi.json</a>
+        (à importer dans Postman, Insomnia, un générateur de client…).</p>
+    </section>
+    <div id="swagger-ui"></div>
+  </main>
+
+  <script src="vendor/swagger-ui/swagger-ui-bundle.js"></script>
+  <script src="api-docs.js"></script>
+</body>
+</html>

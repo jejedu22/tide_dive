@@ -496,6 +496,27 @@ def _m022_shallow_water_constituents(conn: sqlite3.Connection) -> None:
             enqueue("precompute", {"model": r["model"], "port_id": r["port_id"], "year": r["year"]})
 
 
+API_TOKENS_TABLE = """
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    structure_id INTEGER REFERENCES structures(id) ON DELETE CASCADE,   -- structure où le jeton agit
+    name TEXT NOT NULL,                  -- nom donné par le membre (outil qui s'en sert)
+    token_hash TEXT NOT NULL UNIQUE,     -- SHA-256 du jeton : le jeton lui-même n'est montré qu'une fois
+    prefix TEXT NOT NULL,                -- début du jeton, pour le reconnaître dans la liste
+    scope TEXT NOT NULL CHECK (scope IN ('read', 'write')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT,                     -- NULL : sans expiration
+    last_used_at TEXT
+)"""
+
+
+def _m023_api_tokens(conn: sqlite3.Connection) -> None:
+    """Jetons d'API des comptes (api_tokens.py) : accès des outils tiers, en lecture ou en écriture."""
+    conn.execute(API_TOKENS_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -519,6 +540,7 @@ MIGRATIONS: list[Migration] = [
     Migration(20, "notifications push", _m020_push),
     Migration(21, "cache de la météo marine", _m021_weather),
     Migration(22, "calcul FES avec les ondes de petits fonds (M4, MS4, MN4)", _m022_shallow_water_constituents),
+    Migration(23, "jetons d'API des comptes (outils tiers)", _m023_api_tokens),
 ]
 
 
