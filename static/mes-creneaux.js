@@ -550,8 +550,10 @@ function renderListCards(list) {
 
 // ---- Accueil : mes prochains créneaux, places libres cette semaine, carnet ----
 
-function homeItem(p, extra = "") {
-  return `<li><button type="button" class="home-slot" data-goto-slot="${p.id}" style="--type-color:${esc(p.type.color)}">
+const HOME_OPEN_MAX = 6;
+
+function homeItem(p, extra = "", hidden = false) {
+  return `<li${hidden ? " hidden" : ""}><button type="button" class="home-slot" data-goto-slot="${p.id}" style="--type-color:${esc(p.type.color)}">
     <strong>${esc(cap(formatDay(p.date)))}</strong> <span>RDV ${esc(p.rdv.time)}</span> <span>${esc(p.note || p.port)}</span>
     <span class="type-pill" style="--type-color:${esc(p.type.color)}">${esc(p.type.label)}</span>${extra}</button></li>`;
 }
@@ -561,7 +563,9 @@ function renderHome() {
   const today = todayISO(), week = addDays(today, 7);
   const upcoming = picks.filter(p => lastDay(p) >= today);
   const mine = upcoming.filter(p => p.registered).slice(0, 4);
-  const open = upcoming.filter(p => !p.registered && p.date <= week && p.can_register && levelOk(p)).slice(0, 4);
+  // places libres : TOUS les créneaux des 7 jours où l'on peut s'inscrire (les complets n'ont que la file
+  // d'attente) ; au-delà de HOME_OPEN_MAX, les suivants se déplient
+  const open = upcoming.filter(p => !p.registered && p.date <= week && p.can_register && levelOk(p) && !p.full);
   el.hidden = !picks.length;
   el.innerHTML = `
     <div class="home-cols">
@@ -569,8 +573,10 @@ function renderHome() {
         ? `<ul class="home-list">${mine.map(p => homeItem(p, p.my_status === "waiting" ? ` <span class="reg-status reg-status-wait">file d'attente n° ${p.my_position}</span>` : "")).join("")}</ul>`
         : `<p class="muted">Aucune inscription à venir.</p>`}</div>
       <div><h2>Places libres cette semaine</h2>${open.length
-        ? `<ul class="home-list">${open.map(p => homeItem(p, p.full ? ` <span class="muted">complet, file d'attente</span>`
-          : p.max_registrations ? ` <span class="muted">${p.max_registrations - p.confirmed_count} place(s)</span>` : "")).join("")}</ul>`
+        ? `<ul class="home-list">${open.map((p, i) => homeItem(p, p.max_registrations
+            ? ` <span class="muted">${p.max_registrations - p.confirmed_count} place(s)</span>` : "", i >= HOME_OPEN_MAX)).join("")}</ul>
+          ${open.length > HOME_OPEN_MAX ? `<button type="button" class="btn-quiet btn-small" data-act="home-more">
+            Voir les ${open.length - HOME_OPEN_MAX} autre(s)</button>` : ""}`
         : `<p class="muted">Rien de libre dans les 7 prochains jours.</p>`}</div>
     </div>
     <p class="home-acts"><button type="button" class="btn-quiet btn-small" data-act="logbook">Mon carnet de plongées</button></p>`;
@@ -934,6 +940,11 @@ $("home-panel").addEventListener("click", e => {
   const go = e.target.closest("[data-goto-slot]");
   if (go) showSlot(Number(go.dataset.gotoSlot));
   if (e.target.closest("[data-act=logbook]")) openLogbook();
+  const more = e.target.closest("[data-act=home-more]");
+  if (more) {
+    more.previousElementSibling.querySelectorAll("li[hidden]").forEach(li => { li.hidden = false; });
+    more.remove();
+  }
 });
 
 picksEl.addEventListener("click", async e => {
