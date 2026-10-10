@@ -1569,6 +1569,7 @@ catalogSelect.addEventListener("change", () => {
   portForm.latitude.value = p ? p.latitude : "";
   portForm.longitude.value = p ? p.longitude : "";
   portForm.offset_zh_m.value = p?.offset_zh_m ?? "";
+  portForm.api_maree_site.value = p?.api_maree_site ?? "";
   (p && !p.offset_zh_m ? portForm.offset_zh_m : portForm.name).focus();
 });
 
