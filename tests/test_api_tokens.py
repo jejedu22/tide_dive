@@ -136,7 +136,8 @@ def test_description_openapi(client):
     ops = [(m, p, op) for p, v in spec["paths"].items() for m, op in v.items()]
     assert all(op.get("tags") and op.get("summary") for _, _, op in ops)       # rangées et résumées en français
     names = {t["name"] for t in spec["tags"]}
-    assert {"Créneaux et inscriptions", "Jetons d'API", "Super administration"} <= names
+    assert {"Créneaux et inscriptions", "Jetons d'API", "Administration de la structure"} <= names
+    assert "Super administration" not in names
     sel = spec["paths"]["/api/selections"]["get"]
     assert {"jeton": []} in sel["security"] and sel["tags"] == ["Créneaux et inscriptions"]
     assert "security" not in spec["paths"]["/api/ports"]["get"]                # route publique
@@ -148,3 +149,14 @@ def test_page_swagger_hebergee(client):
     assert "cdn" not in r.text.lower()
     assert client.get("/vendor/swagger-ui/swagger-ui-bundle.js").status_code == 200
     assert client.get("/docs", follow_redirects=False).headers["location"] == "/api-docs.html"
+
+
+def test_routes_de_super_administration_absentes_de_la_documentation(client):
+    """Réservées aux super administrateurs (pas de jeton possible) : servies, mais non documentées."""
+    spec = client.get("/api/openapi.json").json()
+    paths = set(spec["paths"])
+    for hidden in ("/api/admin/ports", "/api/admin/jobs", "/api/admin/backups", "/api/admin/health",
+                   "/api/admin/dashboard", "/api/admin/accounts/search", "/api/admin/maintenance"):
+        assert not any(p == hidden or p.startswith(hidden + "/") for p in paths), hidden
+    assert "/api/admin/users" in paths and "/api/admin/slot-types" in paths      # administrateurs de structure
+    assert client.get("/api/admin/jobs").status_code == 401                        # la route existe toujours

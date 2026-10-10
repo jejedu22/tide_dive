@@ -87,12 +87,8 @@ TAGS: list[tuple[str, str, tuple[str, ...]]] = [
     ("Structures", "Fiche publique d'une structure, adhésion par lien, demandes de création.",
      (r"^/api/structures/", r"^/api/join/", r"^/api/structure-requests")),
     ("Administration de la structure", "Comptes, types de créneaux, indisponibilités, seuils de hauteur "
-     "d'eau, tableau de bord, statistiques, journal d'activité (administrateurs de structure).",
-     (r"^/api/admin/users", r"^/api/admin/slot-types", r"^/api/admin/unavailabilities",
-      r"^/api/admin/water-thresholds", r"^/api/admin/structure-(dashboard|stats|invitations)",
-      r"^/api/admin/join-requests", r"^/api/admin/audit", r"^/api/admin/profiles")),
-    ("Super administration", "Ports et précalculs, structures, comptes, tâches, sauvegardes, santé, "
-     "qualité des données, exploitation (super administrateurs, inaccessibles par jeton d'API).",
+     "d'eau, tableau de bord, statistiques, journal d'activité, fiche et réglages de la structure "
+     "(administrateurs de structure).",
      (r"^/api/admin/",)),
     ("Divers", "Autres routes.", (r"^/",)),
 ]
@@ -180,8 +176,31 @@ def _summary(method: str, path: str, op: dict) -> str | None:
     return first if len(first) <= 90 else first[:87].rstrip() + "…"
 
 
+def _super_admin_operations(app: FastAPI) -> set[tuple[str, str]]:
+    """(méthode en minuscules, chemin) des routes réservées aux super administrateurs : elles dépendent de
+    auth.current_super_admin. Elles n'ont pas leur place dans une documentation pour les outils tiers (un jeton
+    ne peut pas être celui d'un super administrateur), elles restent servies par l'application."""
+    from fastapi import routing
+
+    from .auth import current_super_admin
+
+    def needs_super_admin(dependant) -> bool:
+        return any(d.call is current_super_admin or needs_super_admin(d) for d in dependant.dependencies)
+
+    found = set()
+    for context in routing.iter_route_contexts(app.routes):
+        route = context.original_route
+        if hasattr(route, "dependant") and needs_super_admin(route.dependant):
+            found |= {(m.lower(), context.path_format) for m in context.methods or ()}
+    return found
+
+
 def build(app: FastAPI) -> dict:
     spec = get_openapi(title=app.title, version=VERSION, description=DESCRIPTION, routes=app.routes)
+    for method, path in _super_admin_operations(app):
+        spec["paths"].get(path, {}).pop(method, None)
+        if not spec["paths"].get(path):
+            spec["paths"].pop(path, None)
     used = set()
     for path, operations in spec.get("paths", {}).items():
         for method, op in operations.items():

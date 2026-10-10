@@ -18,6 +18,29 @@
   #swagger-ui { background: #fff; color: #3b4151; border-radius: 12px; padding: 0.5rem 0; color-scheme: light; }
   #swagger-ui .information-container { padding: 0 1rem; }
   #swagger-ui .topbar { display: none; }
+
+  /* Téléphone : le titre d'une catégorie ne doit pas écraser sa description (texte vertical) ; marges réduites ;
+     lignes de route et blocs de code qui passent à la ligne au lieu de déborder */
+  @media (max-width: 720px) {
+    .api-main { padding-left: 0.5rem; padding-right: 0.5rem; }
+    #swagger-ui { padding: 0.25rem 0; }
+    #swagger-ui .wrapper { padding: 0 0.5rem; }
+    #swagger-ui .information-container { padding: 0; }
+    #swagger-ui .info .title { font-size: 1.6rem; }
+    #swagger-ui .opblock-tag { flex-wrap: wrap; font-size: 1.1rem; padding: 0.6rem 0.25rem; }
+    #swagger-ui .opblock-tag a.nostyle { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+    #swagger-ui .opblock-tag small { flex: 1 1 100%; order: 3; padding: 0.2rem 0 0; font-size: 0.8rem; }
+    #swagger-ui .opblock-tag button.expand-operation { order: 2; margin-left: auto; }
+    #swagger-ui .opblock .opblock-summary { flex-wrap: wrap; padding: 0.4rem; }
+    #swagger-ui .opblock .opblock-summary-path { flex: 1 1 100%; max-width: none; overflow-wrap: anywhere; font-size: 0.9rem; }
+    #swagger-ui .opblock .opblock-summary-description { flex: 1 1 100%; padding: 0.2rem 0 0; }
+    #swagger-ui .opblock .opblock-section-header { flex-wrap: wrap; padding: 0.5rem; }
+    #swagger-ui .scheme-container { padding: 0.5rem; }
+    #swagger-ui .scheme-container .schemes { flex-wrap: wrap; gap: 0.5rem; }
+    #swagger-ui pre, #swagger-ui .highlight-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+    #swagger-ui table { display: block; overflow-x: auto; }
+    #swagger-ui .parameters-col_description, #swagger-ui .response-col_description { min-width: 8rem; }
+  }
 </style>
 </head>
 <body>
