@@ -94,7 +94,7 @@ def test_compte_sans_structure(new_client, setup):
     assert (u["structure"], u["role"], u["profiles"], u["structures"]) == (None, None, [], [])
     assert not any(u["can"].values())
     assert root.get("/api/selections").status_code == 403
-    assert root.get("/", follow_redirects=False).status_code == 200   # la recherche, pas les créneaux
+    assert root.get("/", follow_redirects=False).status_code == 200   # la présentation, pas les créneaux
 
 
 def test_propre_a_la_session(new_client, setup):
