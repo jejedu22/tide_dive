@@ -56,3 +56,22 @@ def test_pas_de_fausse_etale_aux_bords_de_la_serie():
     assert ex[0][0] > ts[0] + timedelta(minutes=30) and ex[-1][0] < ts[-1] - timedelta(minutes=30)
     gaps = [(b[0] - a[0]).total_seconds() / 3600 for a, b in zip(ex, ex[1:])]
     assert all(5.5 < g < 7 for g in gaps), gaps
+
+
+def test_liste_des_fichiers_attendus_sans_importer_pytmd():
+    """L'API (256 Mo) ne doit pas charger pyTMD, xarray, pandas, scipy et dask (~100 Mo) pour connaître les
+    fichiers attendus du modèle : seule la lecture de database.json est nécessaire."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = (
+        "import sys; from app import tide_model as t\n"
+        "missing, expected = t.missing_model_files('FES2014', '/inexistant')\n"
+        "assert len(expected) == 12 and len(missing) == 12, (len(expected), len(missing))\n"
+        "heavy = [m for m in ('pyTMD', 'xarray', 'pandas', 'scipy', 'dask') if m in sys.modules]\n"
+        "assert not heavy, heavy\n"
+    )
+    root = Path(__file__).resolve().parent.parent
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-800:]

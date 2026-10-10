@@ -5,7 +5,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    TZ=Europe/Paris
+    TZ=Europe/Paris \
+    MALLOC_MMAP_THRESHOLD_=1048576
+# MALLOC_MMAP_THRESHOLD_ : les blocs de plus de 1 Mo (scrypt en réserve 16 Mo par mot de passe vérifié) sont rendus au
+# système dès leur libération. Sans cela, glibc relève son seuil d'elle-même et garde ces blocs dans chaque thread :
+# 8 connexions simultanées laissaient l'API (256 Mo de mémoire) à près de 200 Mo.
 
 # supercronic : cron adapté aux conteneurs (logs sur stdout, pas de root requis)
 # Empreinte vérifiée : un binaire modifié en amont ferait échouer le build. À mettre à jour avec la version
