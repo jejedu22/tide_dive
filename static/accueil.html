@@ -5,11 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Calendive — vos plongées, au rythme des marées</title>
 <meta name="description" content="Calendive trouve les créneaux de plongée où la marée et la lumière sont au rendez-vous, et aide votre club à organiser la saison : sorties, inscriptions, rappels, courants, météo. Recherche libre, sans compte.">
-<meta property="og:type" content="website">
-<meta property="og:locale" content="fr_FR">
-<meta property="og:site_name" content="Calendive">
-<meta property="og:title" content="Calendive — vos plongées, au rythme des marées">
-<meta property="og:description" content="Les créneaux de plongée autour des étales, et l'organisation de la saison de votre club : sorties, inscriptions, rappels, courants, météo.">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@graph": [
+  {"@type": "WebSite", "name": "Calendive", "url": "__BASE__/", "inLanguage": "fr",
+   "description": "Les créneaux de plongée autour des étales, et l'organisation de la saison des clubs."},
+  {"@type": "WebApplication", "name": "Calendive", "url": "__BASE__/", "applicationCategory": "SportsApplication",
+   "operatingSystem": "Tout navigateur, installable sur téléphone", "inLanguage": "fr",
+   "description": "Recherche de créneaux de plongée autour des pleines et basses mers, et organisation de la saison d'un club : sorties, inscriptions, rappels, courants et météo marine."}
+]}
+</script>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="accueil.css">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -82,6 +86,7 @@
       </div>
       <ul class="today-list" id="today-list" aria-live="polite"></ul>
       <p class="today-note" id="today-note"></p>
+      <p class="today-more"><a href="marees">Horaires de marée de la semaine, port par port →</a></p>
     </section>
 
     <!-- ============ Fonctions ============ -->
@@ -225,7 +230,7 @@
   </main>
 
   <footer>
-    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="carte.html">Carte des ports</a> · <a href="api-docs.html">API</a> · <a href="demande-structure.html">Demander la création d'une structure</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="marees">Horaires de marée par port</a> · <a href="carte.html">Carte des ports</a> · <a href="api-docs.html">API</a> · <a href="demande-structure.html">Demander la création d'une structure</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
   </footer>
 
   <script src="session.js"></script>

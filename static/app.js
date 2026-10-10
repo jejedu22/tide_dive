@@ -753,6 +753,12 @@ function tideSourceNote(user) {
     : `Marées : ${fes} brut, sans api-maree.fr ni correction${mine}.`;
 }
 
+// ?port=<id> (liens des pages « Horaires de marée ») : ce port, avant tout autre choix
+function urlPort() {
+  const v = new URLSearchParams(location.search).get("port");
+  return v && portSelect.querySelector(`option[value="${CSS.escape(v)}"]`) ? v : null;
+}
+
 async function onSessionChange(user) {
   document.getElementById("tide-source-note").innerHTML = tideSourceNote(user);
   // structure réglée sur la seule recherche par hauteur d'eau : c'est sa page de recherche
@@ -769,11 +775,13 @@ async function onSessionChange(user) {
   if (defaultPort != null && portSelect.querySelector(`option[value="${defaultPort}"]`)) {
     portSelect.value = String(defaultPort);
   }
+  const wantedPort = urlPort();
+  if (wantedPort) portSelect.value = wantedPort;
   prefsBar.hidden = !user;
   savedPrefs = null;
   prefsRestoreBtn.disabled = true;
   if (!user) {
-    if (refresh) search();
+    if (refresh || wantedPort) search();
     return;
   }
   try {
@@ -782,6 +790,7 @@ async function onSessionChange(user) {
       savedPrefs = prefs;
       prefsRestoreBtn.disabled = false;
       applyPrefs(prefs);
+      if (wantedPort) portSelect.value = wantedPort;
       search();
       refresh = false;
     }

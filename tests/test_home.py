@@ -56,11 +56,11 @@ def test_le_logo_mene_a_l_accueil_sur_toutes_les_pages():
 
 def test_liens_et_ressources_de_la_presentation():
     html = (STATIC / "accueil.html").read_text(encoding="utf-8")
-    assert not re.search(r"<script(?![^>]*\bsrc=)", html)             # aucun script en ligne (CSP)
+    assert not re.search(r"<script(?![^>]*(?:\bsrc=|ld\+json))", html)   # aucun script exécutable en ligne (CSP)
     refs = re.findall(r'(?:href|src)="([^"#]+)(?:#[^"]*)?"', html)
     assert "accueil.css" in refs and "accueil.js" in refs and "session.js" in refs
     for ref in refs:
-        if ref.startswith(("http://", "https://")) or ref == "./":
+        if ref.startswith(("http://", "https://")) or ref in ("./", "marees"):  # "marees" : route serveur
             continue
         assert (STATIC / ref).is_file(), ref
     # les pages vers lesquelles la présentation envoie
