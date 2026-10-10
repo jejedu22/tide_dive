@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from . import current_calc, db, shom_currents
+from .openapi_doc import PUBLIC
 from . import auth
 from .auth import CurrentManager, CurrentMember, CurrentSuperAdmin, can_manage_structure, scope_structure
 
@@ -166,7 +167,7 @@ def admin_refresh_sites(admin: CurrentSuperAdmin):
 # Consultation
 # ---------------------------------------------------------------------------
 
-@router.get("/dive-sites")
+@router.get("/dive-sites", openapi_extra=PUBLIC)
 def list_sites(user: OptionalUser = None):
     """Sites de plongée de la structure active du compte, avec l'indication du courant disponible. Les sites
     sont propres à chaque structure : rien pour un visiteur ou un compte sans structure."""

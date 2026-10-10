@@ -41,6 +41,6 @@ def test_un_guide_par_profil():
 
 
 def test_lien_aide_dans_l_en_tete():
-    assert 'help: { href: "aide.html", label: "Aide", icon: "help" }' in (STATIC / "session.js").read_text()
+    assert 'help: { href: "aide.html", label: "Aide", icon: "help", public: true }' in (STATIC / "session.js").read_text()
     for js in ("app.js", "mes-creneaux.js", "admin.js", "newsletters.js", "hauteurs.js"):
         assert "Session.LINKS.help" in (STATIC / js).read_text(), js

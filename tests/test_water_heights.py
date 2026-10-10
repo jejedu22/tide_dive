@@ -122,11 +122,14 @@ def test_hauteurs_reservees_aux_super_administrateurs(new_client, setup):
     assert root.get("/api/admin/water-thresholds").json() == []
 
 
-def test_acces_selon_la_recherche_de_la_structure(new_client, setup):
+def test_recherche_publique(new_client, setup):
+    """La recherche est ouverte à tous ; choisir une plage reste réservé (voir test_choix_refuses)."""
     t = _threshold(_client(new_client, "root"), setup["port"])
-    assert _search(_client(new_client, "tom"), t["id"]).status_code == 403          # structure « étales » seulement
-    assert _client(new_client, "tom").get("/api/water-thresholds").status_code == 403
-    assert _search(new_client(), t["id"]).status_code == 401                        # visiteur
+    assert _search(_client(new_client, "tom"), t["id"]).status_code == 200          # structure « étales » seulement
+    assert _client(new_client, "tom").get("/api/water-thresholds").status_code == 200
+    visitor = _search(new_client(), t["id"])                                         # visiteur : tous les horaires
+    assert visitor.status_code == 200 and visitor.json()["tide_sources"] == {"api_maree": True, "calibration": True}
+    assert new_client().get("/api/water-thresholds").status_code == 200
     assert _search(_client(new_client, "vera"), t["id"]).status_code == 200         # membre en visualisation
     listed = _client(new_client, "hugo").get("/api/water-thresholds").json()
     assert [(p["name"], [x["label"] for x in p["thresholds"]]) for p in listed] == [("Binic", ["Mise à l'eau"])]

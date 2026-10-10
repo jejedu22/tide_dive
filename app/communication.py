@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import accounts, auth, db, mailer
+from .openapi_doc import PUBLIC
 from .auth import CurrentSuperAdmin
 
 router = APIRouter(prefix="/api")
@@ -46,7 +47,7 @@ def _announcement_out(r: sqlite3.Row) -> dict:
             "created_by": r["created_by_name"], "created_at": r["created_at"]}
 
 
-@router.get("/announcements")
+@router.get("/announcements", openapi_extra=PUBLIC)
 def current_announcements(user: OptionalUser = None):
     """Bandeaux en cours pour ce visiteur : ceux pour tous, et ceux de ses structures."""
     mine: set[int] = set()

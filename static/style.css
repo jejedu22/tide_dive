@@ -1307,6 +1307,8 @@ main.narrow-main { max-width: 32rem; }
   .subtitle { display: none; }
   .account { flex-wrap: nowrap; flex-shrink: 0; }
   .account-links, .account-where { display: none; }
+  .account-links.visitor-links { display: flex; }             /* visiteur : pas de menu, icônes seules */
+  .visitor-links .account-link span { display: none; }
   .account-menu-btn { width: 2.6rem; height: 2.6rem; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 10px; }
   .account-menu-btn .icon { display: block; }
   .account-menu-btn .account-avatar { display: none; }
@@ -2060,6 +2062,8 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .slot-highlight { outline: 3px solid var(--sand); outline-offset: 2px; }
 .day-all { margin: 0 0 0.6rem; }
 .logbook-dialog { width: min(44rem, 96vw); }
+.account-dialog.api-tokens-wide { width: min(50rem, 96vw); max-width: none; }
+.api-tokens-dialog td code { font-size: 0.75rem; }
 .logbook-kpis { margin: 0.6rem 0; }
 .logbook-wrap { max-height: 45vh; overflow: auto; }
 

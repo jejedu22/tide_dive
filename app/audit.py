@@ -107,6 +107,8 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/me/totp/disable"): "Double authentification désactivée",
     ("POST", "/api/me/totp/recovery-codes"): "Codes de secours renouvelés",
     ("POST", "/api/me/sessions/close-others"): "Autres sessions fermées (titulaire)",
+    ("POST", "/api/me/api-tokens"): "Jeton d'API créé",
+    ("DELETE", "/api/me/api-tokens/{token_id}"): "Jeton d'API révoqué",
     ("POST", "/api/admin/users/{user_id}/suspend"): "Compte suspendu",
     ("DELETE", "/api/admin/users/{user_id}/suspend"): "Compte réactivé",
     ("POST", "/api/admin/users/{user_id}/sessions/close"): "Sessions d'un compte fermées",
@@ -233,10 +235,16 @@ def _from_response(body: bytes) -> str | None:
     return None
 
 
-def _actor(request: Request) -> sqlite3.Row | None:
-    from .auth import COOKIE_NAME, _token_hash   # import tardif : auth importe ce module indirectement
+def _actor(request: Request) -> sqlite3.Row | dict | None:
+    """Auteur de la requête : session de l'application, sinon jeton d'API (sans le compter une 2e fois)."""
+    from .auth import COOKIE_NAME, _token_hash, api_token_user   # import tardif : auth importe ce module
     token = request.cookies.get(COOKIE_NAME)
-    return db.get_session_user(_token_hash(token), _now()) if token else None
+    if token:
+        return db.get_session_user(_token_hash(token), _now())
+    header = request.headers.get("authorization", "")
+    if header[:7].lower() == "bearer ":
+        return api_token_user(header[7:].strip(), count=False)
+    return None
 
 
 def install(app: FastAPI) -> None:
@@ -263,6 +271,8 @@ def install(app: FastAPI) -> None:
         structure_id = (int(query_sid) if query_sid and query_sid.isdigit() else None) or target_structure \
             or actor["structure_id"]
         action = LABELS.get((request.method, route), f"{request.method} {route}")
+        if "api_token_id" in actor.keys():
+            action += f" (jeton d'API n° {actor['api_token_id']})"
         try:
             entry = db.add_audit(_now(), actor["id"], accounts.display_name(actor), structure_id, request.method,
                                  route, action, target, response.status_code)

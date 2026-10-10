@@ -105,6 +105,8 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | `API_MAREE_KEY` | — | Clé [api-maree.fr](https://api-maree.fr) pour le recalage du modèle (facultative : sans clé, hauteurs FES brutes) |
 | `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | —, expéditeur des e-mails | Notifications push : clé VAPID (générée et gardée en base si absente) et contact (voir [Notifications push](#notifications-push)) |
 | `WEATHER` | `1` | `0` : pas de météo marine (aucun appel à Open-Meteo) |
+| `API_DOCS` | `1` | `0` : ni documentation Swagger (`/api-docs.html`) ni description OpenAPI (`/api/openapi.json`) |
+| `API_TOKEN_RATE_PER_MIN` | `120` | Requêtes par minute et par jeton d'API (voir [Documentation interactive et outils tiers](#documentation-interactive-et-outils-tiers)) |
 | `SECRETS_KEY` | — | Clé de chiffrement des clés Mailjet des structures (voir [Connexion Mailjet](#connexion-mailjet)) ; sans elle, Mailjet ne peut pas être connecté |
 | `BACKUP_KEEP` | `14` | Sauvegardes quotidiennes conservées dans `data/backups/` |
 | `ALERT_EMAIL` | — | Destinataires des alertes (séparés par des virgules) ; vide : les super administrateurs ayant une adresse e-mail |
@@ -252,16 +254,16 @@ Le recalage est refait le 2 de chaque mois. S'il change sensiblement (correction
 
 ### Recherche par hauteur d'eau
 
-En plus de la recherche par étale, une page **`/hauteurs.html`** donne les **plages horaires où l'eau est à la bonne hauteur** : au moins X m pour mettre un bateau à l'eau ou passer une porte de bassin, au plus X m pour un site accessible à marée basse.
+En plus de la recherche par étale, une page **publique** **`/hauteurs.html`** (visiteurs compris) donne les **plages horaires où l'eau est à la bonne hauteur** : au moins X m pour mettre un bateau à l'eau ou passer une porte de bassin, au plus X m pour un site accessible à marée basse.
 
 - **Hauteurs d'eau** : saisies par les super administrateurs, port par port (`/admin.html` → **Ports** → **Hauteurs d'eau**) : libellé, hauteur au-dessus du zéro des cartes (comme l'annuaire des marées) et sens (« au moins » / « au plus »). Un port peut en avoir plusieurs.
-- **Recherche proposée** : réglée par les super administrateurs, structure par structure (`/admin.html` → **Structures**, colonne *Recherche*) : par étale (défaut), par hauteur d'eau, ou les deux. Les liens de l'en-tête suivent ; une structure réglée sur la seule hauteur d'eau arrive sur `/hauteurs.html` depuis la recherche. Un super administrateur a les deux, un visiteur la recherche par étale.
+- **Recherche proposée** : réglée par les super administrateurs, structure par structure (`/admin.html` → **Structures**, colonne *Recherche*) : par étale (défaut), par hauteur d'eau, ou les deux. Les liens de l'en-tête des membres suivent, ainsi que le droit de **choisir une plage** comme créneau ; une structure réglée sur la seule hauteur d'eau arrive sur `/hauteurs.html` depuis la recherche. La page elle-même reste ouverte à tous : un visiteur y voit tous les horaires (api-maree.fr et correction), un membre ceux de sa structure et ses indisponibilités. Un super administrateur et un visiteur ont les deux liens.
 - **Calcul** (`app/water_windows.py`) : sur la série de hauteurs au pas de 10 min, dans les horaires de la structure (sources de marée), chaque franchissement de la hauteur est interpolé entre deux points ; début arrondi à la minute supérieure, fin à la minute inférieure. Filtres : période, **lumière du jour** (il faut au moins la durée minimale de jour dans la plage ; la colonne *De jour* donne la partie de jour), **durée minimale**. Les plages qui commencent dans la période sont listées, avec leur hauteur maximale (ou minimale), les jours fériés, vacances et indisponibilités.
 - **Plage « limite »** : quand l'eau ne dépasse la hauteur que de moins de 20 cm, quelques centimètres d'erreur (niveau moyen du port, modèle) décalent beaucoup les heures : la plage est signalée.
 - **Choisir une plage** : comme une étale (type, intitulé, plusieurs créneaux sur la même plage, places, inscriptions) : c'est un **créneau de hauteur d'eau**. **RDV** : début de la plage, arrondi aux 5 minutes inférieures. La hauteur est recopiée : la modifier ou la supprimer ne touche pas les créneaux déjà choisis. Seuls le type et l'intitulé se modifient.
 - **Recalage** : quand les horaires changent (précalcul, mois glissant, changement de sources de la structure), le créneau suit sa plage (celle qui la recouvre le plus, sinon la plus proche à 1 h près) ; une plage disparue laisse le créneau tel quel.
 - Dans **Créneaux choisis**, l'export Excel et les newsletters, le créneau affiche sa hauteur d'eau et sa plage (« ≥ 7,00 m · 09:56 → 14:54 »).
-- API : `GET /api/water-thresholds`, `GET /api/water-windows?threshold_id&start&end&daylight&min_minutes`, `POST /api/selections/height` ; super administrateurs : `/api/admin/water-thresholds`, `POST /api/admin/ports/{id}/water-thresholds`.
+- API : `GET /api/water-thresholds`, `GET /api/water-windows?threshold_id&start&end&daylight&min_minutes` (publiques), `POST /api/selections/height` ; super administrateurs : `/api/admin/water-thresholds`, `POST /api/admin/ports/{id}/water-thresholds`.
 - **Mise à jour d'une base existante** (migration n° 6) : toutes les structures restent sur la recherche par étale.
 
 ### Horaires de marée par structure
@@ -756,9 +758,39 @@ Tant qu'aucun type n'existe, la colonne « Choix » affiche « aucun type ».
 
 ## API
 
+### Documentation interactive et outils tiers
+
+- **Documentation Swagger** : **`/api-docs.html`** (raccourci `/docs`), sur le site lui-même : [Swagger UI](https://github.com/swagger-api/swagger-ui) 5.32.15 (licence Apache 2.0) est hébergé dans `static/vendor/swagger-ui/`, aucun script n'est chargé chez un tiers et la page reste sous la CSP stricte. Description OpenAPI 3.1 brute : **`/api/openapi.json`** (Postman, Insomnia, générateurs de clients). `API_DOCS=0` coupe les deux (l'API reste utilisable).
+- Les ~210 routes sont rangées en **catégories** d'après leur chemin (`app/openapi_doc.py`, `TAGS`) : Connexion, Mon compte, Agenda, Marées et recherche, Créneaux et inscriptions, Sites et courants, Plongeurs, Communication, Structures, Administration de la structure, Super administration, Jetons d'API. Résumés en français : libellé du journal d'activité, sinon première phrase de la description de la route, sinon `SUMMARIES`.
+- **Jetons d'API** (`app/api_tokens.py`, table `api_tokens`, migration n° 23) : chaque membre en crée dans le menu du compte → **Jetons d'API** (nom de l'outil, portée **lecture seule** ou **lecture et écriture**, durée 30 jours à 1 an ou sans expiration ; 20 au plus). Le jeton (`cdv_…`, 256 bits) n'est montré qu'à sa création ; seul son SHA-256 est gardé ; il se révoque à tout moment. L'outil l'envoie dans l'en-tête `Authorization: Bearer cdv_…` :
+  - il agit avec les **droits du compte**, dans la structure où il a été créé (rôle et profils du moment : un changement de rôle s'applique aussitôt, un départ de la structure ou une suspension coupe l'accès) ;
+  - lecture seule : `GET` uniquement (403 « Jeton d'API en lecture seule » sinon) ;
+  - jamais avec un jeton : le compte lui-même (mot de passe, double authentification, sessions, jetons, export de ses données, liens d'agenda) ni aucune modification sous `/api/me` et `/api/auth` ;
+  - **pas de jeton pour un super administrateur** : son accès exige la double authentification, qu'un jeton contournerait ;
+  - au plus `API_TOKEN_RATE_PER_MIN` requêtes par minute et par jeton (120 par défaut, puis 429 avec `Retry-After`) ; dernière utilisation affichée dans la liste ;
+  - les modifications faites avec un jeton entrent au journal d'activité au nom du compte, avec le numéro du jeton.
+- Sur la page Swagger, **Authorize** accepte un jeton pour essayer les routes (« Try it out ») ; connecté à l'application dans le même navigateur, le cookie de session suffit. Le jeton collé n'est pas gardé par le navigateur.
+
+```bash
+curl -H "Authorization: Bearer cdv_…" "https://<site>/api/selections?upcoming=true"
+```
+
 ### `GET /api/ports`
 
-Liste des ports présents en base : `id`, `name`, `latitude`, `longitude`.
+Liste des ports présents en base : `id`, `name`, `latitude`, `longitude` (publique).
+
+### Données de marée publiques : `GET /api/ports/{id}/tides` et `GET /api/ports/{id}/heights`
+
+Sans compte (`app/tide_data.py`), pour les outils tiers et les sites des clubs :
+
+- **`/tides?start&end[&kind=PM|BM]`** : étales du port, 366 jours au plus : `time_utc`, `date` et `time` (heure locale du port), `kind` (PM / BM), `height_m`, `coefficient` (une BM prend celui de la PM la plus proche), `source`.
+- **`/heights?start&end[&step=10|20|30|60]`** : hauteurs d'eau (la courbe de marée), 31 jours au plus : `time_utc`, `local`, `height_m`, `source`.
+- Hauteurs en mètres au-dessus du **zéro des cartes** ; `port` rappelle nom, coordonnées, fuseau et sources utilisées. Un visiteur voit tous les horaires (mois glissant api-maree.fr, calcul FES recalé au-delà) ; un compte connecté (session ou jeton d'API), ceux de sa structure. `source` : `api` (api-maree.fr), `cal` (FES recalé), `fes` (FES brut).
+- Dans la documentation, ces routes et les recherches publiques (`/api/dive-windows`, `/api/water-windows`) ont une identification **facultative** (`openapi_extra=PUBLIC`).
+
+```bash
+curl "https://<site>/api/ports/1/tides?start=2026-10-10&end=2026-10-16&kind=PM"
+```
 
 ### `GET /api/dive-windows`
 
@@ -936,6 +968,7 @@ Le résultat s'affiche en haut de l'administration (`GET /api/admin/health`). Un
 - **Tentatives de connexion limitées** : 8 échecs par identifiant et 30 par adresse IP sur 15 minutes, puis erreur 429 avec `Retry-After` (même avec le bon mot de passe, pendant le blocage). Mot de passe oublié, liens de réinitialisation, demande de structure et désinscription ont aussi leurs limites. Compteurs en mémoire (remis à zéro au redémarrage) ; `RATE_LIMIT=0` les désactive. L'adresse IP vient de `X-Forwarded-For` côté Traefik : `TRUSTED_PROXY_HOPS` (1 par défaut, 0 sans proxy).
 - **CORS fermé** : le site est servi par l'API elle-même. `CORS_ORIGINS` ouvre l'API à d'autres origines au cas par cas.
 - **Origine contrôlée** : une requête `POST/PUT/PATCH/DELETE` d'un navigateur venant d'une autre origine est refusée (403), en plus du cookie `SameSite=Lax`.
+- **Jetons d'API** : seul leur SHA-256 est en base ; portée lecture ou écriture ; jamais pour un super administrateur ni pour toucher au compte lui-même ; limite par minute (voir [Documentation interactive et outils tiers](#documentation-interactive-et-outils-tiers)).
 - **En-têtes** : `Content-Security-Policy` stricte (aucun script en ligne n'est autorisé), `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`. Pas de HSTS côté application : à poser sur Traefik.
 - **Chaîne d'approvisionnement** : supercronic est vérifié par empreinte dans le `Dockerfile` ; Dependabot et `pip-audit` (CI) surveillent les dépendances.
 
@@ -1001,6 +1034,7 @@ app/
   db_requests.py    demandes de création de structure
   db_structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
   db_newsletters.py connexion Mailjet, newsletters, groupes d'envoi
+  db_api_tokens.py  jetons d'API des comptes
   auth.py           comptes, sessions, rôles, profil, préférences, administration des comptes (+ CLI)
   accounts.py       profil (normalisation), identifiant proposé, jetons et e-mails de compte
   passwords.py      politique de mots de passe et génération
@@ -1022,6 +1056,9 @@ app/
   logbook.py        carnet de plongées d'un membre
   push.py           notifications push (Web Push : VAPID, chiffrement aes128gcm)
   weather.py        météo marine indicative des créneaux (Open-Meteo, en cache)
+  api_tokens.py     jetons d'API des comptes (outils tiers : Authorization: Bearer)
+  tide_data.py      données de marée publiques d'un port : étales et hauteurs d'eau
+  openapi_doc.py    description OpenAPI (catégories, résumés, authentification), page Swagger
   mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
   mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test, activation du suivi
   newsletters.py    newsletters : brouillons, audiences, test, envoi, programmation, rapport, désinscription, événements Mailjet
@@ -1048,6 +1085,7 @@ static/             frontend (index.html, app.js, style.css)
   plongeurs.*       fiches plongeurs des membres (administrateurs, gestionnaires), validation des CACI
   vendor/leaflet/   bibliothèque Leaflet 1.9.4 (licence BSD), hébergée localement
   vendor/qrcode/    qrcode-generator 1.4.4 (licence MIT) : QR code de la licence
+  vendor/swagger-ui/ Swagger UI 5.32.15 (licence Apache 2.0) : documentation de l'API (api-docs.html)
   session.js        connexion, profil, mots de passe, droits et appels API, partagé par les pages
   mot-de-passe.*    choix du mot de passe depuis un lien d'invitation ou de réinitialisation
   demande-structure.*  formulaire public de demande de création de structure

@@ -34,7 +34,8 @@ function bypass(request) {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return true;
   const path = url.pathname.slice(new URL(self.registration.scope).pathname.length - 1);
-  return /^\/(api\/|healthz|docs|redoc|openapi\.json)/.test(path);
+  // documentation de l'API (Swagger, 1,5 Mo) : jamais en cache hors ligne
+  return /^\/(api\/|api-docs|vendor\/swagger-ui\/|healthz|docs|redoc|openapi\.json)/.test(path);
 }
 
 // Clé de cache sans les paramètres : rien de ce qu'ils portent (jeton de désinscription, de mot de passe…)

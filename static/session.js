@@ -718,6 +718,90 @@ const Session = (() => {
     }, { once: true });
   }
 
+  // ---- Jetons d'API (app/api_tokens.py) : accès des outils tiers, documentation sur api-docs.html ----
+  async function openApiTokens(created = null) {
+    let data;
+    try {
+      data = await api("/api/me/api-tokens");
+    } catch (e) {
+      openMessage("Jetons d'API", `<p>${esc(e.message)}</p>`);
+      return;
+    }
+    const d = ensureDialog();
+    d.dataset.locked = "";
+    const when = iso => (iso ? fmtDay(iso) : "—");
+    d.innerHTML = `
+      <form method="dialog" class="security-dialog api-tokens-dialog">
+        <h2>Jetons d'API</h2>
+        <p class="dialog-hint">Un jeton permet à un outil (tableur, automate, site du club…) d'utiliser
+          l'<a href="api-docs.html" target="_blank" rel="noopener">API de Calendive</a> avec <strong>vos droits</strong>,
+          dans la structure active, à raison de ${data.rate_per_min} requêtes par minute au plus. Il ne peut pas toucher
+          à votre compte (mot de passe, double authentification…). Ne le confiez qu'à un outil de confiance.</p>
+        ${created ? `<section><p class="calendar-ok">Jeton « ${esc(created.name)} » créé. Il n'est affiché
+            <strong>qu'une fois</strong> : copiez-le maintenant dans votre outil.</p>
+          <div class="calendar-link"><input type="text" readonly value="${esc(created.token)}" aria-label="Jeton d'API">
+            <button type="button" class="btn-secondary btn-small" data-copy>Copier</button></div>
+          <p class="dialog-hint">En-tête à envoyer : <code>Authorization: Bearer ${esc(created.prefix)}…</code></p></section>` : ""}
+        <section>
+          <h3>Mes jetons</h3>
+          ${data.tokens.length ? `<div class="table-wrap"><table class="users">
+            <thead><tr><th>Nom</th><th>Portée</th><th>Structure</th><th>Créé</th><th>Expire</th><th>Utilisé</th><th></th></tr></thead>
+            <tbody>${data.tokens.map(t => `<tr>
+              <td><strong>${esc(t.name)}</strong><br><code>${esc(t.prefix)}…</code></td>
+              <td data-label="Portée">${esc(t.scope_label)}</td><td data-label="Structure">${esc(t.structure || "—")}</td>
+              <td data-label="Créé">${esc(when(t.created_at))}</td>
+              <td data-label="Expire">${esc(t.expires_at ? when(t.expires_at) : "jamais")}</td>
+              <td data-label="Utilisé">${esc(when(t.last_used_at))}</td>
+              <td><button type="button" class="btn-danger btn-small" data-revoke="${t.id}">Révoquer</button></td>
+            </tr>`).join("")}</tbody></table></div>`
+            : `<p class="muted">Aucun jeton.</p>`}
+        </section>
+        <section>
+          <h3>Nouveau jeton</h3>
+          <label>Nom <input name="name" maxlength="60" placeholder="Ex. : tableau des sorties, site du club"></label>
+          <label>Portée <select name="scope">
+            ${Object.entries(data.scopes).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
+          <label>Durée <select name="expires_days">
+            <option value="30">30 jours</option><option value="90">90 jours</option>
+            <option value="365" selected>1 an</option><option value="">Sans expiration</option></select></label>
+          <p><button type="button" class="btn-primary btn-small" data-create>Créer le jeton</button></p>
+        </section>
+        <p class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button type="submit" class="btn-primary" value="close">Fermer</button></div>
+      </form>`;
+    const form = d.querySelector("form"), errEl = d.querySelector(".dialog-error");
+    d.classList.add("api-tokens-wide");    // le tableau des jetons : fenêtre plus large, le temps de l'affichage
+    d.addEventListener("close", () => d.classList.remove("api-tokens-wide"), { once: true });
+    form.addEventListener("click", async e => {
+      const copy = e.target.closest("[data-copy]");
+      if (copy) {
+        const input = copy.parentElement.querySelector("input");
+        input.select();
+        try { await navigator.clipboard.writeText(input.value); copy.textContent = "Copié"; } catch { document.execCommand?.("copy"); }
+        return;
+      }
+      const revoke = e.target.closest("[data-revoke]");
+      if (revoke) {
+        if (!confirm("Révoquer ce jeton ? Les outils qui s'en servent n'auront plus accès.")) return;
+        try { await api(`/api/me/api-tokens/${revoke.dataset.revoke}`, { method: "DELETE" }); openApiTokens(); }
+        catch (err) { errEl.textContent = err.message; }
+        return;
+      }
+      if (e.target.closest("[data-create]")) {
+        errEl.textContent = "";
+        const name = form.elements.name.value.trim();
+        if (!name) { errEl.textContent = "Donnez un nom au jeton (l'outil qui s'en sert)."; return; }
+        const days = form.elements.expires_days.value;
+        try {
+          const made = await api("/api/me/api-tokens", { method: "POST", body: {
+            name, scope: form.elements.scope.value, expires_days: days ? Number(days) : null } });
+          openApiTokens(made);
+        } catch (err) { errEl.textContent = err.message; }
+      }
+    });
+    if (!d.open) d.showModal();
+  }
+
   async function openSecurity() {
     let state, sessions;
     try {
@@ -1235,7 +1319,11 @@ const Session = (() => {
     };
     const render = u => {
       if (!u) {
-        el.innerHTML = `<button type="button" class="account-btn" data-act="login">Se connecter</button>`;
+        // visiteur : les pages publiques (icônes seules sur téléphone), puis la connexion
+        const pub = links.filter(l => l.public).map(l => `<a class="account-link" href="${l.href}" title="${esc(l.label)}">
+          ${l.icon ? icon(l.icon) : ""}<span>${esc(l.label)}</span></a>`).join("");
+        el.innerHTML = `${pub ? `<span class="account-links visitor-links">${pub}</span>` : ""}
+          <button type="button" class="account-btn" data-act="login">Se connecter</button>`;
         return;
       }
       const shown = links.filter(l => !l.show || l.show(u));
@@ -1275,6 +1363,8 @@ const Session = (() => {
           ${u.can.diver_sheet ? `<button type="button" class="account-item" data-act="diver"
             title="Niveaux, licence FFESSM, certificat médical (CACI)">${icon("wave")}<span>Ma fiche plongeur${caciBlocks(u)
             ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
+          ${u.structure && !u.is_admin && !u.preview ? `<button type="button" class="account-item" data-act="api-tokens"
+            title="Accès de vos outils (tableur, automate, site du club…) à l'API de Calendive">${icon("lock")}<span>Jetons d'API</span></button>` : ""}
           <button type="button" class="account-item" data-act="security"
             title="Double authentification, sessions ouvertes, export de vos données">${icon("lock")}<span>Sécurité et données</span></button>
           <button type="button" class="account-item" data-act="theme" title="Clair, sombre, ou comme le système de l'appareil">${icon("eye")}<span>Thème : <span data-theme-label>${THEMES[currentTheme()]}</span></span></button>
@@ -1311,6 +1401,7 @@ const Session = (() => {
       if (act === "preview") openPreview();
       if (act === "agenda") openAgenda();
       if (act === "notifications") openNotifications();
+      if (act === "api-tokens") openApiTokens();
     });
     document.addEventListener("click", e => { if (!el.contains(e.target)) closeMenu(); });
     document.addEventListener("keydown", e => {
@@ -1347,9 +1438,9 @@ const Session = (() => {
   }
 
   // Recherche proposée au compte : « tides » (étales), « heights » (hauteur d'eau) ou « both ». Réglée par structure
-  // par les super administrateurs ; un super administrateur a les deux, un visiteur la recherche par étale.
+  // par les super administrateurs ; un super administrateur et un visiteur (pages publiques) ont les deux.
   function searchModes(u) {
-    if (!u) return "tides";
+    if (!u) return "both";
     if (u.is_admin) return "both";
     return u.structure?.search_modes || "tides";
   }
@@ -1363,14 +1454,15 @@ const Session = (() => {
   // Liens d'en-tête communs aux pages
   const LINKS = {
     // "./" renvoie les membres vers leurs créneaux
-    search: { href: "index.html", label: "Recherche", icon: "search", show: u => searchModes(u) !== "heights" },
-    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", icon: "wave", show: u => searchModes(u) !== "tides" },
+    // public : montré aussi aux visiteurs (pages ouvertes sans compte)
+    search: { href: "index.html", label: "Recherche", icon: "search", public: true, show: u => searchModes(u) !== "heights" },
+    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", icon: "wave", public: true, show: u => searchModes(u) !== "tides" },
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", icon: "calendar", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", icon: "gear", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", icon: "mail", show: u => u.can.newsletters },
     divers: { href: "plongeurs.html", label: "Plongeurs", icon: "user", show: u => u.can.view_divers },
-    map: { href: "carte.html", label: "Carte", icon: "map", show: u => u.structure?.features?.map !== false },
-    help: { href: "aide.html", label: "Aide", icon: "help" },
+    map: { href: "carte.html", label: "Carte", icon: "map", public: true, show: u => u.structure?.features?.map !== false },
+    help: { href: "aide.html", label: "Aide", icon: "help", public: true },
   };
 
   // Application installable (PWA) : service worker (interface disponible hors connexion, voir sw.js) et
