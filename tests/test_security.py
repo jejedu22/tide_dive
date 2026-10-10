@@ -111,3 +111,33 @@ def test_limiteur_fenetre_glissante(monkeypatch):
     assert lim.retry_after("k", 3, 60) > 0
     t[0] += 61
     assert lim.retry_after("k", 3, 60) == 0
+
+
+def test_verifications_de_mot_de_passe_plafonnees(monkeypatch):
+    """scrypt réserve 16 Mo par calcul : le nombre de calculs simultanés est plafonné (SCRYPT_CONCURRENCY)."""
+    import hashlib
+    import threading
+    import time
+
+    from app import auth
+
+    stored = auth.hash_password("Mer-Calme-2026!x")
+    real, lock = hashlib.scrypt, threading.Lock()
+    state = {"now": 0, "max": 0}
+
+    def counted(*args, **kwargs):
+        with lock:
+            state["now"] += 1
+            state["max"] = max(state["max"], state["now"])
+        try:
+            time.sleep(0.05)
+            return real(*args, **kwargs)
+        finally:
+            with lock:
+                state["now"] -= 1
+
+    monkeypatch.setattr(hashlib, "scrypt", counted)
+    threads = [threading.Thread(target=auth.verify_password, args=("Mer-Calme-2026!x", stored)) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert 1 <= state["max"] <= 2

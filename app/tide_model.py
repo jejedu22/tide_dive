@@ -28,6 +28,7 @@ l'essentiel de l'écart restant, onde par onde.
 from __future__ import annotations
 
 import functools
+import importlib.util
 import io
 import json
 import os
@@ -56,6 +57,20 @@ WINDOW_DEG = 0.5
 EXTRAPOLATION_CUTOFF_KM = 15.0
 
 
+def _model_database() -> dict:
+    """Base des modèles de pyTMD (son fichier data/database.json), lue SANS importer pyTMD.
+
+    `pyTMD.io.load_database()` ne fait pas autre chose, mais importer pyTMD charge xarray, pandas, scipy et dask
+    (~100 Mo) : l'API (256 Mo de mémoire) le faisait à chaque ouverture de « Données et tâches » et du contrôle de
+    santé, rien que pour connaître la liste des fichiers attendus. Seul le calcul (worker) importe pyTMD.
+    ModuleNotFoundError si pyTMD n'est pas installé."""
+    spec = importlib.util.find_spec("pyTMD")
+    if spec is None or not spec.submodule_search_locations:
+        raise ModuleNotFoundError("pyTMD n'est pas installé")
+    with (pathlib.Path(spec.submodule_search_locations[0]) / "data" / "database.json").open(encoding="utf-8") as f:
+        return json.load(f)
+
+
 @functools.lru_cache(maxsize=None)
 def _definition_json(model: str) -> str:
     """
@@ -66,9 +81,7 @@ def _definition_json(model: str) -> str:
       pour FES2014 il exigerait les courants, inutiles ici.
     - N'ouvrir que 12 fichiers au lieu de 34 réduit d'autant les lectures.
     """
-    import pyTMD.io
-
-    database = pyTMD.io.load_database()
+    database = _model_database()
     try:
         entry = dict(database[model])
     except KeyError as exc:

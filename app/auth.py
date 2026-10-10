@@ -50,6 +50,7 @@ import re
 import secrets
 import sqlite3
 import sys
+import threading
 from datetime import timedelta
 from typing import Annotated, Literal
 
@@ -82,10 +83,20 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").lower() in ("1", "true", "y
 
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 
+# Chaque calcul scrypt réserve 128 × N × r = 16 Mo. Sans plafond, 8 connexions simultanées (threads de FastAPI)
+# ajoutaient 128 Mo, conservés ensuite par l'allocateur : le conteneur de l'API n'a que 256 Mo. Les calculs
+# au-delà de SCRYPT_CONCURRENCY attendent leur tour (quelques dizaines de ms chacun).
+_SCRYPT_SLOTS = threading.BoundedSemaphore(max(1, int(os.environ.get("SCRYPT_CONCURRENCY", "2"))))
+
+
+def _scrypt(password: str, salt: bytes, n: int, r: int, p: int, dklen: int) -> bytes:
+    with _SCRYPT_SLOTS:
+        return hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=dklen)
+
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    dk = hashlib.scrypt(password.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=32)
+    dk = _scrypt(password, salt, _SCRYPT_N, _SCRYPT_R, _SCRYPT_P, 32)
     b64 = lambda b: base64.b64encode(b).decode()
     return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${b64(salt)}${b64(dk)}"
 
@@ -97,10 +108,7 @@ def verify_password(password: str, stored: str) -> bool:
         if algo != "scrypt":
             return False
         expected = base64.b64decode(dk_b64)
-        dk = hashlib.scrypt(
-            password.encode(), salt=base64.b64decode(salt_b64),
-            n=int(n), r=int(r), p=int(p), dklen=len(expected),
-        )
+        dk = _scrypt(password, base64.b64decode(salt_b64), int(n), int(r), int(p), len(expected))
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(dk, expected)

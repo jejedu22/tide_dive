@@ -325,6 +325,16 @@ L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs
 - Si le worker est arrêté, un bandeau le signale dans l'administration et les tâches restent en attente.
 - Sans identifiants AVISO+, le téléchargement est refusé avec un message clair (le script de pyTMD attendrait sinon une saisie au clavier).
 - Une tâche tuée par manque de mémoire est signalée comme telle dans son journal.
+
+### Mémoire du conteneur `api` (256 Mo)
+
+Mesures du processus de l'API (uvicorn) : ~75 Mo après l'import de l'application, ~85 Mo au repos avec une base, ~90 Mo après quelques recherches et pages d'administration. Trois choses doivent rester vraies pour qu'il ne grossisse pas :
+
+- **L'API n'importe jamais pyTMD** (avec xarray, pandas, scipy et dask : +100 Mo). Elle lit seulement `database.json` de pyTMD pour la liste des fichiers du modèle (`tide_model._model_database`) ; seul le calcul (worker) importe la bibliothèque. Un test le vérifie.
+- **Vérifications de mot de passe plafonnées** : scrypt réserve 16 Mo par calcul, `SCRYPT_CONCURRENCY` (2) en limite le nombre simultané.
+- **`MALLOC_MMAP_THRESHOLD_=1048576`** (dans le `Dockerfile`) : les blocs de plus de 1 Mo sont rendus au système dès leur libération. Sans lui, glibc les garde dans chaque thread : 8 connexions simultanées laissaient le processus à plus de 200 Mo.
+
+Pour mesurer : `docker stats` (la mémoire du cache de fichiers, dont la base SQLite, y est comptée et se libère à la demande) ou `docker compose exec api sh -c 'grep VmRSS /proc/1/status'` pour le seul processus.
 - Si le worker redémarre pendant une tâche, celle-ci est marquée en échec : il suffit de la relancer.
 
 La base passe en mode WAL pour que l'API continue de répondre pendant qu'un précalcul écrit une année entière.
@@ -647,6 +657,7 @@ Sécurité : mots de passe hachés avec scrypt (bibliothèque standard), session
 |---|---|---|
 | `COOKIE_SECURE` | `0` | `1` : cookie de session envoyé uniquement en HTTPS |
 | `SESSION_DAYS` | `30` | Durée de validité d'une connexion |
+| `SCRYPT_CONCURRENCY` | `2` | Vérifications de mot de passe simultanées au plus (scrypt réserve 16 Mo chacune : au-delà, elles attendent leur tour, quelques dizaines de ms) |
 | `TOTP_SUPER_ADMINS` | `1` | Double authentification obligatoire pour les super administrateurs (`0` : facultative) |
 | `PASSWORD_MIN_LENGTH` | `12` | Longueur minimale des nouveaux mots de passe (8 au minimum) |
 
