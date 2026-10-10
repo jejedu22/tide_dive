@@ -56,4 +56,5 @@ def test_routes_publiques_dans_la_documentation(client):
     spec = client.get("/api/openapi.json").json()
     for path in ("/api/ports/{port_id}/tides", "/api/ports/{port_id}/heights", "/api/water-windows", "/api/dive-windows"):
         op = spec["paths"][path]["get"]
-        assert {} in op["security"] and op["tags"] == ["Marées et recherche"]   # identification facultative
+        assert op["security"] == [] and op["tags"] == ["Marées et recherche"]   # publique : pas de cadenas
+        assert "Accès public" in op["description"]

@@ -787,7 +787,7 @@ Sans compte (`app/tide_data.py`), pour les outils tiers et les sites des clubs :
 - **`/tides?start&end[&kind=PM|BM]`** : étales du port, 366 jours au plus : `time_utc`, `date` et `time` (heure locale du port), `kind` (PM / BM), `height_m`, `coefficient` (une BM prend celui de la PM la plus proche), `source`.
 - **`/heights?start&end[&step=10|20|30|60]`** : hauteurs d'eau (la courbe de marée), 31 jours au plus : `time_utc`, `local`, `height_m`, `source`.
 - Hauteurs en mètres au-dessus du **zéro des cartes** ; `port` rappelle nom, coordonnées, fuseau et sources utilisées. Un visiteur voit tous les horaires (mois glissant api-maree.fr, calcul FES recalé au-delà) ; un compte connecté (session ou jeton d'API), ceux de sa structure. `source` : `api` (api-maree.fr), `cal` (FES recalé), `fes` (FES brut).
-- Dans la documentation, ces routes et les recherches publiques (`/api/dive-windows`, `/api/water-windows`) ont une identification **facultative** (`openapi_extra=PUBLIC`).
+- Dans la documentation Swagger, ces routes et les recherches publiques (`/api/dive-windows`, `/api/water-windows`) sont déclarées **sans identification** (`openapi_extra=PUBLIC` : pas de cadenas, mention « Accès public », « Try it out » direct) ; un compte connecté (session ou jeton) obtient en plus les résultats de sa structure, mais le bouton Authorize de Swagger ne s'applique pas à elles.
 
 ```bash
 curl "https://<site>/api/ports/1/tides?start=2026-10-10&end=2026-10-16&kind=PM"
