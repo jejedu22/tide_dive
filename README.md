@@ -206,6 +206,8 @@ FES donne des hauteurs par rapport au **niveau moyen**. Pour obtenir des hauteur
 
 Valeurs actuellement renseignées : Binic (6,68 m), Saint-Quay-Portrieux (6,57 m), Erquy (6,62 m), Paimpol (6,25 m), Brest (4,32 m). Les autres ports du catalogue sont à `0` : **le précalcul refuse de les traiter** tant qu'une valeur n'est pas renseignée ou passée avec `--offset-zh`.
 
+Le catalogue contient les **133 sites d'api-maree.fr** (liste publique `GET https://api-maree.fr/sites`, avec identifiant, nom et coordonnées de la station) : l'onglet Ports de l'administration les propose pour pré-remplir le formulaire, y compris l'identifiant `api_maree_site` (recalage). Leurs coordonnées sont celles de la station et peuvent tomber à terre ou hors du modèle FES : les ajuster à l'eau avant le calcul. Le niveau moyen reste à renseigner (RAM du Shom).
+
 Source officielle : colonne « NM » des Références Altimétriques Maritimes (RAM) du Shom, sur [data.shom.fr](https://data.shom.fr) ou [data.gouv.fr](https://www.data.gouv.fr).
 
 ### Coefficients
