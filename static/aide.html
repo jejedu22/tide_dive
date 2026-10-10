@@ -81,6 +81,21 @@
       <p>Un compte peut appartenir à <strong>plusieurs structures</strong>, avec un rôle et des profils propres à chacune : le sélecteur de l'en-tête permet de passer de l'une à l'autre. Les <strong>super administrateurs</strong> gèrent l'application elle-même (ports, calculs des marées, structures) . Ils ne sont pas concernés par ces guides, mais le bouton <strong>Voir comme…</strong> de l'en-tête leur permet d'afficher l'application comme chacun de ces rôles (en lecture seule) pour vérifier ce qu'il voit.</p>
     </section>
 
+    <section class="panel" id="api">
+      <h2>Brancher un outil (API)</h2>
+      <p>Calendive a une <strong>API</strong> pour les outils tiers : tableur, automate (Zapier, Make, n8n…), site du
+        club, application maison. Elle est décrite, route par route, sur la page
+        <a href="api-docs.html">documentation de l'API</a>, où chaque route peut être essayée.</p>
+      <ul>
+        <li><strong>Sans compte</strong> : la liste des ports, leurs étales et hauteurs d'eau, les recherches par étale et
+          par hauteur d'eau.</li>
+        <li><strong>Avec un jeton d'API</strong> : tout ce que fait votre compte (créneaux, inscriptions, administration
+          selon votre rôle). Créez-le dans le menu du compte → <strong>Jetons d'API</strong>, un par outil, en lecture
+          seule si l'outil n'a qu'à lire ; l'outil l'envoie dans l'en-tête <code>Authorization: Bearer cdv_…</code>.
+          Un jeton ne touche jamais à votre compte lui-même (mot de passe, double authentification…).</li>
+      </ul>
+    </section>
+
     <section class="panel">
       <h2>Sur votre téléphone</h2>
       <p>Calendive s'installe sur l'écran d'accueil de votre téléphone ou de votre ordinateur et s'ouvre alors comme une application : voir <a href="aide-membre.html#installer">Installer l'application</a>.</p>

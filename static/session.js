@@ -1500,6 +1500,6 @@ const Session = (() => {
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     openDiver, caciText, qrSvg, caciBlocks, loadQr, openSecurity, openTotpSetup,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
-    openPreview, openAgenda, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
+    openPreview, openAgenda, openApiTokens, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };
 })();

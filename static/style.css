@@ -2159,3 +2159,4 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 @media (max-width: 720px) {
   :root[data-theme="dark"] .cal-chip.mine { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 3px var(--type-color); }
 }
+#tab-fiche a.btn-secondary { display: inline-block; text-decoration: none; }

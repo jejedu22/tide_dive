@@ -862,6 +862,10 @@ $("fiche-join-delete").addEventListener("click", async () => {
   }
 });
 
+// Jetons d'API du compte connecté (pas pour un super administrateur : son accès exige la double authentification)
+$("fiche-api-tokens").addEventListener("click", () => Session.openApiTokens());
+Session.onChange(u => { $("fiche-api-tokens").hidden = !u || u.is_admin; });
+
 $("fiche-join-copy").addEventListener("click", async () => {
   const url = new URL(fiche.join_url, location.origin).href;
   try {

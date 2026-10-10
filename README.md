@@ -769,6 +769,7 @@ Tant qu'aucun type n'existe, la colonne « Choix » affiche « aucun type ».
   - **pas de jeton pour un super administrateur** : son accès exige la double authentification, qu'un jeton contournerait ;
   - au plus `API_TOKEN_RATE_PER_MIN` requêtes par minute et par jeton (120 par défaut, puis 429 avec `Retry-After`) ; dernière utilisation affichée dans la liste ;
   - les modifications faites avec un jeton entrent au journal d'activité au nom du compte, avec le numéro du jeton.
+- **Liens vers la documentation** : pied de la page de recherche (« API »), page d'aide (rubrique **Brancher un outil (API)**, `aide.html#api`), administration → **Ma structure** → **API et outils tiers** (avec un accès direct aux jetons du compte), et fenêtre **Jetons d'API**.
 - Sur la page Swagger, **Authorize** accepte un jeton pour essayer les routes (« Try it out ») ; connecté à l'application dans le même navigateur, le cookie de session suffit. Le jeton collé n'est pas gardé par le navigateur.
 
 ```bash
