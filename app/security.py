@@ -150,4 +150,6 @@ def install(app: FastAPI) -> None:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         response.headers.setdefault("Content-Security-Policy", CSP)
+        if path.startswith("/api/"):
+            response.headers.setdefault("X-Robots-Tag", "noindex")   # l'API n'a rien à faire dans un moteur de recherche
         return response

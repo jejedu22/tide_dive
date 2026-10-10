@@ -314,6 +314,18 @@ API : `GET /api/dive-sites` (sites de la structure active du compte), `GET /api/
 
 Le logo de toutes les pages et les liens « Accueil » des pieds de page mènent à `./` : un adhérent revient ainsi à ses créneaux choisis, un visiteur à la présentation. Une connexion depuis la présentation envoie un adhérent à ses créneaux choisis, comme depuis la recherche. La page n'affirme que ce que fait l'application ; à tenir à jour avec les fonctions (`tests/test_home.py` vérifie ses liens et ressources).
 
+## Référencement (SEO)
+
+Tout est dans `app/seo.py` (routeur) et dans les `<head>` des pages statiques :
+
+- **`/robots.txt`** et **`/sitemap.xml`** générés ; les URL absolues (sitemap, `canonical`, Open Graph, JSON-LD) viennent de **`APP_BASE_URL`**, qui doit valoir `https://calendive.fr` en production. Dans `accueil.html`, `__BASE__` est remplacé par cette valeur au service.
+- Pages publiques : `canonical`, titre et description uniques, Open Graph / Twitter card (`static/og-image.png`), données structurées JSON-LD (WebSite, WebApplication, Place, BreadcrumbList).
+- Pages privées (admin, créneaux choisis, newsletters, plongeurs, rejoindre) : `<meta name="robots" content="noindex">`. `robots.txt` ne les interdit pas, pour que les robots lisent le noindex. Les réponses `/api/` portent `X-Robots-Tag: noindex`.
+- **Pages de marées par port**, rendues côté serveur (lisibles sans JavaScript) : `/marees` (liste des ports) et `/marees/{slug}` (horaires de la semaine, PM/BM, hauteurs, coefficients), avec ETag / 304. Un slug inconnu renvoie une 404 HTML en noindex. Ces pages sont dans le sitemap.
+- `index.html?port=<nom>` présélectionne un port (liens depuis les pages de marées).
+
+Hors code : déclarer le site dans Google Search Console et Bing Webmaster Tools, y soumettre `/sitemap.xml`, obtenir des liens depuis les sites de clubs et comités. Tests : `tests/test_seo.py`.
+
 ## Administration des données
 
 La page `/admin.html` (administrateurs) comporte plusieurs onglets ; ceux des données (Tableau de bord, Structures, Ports, Données et tâches) sont réservés aux super administrateurs.

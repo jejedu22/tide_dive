@@ -1,0 +1,43 @@
+/* Pages « Horaires de marée » (app/seo.py) : complète accueil.css (cartes des étales du jour, blocs). */
+
+body.marees main { padding-top: 1.6rem; }
+.crumbs { margin: 0 0 0.6rem; font-size: 0.85rem; color: var(--muted); }
+.crumbs a { color: var(--muted); }
+body.marees h1 { margin: 0 0 0.6rem; font-family: "Sora", -apple-system, "Segoe UI", sans-serif; font-size: clamp(1.6rem, 4vw, 2.3rem); line-height: 1.15; letter-spacing: -0.02em; color: var(--blue-deep); }
+.lead-dark { margin: 0; font-size: 1.05rem; line-height: 1.55; color: var(--text); max-width: 46rem; }
+body.marees .block h2 { font-size: 1.3rem; }
+body.marees .card h2 { font-size: 1.1rem; margin: 0 0 0.4rem; }
+body.marees .card h2 a { color: var(--blue-deep); text-decoration: none; }
+body.marees .card h2 a:hover { text-decoration: underline; }
+body.marees .today h2 { font-size: 1.15rem; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.tide-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.tide-table th, .tide-table td { padding: 0.7rem 0.9rem; text-align: left; vertical-align: top; }
+.tide-table thead th { background: var(--brand); color: #fff; font-size: 0.8rem; font-weight: 600; }
+.tide-table tbody tr + tr { border-top: 1px solid var(--line); }
+.tide-table tbody th { color: var(--blue-deep); white-space: nowrap; }
+.tide-table .muted { color: var(--muted); font-size: 0.85rem; }
+
+.cta-block { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 1.4rem 1.5rem; }
+.cta-block h2 { margin-top: 0; }
+.cta-block p { margin: 0.4rem 0 0; line-height: 1.55; max-width: 46rem; }
+.more { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1rem !important; }
+.more a { text-decoration: none; padding: 0.7rem 1.2rem; border-radius: 10px; font-weight: 700; }
+.more .btn-primary { background: var(--teal); color: var(--brand); }
+.more .btn-secondary { background: var(--surface); color: var(--blue-deep); border: 2px solid var(--teal); }
+.port-links { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 0.7rem; }
+.port-links a { display: inline-block; padding: 0.35rem 0.8rem; border: 1px solid var(--line); border-radius: 999px; color: var(--blue-deep); text-decoration: none; background: var(--surface); }
+.port-links a:hover { border-color: var(--teal); }
+.today-more { margin: 0.5rem 0 0; font-size: 0.9rem; }
+.today-more a { color: var(--blue); }
+
+@media (max-width: 640px) {
+  .tide-table thead { display: none; }
+  .tide-table, .tide-table tbody, .tide-table tr { display: block; }
+  .tide-table tbody tr { padding: 0.7rem 0.9rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 1rem; }
+  .tide-table tbody th, .tide-table tbody td { display: block; padding: 0; white-space: normal; }
+  .tide-table tbody th { grid-column: 1 / -1; font-size: 1rem; }
+  .tide-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+  .tide-table td[data-label="Coefficients"] { grid-column: 1 / -1; }
+}

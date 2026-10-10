@@ -19,13 +19,13 @@ from zoneinfo import ZoneInfo
 import sqlite3
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import account_security, admin, api_tokens, openapi_doc, tide_data, audit, communication, ops, quality, auth, dashboard, structure_home, user_bulk, structure_profile, member_prefs, logbook, push, weather, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
+from . import account_security, admin, seo, api_tokens, openapi_doc, tide_data, audit, communication, ops, quality, auth, dashboard, structure_home, user_bulk, structure_profile, member_prefs, logbook, push, weather, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -101,6 +101,8 @@ app.include_router(weather.router)
 app.include_router(account_security.router)
 app.include_router(communication.router)
 app.include_router(ops.router)
+# Référencement : robots.txt, plan du site, pages publiques à balises absolues, horaires de marée par port
+app.include_router(seo.router)
 app.include_router(quality.router)
 
 
@@ -336,14 +338,14 @@ STATIC_DIR = "static"
 
 
 @app.get("/", include_in_schema=False)
-def home(user: Annotated[sqlite3.Row | None, Depends(auth.optional_user)]):
+def home(request: Request, user: Annotated[sqlite3.Row | None, Depends(auth.optional_user)]):
     """Page d'accueil : un membre connecté arrive directement sur les créneaux choisis de sa structure ; les
     autres (visiteurs, comptes sans structure) sur la page de présentation (accueil.html). La recherche reste
     accessible à tous par /index.html."""
     if user is not None and user["structure_id"] is not None:
         # relatif : fonctionne aussi derrière un préfixe de chemin (Traefik)
         return RedirectResponse("mes-creneaux.html", status_code=307)
-    return FileResponse(f"{STATIC_DIR}/accueil.html")
+    return seo.static_page(request, "accueil.html", "/")
 
 
 # Sert le frontend statique (accueil.html, index.html, app.js, style.css)
