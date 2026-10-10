@@ -304,6 +304,16 @@ python -m app.shom_currents --sites                            # recalcule le co
 
 API : `GET /api/dive-sites` (sites de la structure active du compte), `GET /api/dive-sites/{id}/currents?start&end` (courant toutes les 15 min, 3 jours au plus), `GET /api/selections/{id}/currents` (tous les sites de la structure autour d'un créneau choisi) ; administrateurs de la structure (super administrateurs : `?structure_id=`) : `GET` / `POST /api/admin/dive-sites`, `PUT` / `DELETE /api/admin/dive-sites/{id}` ; super administrateurs : `GET /api/admin/currents`, `POST /api/admin/currents/sites`.
 
+## Page d'accueil
+
+`/` (route `home` de `app/main.py`) dépend de qui arrive :
+
+- un **adhérent connecté** (compte rattaché à une structure) est envoyé directement sur **`/mes-creneaux.html`** (les créneaux choisis de sa structure) : c'est son accueil, inchangé ;
+- **tout le monde d'autre** (visiteurs, compte sans structure, super administrateur sans structure) voit la **page de présentation** `static/accueil.html` (`accueil.css`, `accueil.js`), faite pour faire connaître Calendive : ce que fait le site, pour qui (sans compte, clubs, adhérents), comment ça marche, ce qui fonde la confiance, et deux appels à l'action (**Chercher des créneaux**, **Créer l'espace de mon club** → `demande-structure.html`). Elle montre aussi les **marées du jour** d'un port au choix, lues dans l'API publique (`/api/ports`, `/api/ports/{id}/tides`), le port choisi étant retenu dans le navigateur ;
+- la **recherche de créneaux** n'a pas changé d'adresse : `/index.html` (lien « Recherche » du menu, pour tous).
+
+Le logo de toutes les pages et les liens « Accueil » des pieds de page mènent à `./` : un adhérent revient ainsi à ses créneaux choisis, un visiteur à la présentation. Une connexion depuis la présentation envoie un adhérent à ses créneaux choisis, comme depuis la recherche. La page n'affirme que ce que fait l'application ; à tenir à jour avec les fonctions (`tests/test_home.py` vérifie ses liens et ressources).
+
 ## Administration des données
 
 La page `/admin.html` (administrateurs) comporte plusieurs onglets ; ceux des données (Tableau de bord, Structures, Ports, Données et tâches) sont réservés aux super administrateurs.
@@ -1088,7 +1098,7 @@ app/
   slots.py          description d'une étale (coefficient, RDV), partagée
   jobs.py           file de tâches et worker (+ CLI enqueue)
   calendar_fr.py    jours fériés et vacances scolaires
-static/             frontend (index.html, app.js, style.css)
+static/             frontend (accueil.html, index.html, app.js, style.css)
   admin.html/.js    administration (structures, ports, données, types de créneaux, comptes)
   mes-creneaux.*    créneaux choisis par la structure de l'utilisateur connecté
   xlsx-export.js    export Excel (.xlsx) des tableaux, généré dans le navigateur

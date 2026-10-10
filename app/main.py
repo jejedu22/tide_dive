@@ -337,14 +337,14 @@ STATIC_DIR = "static"
 
 @app.get("/", include_in_schema=False)
 def home(user: Annotated[sqlite3.Row | None, Depends(auth.optional_user)]):
-    """Page d'accueil : un membre connecté arrive directement sur les créneaux
-    choisis de sa structure ; les autres sur la recherche. La recherche reste
+    """Page d'accueil : un membre connecté arrive directement sur les créneaux choisis de sa structure ; les
+    autres (visiteurs, comptes sans structure) sur la page de présentation (accueil.html). La recherche reste
     accessible à tous par /index.html."""
     if user is not None and user["structure_id"] is not None:
         # relatif : fonctionne aussi derrière un préfixe de chemin (Traefik)
         return RedirectResponse("mes-creneaux.html", status_code=307)
-    return FileResponse(f"{STATIC_DIR}/index.html")
+    return FileResponse(f"{STATIC_DIR}/accueil.html")
 
 
-# Sert le frontend statique (index.html, app.js, style.css)
+# Sert le frontend statique (accueil.html, index.html, app.js, style.css)
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

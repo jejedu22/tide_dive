@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendive — vos plongées, au rythme des marées</title>
+<meta name="description" content="Calendive trouve les créneaux de plongée où la marée et la lumière sont au rendez-vous, et aide votre club à organiser la saison : sorties, inscriptions, rappels, courants, météo. Recherche libre, sans compte.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:site_name" content="Calendive">
+<meta property="og:title" content="Calendive — vos plongées, au rythme des marées">
+<meta property="og:description" content="Les créneaux de plongée autour des étales, et l'organisation de la saison de votre club : sorties, inscriptions, rappels, courants, météo.">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="accueil.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+</head>
+<body class="home">
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+    <!-- ============ Ouverture ============ -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <div class="hero-text">
+          <p class="eyebrow">Plongée · marées · clubs</p>
+          <h1 id="hero-title">Vos plongées, au rythme des marées.</h1>
+          <p class="lead">Calendive repère les créneaux où la marée et la lumière sont au rendez-vous, puis aide votre club à organiser la saison : on choisit les sorties, chacun s'inscrit, tout le monde est prévenu.</p>
+          <p class="cta" data-when="visitor">
+            <a class="btn-primary" href="index.html">Chercher des créneaux</a>
+            <a class="btn-ghost" href="demande-structure.html">Créer l'espace de mon club</a>
+          </p>
+          <p class="cta-sub" data-when="visitor">La recherche est libre, sans compte. <button type="button" class="link-btn" data-login>J'ai déjà un compte</button></p>
+          <p class="cta" data-when="user" hidden>
+            <a class="btn-primary" href="index.html">Chercher des créneaux</a>
+            <a class="btn-ghost" href="hauteurs.html">Recherche par hauteur d'eau</a>
+          </p>
+      </div>
+      <figure class="hero-art">
+        <svg viewBox="0 0 640 230" role="img" aria-labelledby="art-title art-desc">
+          <title id="art-title">Courbe de marée et fenêtre de plongée</title>
+          <desc id="art-desc">Une courbe de marée sur une journée : pleine mer, basse mer, pleine mer. Une bande met en évidence la fenêtre de plongée autour de la basse mer.</desc>
+          <defs>
+            <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#06d6a0" stop-opacity="0.45"/>
+              <stop offset="1" stop-color="#118ab2" stop-opacity="0.05"/>
+            </linearGradient>
+          </defs>
+          <rect class="art-window" x="280" y="14" width="80" height="190" rx="10"/>
+          <path d="M20.0 40.0 L25.0 40.1 L30.0 40.3 L35.0 40.7 L40.0 41.2 L45.0 41.9 L50.0 42.7 L55.0 43.7 L60.0 44.8 L65.0 46.0 L70.0 47.4 L75.0 48.9 L80.0 50.5 L85.0 52.3 L90.0 54.1 L95.0 56.1 L100.0 58.2 L105.0 60.4 L110.0 62.7 L115.0 65.0 L120.0 67.5 L125.0 70.0 L130.0 72.6 L135.0 75.3 L140.0 78.0 L145.0 80.8 L150.0 83.6 L155.0 86.4 L160.0 89.3 L165.0 92.1 L170.0 95.0 L175.0 97.9 L180.0 100.7 L185.0 103.6 L190.0 106.4 L195.0 109.2 L200.0 112.0 L205.0 114.7 L210.0 117.4 L215.0 120.0 L220.0 122.5 L225.0 125.0 L230.0 127.3 L235.0 129.6 L240.0 131.8 L245.0 133.9 L250.0 135.9 L255.0 137.7 L260.0 139.5 L265.0 141.1 L270.0 142.6 L275.0 144.0 L280.0 145.2 L285.0 146.3 L290.0 147.3 L295.0 148.1 L300.0 148.8 L305.0 149.3 L310.0 149.7 L315.0 149.9 L320.0 150.0 L325.0 149.9 L330.0 149.7 L335.0 149.3 L340.0 148.8 L345.0 148.1 L350.0 147.3 L355.0 146.3 L360.0 145.2 L365.0 144.0 L370.0 142.6 L375.0 141.1 L380.0 139.5 L385.0 137.7 L390.0 135.9 L395.0 133.9 L400.0 131.8 L405.0 129.6 L410.0 127.3 L415.0 125.0 L420.0 122.5 L425.0 120.0 L430.0 117.4 L435.0 114.7 L440.0 112.0 L445.0 109.2 L450.0 106.4 L455.0 103.6 L460.0 100.7 L465.0 97.9 L470.0 95.0 L475.0 92.1 L480.0 89.3 L485.0 86.4 L490.0 83.6 L495.0 80.8 L500.0 78.0 L505.0 75.3 L510.0 72.6 L515.0 70.0 L520.0 67.5 L525.0 65.0 L530.0 62.7 L535.0 60.4 L540.0 58.2 L545.0 56.1 L550.0 54.1 L555.0 52.3 L560.0 50.5 L565.0 48.9 L570.0 47.4 L575.0 46.0 L580.0 44.8 L585.0 43.7 L590.0 42.7 L595.0 41.9 L600.0 41.2 L605.0 40.7 L610.0 40.3 L615.0 40.1 L620.0 40.0 L620 200 L20 200 Z" fill="url(#sea)"/>
+          <path class="art-line" d="M20.0 40.0 L25.0 40.1 L30.0 40.3 L35.0 40.7 L40.0 41.2 L45.0 41.9 L50.0 42.7 L55.0 43.7 L60.0 44.8 L65.0 46.0 L70.0 47.4 L75.0 48.9 L80.0 50.5 L85.0 52.3 L90.0 54.1 L95.0 56.1 L100.0 58.2 L105.0 60.4 L110.0 62.7 L115.0 65.0 L120.0 67.5 L125.0 70.0 L130.0 72.6 L135.0 75.3 L140.0 78.0 L145.0 80.8 L150.0 83.6 L155.0 86.4 L160.0 89.3 L165.0 92.1 L170.0 95.0 L175.0 97.9 L180.0 100.7 L185.0 103.6 L190.0 106.4 L195.0 109.2 L200.0 112.0 L205.0 114.7 L210.0 117.4 L215.0 120.0 L220.0 122.5 L225.0 125.0 L230.0 127.3 L235.0 129.6 L240.0 131.8 L245.0 133.9 L250.0 135.9 L255.0 137.7 L260.0 139.5 L265.0 141.1 L270.0 142.6 L275.0 144.0 L280.0 145.2 L285.0 146.3 L290.0 147.3 L295.0 148.1 L300.0 148.8 L305.0 149.3 L310.0 149.7 L315.0 149.9 L320.0 150.0 L325.0 149.9 L330.0 149.7 L335.0 149.3 L340.0 148.8 L345.0 148.1 L350.0 147.3 L355.0 146.3 L360.0 145.2 L365.0 144.0 L370.0 142.6 L375.0 141.1 L380.0 139.5 L385.0 137.7 L390.0 135.9 L395.0 133.9 L400.0 131.8 L405.0 129.6 L410.0 127.3 L415.0 125.0 L420.0 122.5 L425.0 120.0 L430.0 117.4 L435.0 114.7 L440.0 112.0 L445.0 109.2 L450.0 106.4 L455.0 103.6 L460.0 100.7 L465.0 97.9 L470.0 95.0 L475.0 92.1 L480.0 89.3 L485.0 86.4 L490.0 83.6 L495.0 80.8 L500.0 78.0 L505.0 75.3 L510.0 72.6 L515.0 70.0 L520.0 67.5 L525.0 65.0 L530.0 62.7 L535.0 60.4 L540.0 58.2 L545.0 56.1 L550.0 54.1 L555.0 52.3 L560.0 50.5 L565.0 48.9 L570.0 47.4 L575.0 46.0 L580.0 44.8 L585.0 43.7 L590.0 42.7 L595.0 41.9 L600.0 41.2 L605.0 40.7 L610.0 40.3 L615.0 40.1 L620.0 40.0"/>
+          <g class="art-labels">
+            <text x="20" y="28" text-anchor="start">PM</text>
+            <text x="620" y="28" text-anchor="end">PM</text>
+            <text x="320" y="178" text-anchor="middle">BM</text>
+            <text class="art-win-label" x="320" y="228" text-anchor="middle">fenêtre de plongée</text>
+          </g>
+          <circle class="art-dot" cx="320" cy="150" r="6"/>
+        </svg>
+      </figure>
+      </div>
+    </section>
+
+  <main>
+    <!-- ============ Marées du jour (données publiques) ============ -->
+    <section class="today" id="today" aria-labelledby="today-title" hidden>
+      <div class="today-head">
+        <h2 id="today-title">Les marées d'aujourd'hui</h2>
+        <label class="visually-hidden" for="today-port">Port</label>
+        <select id="today-port"></select>
+      </div>
+      <ul class="today-list" id="today-list" aria-live="polite"></ul>
+      <p class="today-note" id="today-note"></p>
+    </section>
+
+    <!-- ============ Fonctions ============ -->
+    <section class="block" id="fonctions" aria-labelledby="fonctions-title">
+      <h2 id="fonctions-title">Tout pour caler une sortie</h2>
+
+      <div class="audience">
+        <h3><span class="tag-aud">Pour tous</span> Sans compte, tout de suite</h3>
+        <div class="cards">
+          <article class="card">
+            <h4>Créneaux autour de l'étale</h4>
+            <p>Choisissez un port et une période : Calendive propose les fenêtres de plongée autour des pleines et basses mers, selon le coefficient, la lumière du jour (crépuscule nautique ou lever et coucher civils) et votre marge de sécurité.</p>
+          </article>
+          <article class="card">
+            <h4>Recherche par hauteur d'eau</h4>
+            <p>Mettre un bateau à l'eau, passer la porte d'un bassin, atteindre un site à marée basse : trouvez les plages horaires où l'eau est à la bonne hauteur.</p>
+          </article>
+          <article class="card">
+            <h4>Carte des ports</h4>
+            <p>Les ports suivis sur une carte, avec la carte marine du Shom, la photo aérienne ou le plan, et le balisage.</p>
+          </article>
+          <article class="card">
+            <h4>Données ouvertes</h4>
+            <p>Les étales et les hauteurs d'eau de chaque port sont disponibles par une <a href="api-docs.html">API publique</a>, documentée, pour vos propres outils ou le site de votre club.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="audience cols-3">
+        <h3><span class="tag-aud tag-club">Pour les clubs</span> Organiser la saison</h3>
+        <div class="cards">
+          <article class="card">
+            <h4>Le calendrier du club</h4>
+            <p>Les administrateurs retiennent les créneaux pour toute la structure, par type de sortie. Si une étale se décale après un nouveau calcul, les créneaux suivent.</p>
+          </article>
+          <article class="card">
+            <h4>Inscriptions et places limitées</h4>
+            <p>Les adhérents s'inscrivent eux-mêmes, dans les délais du club. Au-delà du nombre de places, une file d'attente fait passer le suivant dès qu'une place se libère.</p>
+          </article>
+          <article class="card">
+            <h4>Courants aux sites de plongée</h4>
+            <p>Le courant de marée à chaque site du club, d'après l'atlas du Shom, avec l'étale de courant : de quoi choisir l'heure de mise à l'eau.</p>
+          </article>
+          <article class="card">
+            <h4>Fiches plongeurs et certificat médical</h4>
+            <p>Niveaux, licence FFESSM, date du certificat médical validée par un gestionnaire. Le club peut refuser l'inscription sans certificat valable le jour de la plongée.</p>
+          </article>
+          <article class="card">
+            <h4>Prévenir les adhérents</h4>
+            <p>Notifications quand une place se libère ou qu'un créneau change, newsletters avec votre compte Mailjet, et export Excel des créneaux.</p>
+          </article>
+          <article class="card">
+            <h4>Chacun son rôle</h4>
+            <p>Administrateur, gestionnaire, profil « inscriptions » : chacun voit ce qui le concerne. Un même compte peut appartenir à plusieurs clubs.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="audience cols-3">
+        <h3><span class="tag-aud tag-member">Pour chaque adhérent</span> Les sorties du club en poche</h3>
+        <div class="cards">
+          <article class="card">
+            <h4>Mes créneaux</h4>
+            <p>Les prochaines sorties de votre club d'un coup d'œil : heure de rendez-vous, étale, coefficient, et votre inscription.</p>
+          </article>
+          <article class="card">
+            <h4>Météo marine</h4>
+            <p>Vent, rafales et houle prévus à l'heure de l'étale, pour les sorties des sept prochains jours.</p>
+          </article>
+          <article class="card">
+            <h4>Dans votre agenda</h4>
+            <p>Abonnez le calendrier de votre téléphone (Android, iPhone) : les créneaux s'ajoutent et se mettent à jour tout seuls.</p>
+          </article>
+          <article class="card">
+            <h4>Carnet de plongées</h4>
+            <p>Vos sorties passées, avec un export à conserver.</p>
+          </article>
+          <article class="card">
+            <h4>Sur l'écran d'accueil</h4>
+            <p>Calendive s'installe comme une application, sans passer par un magasin.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Comment ça marche ============ -->
+    <section class="block steps-block" id="comment" aria-labelledby="comment-title">
+      <h2 id="comment-title">Comment ça marche</h2>
+      <ol class="steps">
+        <li>
+          <span class="step-n" aria-hidden="true">1</span>
+          <h4>Le club demande son espace</h4>
+          <p>Un formulaire de quelques lignes : nous créons la structure de votre club et le compte de son premier administrateur.</p>
+        </li>
+        <li>
+          <span class="step-n" aria-hidden="true">2</span>
+          <h4>Les administrateurs choisissent</h4>
+          <p>Depuis la recherche, un clic retient un créneau pour toute la structure. Les adhérents sont invités par e-mail, ou rejoignent le club par son lien.</p>
+        </li>
+        <li>
+          <span class="step-n" aria-hidden="true">3</span>
+          <h4>Les adhérents s'inscrivent</h4>
+          <p>Chacun choisit ses sorties, retrouve ses rendez-vous dans son agenda et est prévenu des changements.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ============ Confiance ============ -->
+    <section class="block" id="confiance" aria-labelledby="confiance-title">
+      <h2 id="confiance-title">Pensé pour la confiance</h2>
+      <div class="cards">
+        <article class="card">
+          <h4>Des horaires travaillés</h4>
+          <p>Calcul local d'un modèle de marée mondial (FES2014 et FES2022), recalé port par port sur api-maree.fr ; hauteurs au-dessus du zéro des cartes. Les horaires restent indicatifs : <strong>vérifiez-les toujours auprès du Shom avant de partir</strong>.</p>
+        </article>
+        <article class="card">
+          <h4>Vos données, chez vous</h4>
+          <p>Hébergées dans l'Union européenne, jamais revendues, sans publicité. Chacun peut télécharger toutes ses données à tout moment.</p>
+        </article>
+        <article class="card">
+          <h4>Des comptes protégés</h4>
+          <p>Double authentification, mots de passe jamais conservés en clair, sessions que l'on peut fermer à distance.</p>
+        </article>
+        <article class="card">
+          <h4>Un logiciel libre</h4>
+          <p>Calendive est publié sous licence GPL : son <a href="https://github.com/jejedu22/tide_dive" rel="noopener">code source</a> est ouvert à tous.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ Appel final ============ -->
+    <section class="final" aria-labelledby="final-title">
+      <h2 id="final-title">Prêt pour la prochaine sortie ?</h2>
+      <p>Essayez la recherche tout de suite, ou ouvrez l'espace de votre club.</p>
+      <p class="cta">
+        <a class="btn-primary" href="index.html">Chercher des créneaux</a>
+        <a class="btn-ghost" href="demande-structure.html">Créer l'espace de mon club</a>
+      </p>
+      <p class="cta-sub">Vous avez reçu une invitation ? Ouvrez le lien de votre e-mail pour choisir votre mot de passe.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="aide.html">Aide</a> · <a href="index.html">Recherche de créneaux</a> · <a href="carte.html">Carte des ports</a> · <a href="api-docs.html">API</a> · <a href="demande-structure.html">Demander la création d'une structure</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="accueil.js"></script>
+</body>
+</html>
