@@ -1,5 +1,6 @@
 // Recherche par hauteur d'eau : plages où l'eau est au-dessus (ou au-dessous) d'une hauteur du port.
-// Réservée aux structures auxquelles les super administrateurs l'ont ouverte (et aux super administrateurs).
+// Publique (visiteurs compris). Choisir une plage comme créneau : structures auxquelles les super administrateurs
+// ont ouvert cette recherche (et super administrateurs).
 
 const $ = id => document.getElementById(id);
 const esc = Session.esc;
@@ -23,7 +24,7 @@ const toISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0
 const fmtM = h => `${h.toFixed(2).replace(".", ",")} m`;
 const fmtDuration = min => (min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}` : `${min} min`);
 const pickKey = (thresholdId, startUtc) => `${thresholdId}|${startUtc}`;
-const canPick = () => !!Session.user?.can.pick;
+const canPick = () => !!Session.user?.can.pick && Session.searchModes(Session.user) !== "tides";
 
 // ---- Ports et hauteurs d'eau ----
 
@@ -389,20 +390,11 @@ function tideSourceNote(user) {
 
 Session.onChange(async user => {
   $("tide-source-note").innerHTML = tideSourceNote(user);
-  const allowed = Session.searchModes(user) !== "tides";
-  controlsEl.hidden = resultsEl.hidden = !allowed;
-  gateEl.hidden = allowed;
+  // page publique : la recherche s'affiche pour tous ; choisir une plage reste réservé (canPick)
+  controlsEl.hidden = false;
+  gateEl.hidden = true;
   prefsBar.hidden = !user;
   last = null;
-  if (!user) {
-    gateEl.innerHTML = `Connectez-vous pour chercher des plages par hauteur d'eau. <button type="button" class="btn-primary" id="gate-login">Se connecter</button>`;
-    $("gate-login").addEventListener("click", () => Session.openLogin());
-    return;
-  }
-  if (!allowed) {
-    gateEl.innerHTML = `La recherche par hauteur d'eau n'est pas proposée à votre structure. <a href="index.html">Recherche par étale</a>`;
-    return;
-  }
   resultsEl.hidden = true;
   try {
     await Promise.all([loadPorts(), loadPicks()]);
@@ -414,11 +406,11 @@ Session.onChange(async user => {
   if (!ports.length) {
     gateEl.hidden = false;
     controlsEl.hidden = true;
-    gateEl.textContent = user.is_admin
+    gateEl.textContent = user?.is_admin
       ? "Aucun port n'a de hauteur d'eau : ajoutez-en dans Administration → Ports → « Hauteurs d'eau »."
       : "Aucune hauteur d'eau n'est encore renseignée : demandez-la aux administrateurs de l'application.";
     return;
   }
-  await loadPrefs();
+  if (user) await loadPrefs();   // préférences : comptes connectés seulement
 });
 Session.init();

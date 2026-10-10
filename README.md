@@ -254,16 +254,16 @@ Le recalage est refait le 2 de chaque mois. S'il change sensiblement (correction
 
 ### Recherche par hauteur d'eau
 
-En plus de la recherche par étale, une page **`/hauteurs.html`** donne les **plages horaires où l'eau est à la bonne hauteur** : au moins X m pour mettre un bateau à l'eau ou passer une porte de bassin, au plus X m pour un site accessible à marée basse.
+En plus de la recherche par étale, une page **publique** **`/hauteurs.html`** (visiteurs compris) donne les **plages horaires où l'eau est à la bonne hauteur** : au moins X m pour mettre un bateau à l'eau ou passer une porte de bassin, au plus X m pour un site accessible à marée basse.
 
 - **Hauteurs d'eau** : saisies par les super administrateurs, port par port (`/admin.html` → **Ports** → **Hauteurs d'eau**) : libellé, hauteur au-dessus du zéro des cartes (comme l'annuaire des marées) et sens (« au moins » / « au plus »). Un port peut en avoir plusieurs.
-- **Recherche proposée** : réglée par les super administrateurs, structure par structure (`/admin.html` → **Structures**, colonne *Recherche*) : par étale (défaut), par hauteur d'eau, ou les deux. Les liens de l'en-tête suivent ; une structure réglée sur la seule hauteur d'eau arrive sur `/hauteurs.html` depuis la recherche. Un super administrateur a les deux, un visiteur la recherche par étale.
+- **Recherche proposée** : réglée par les super administrateurs, structure par structure (`/admin.html` → **Structures**, colonne *Recherche*) : par étale (défaut), par hauteur d'eau, ou les deux. Les liens de l'en-tête des membres suivent, ainsi que le droit de **choisir une plage** comme créneau ; une structure réglée sur la seule hauteur d'eau arrive sur `/hauteurs.html` depuis la recherche. La page elle-même reste ouverte à tous : un visiteur y voit tous les horaires (api-maree.fr et correction), un membre ceux de sa structure et ses indisponibilités. Un super administrateur et un visiteur ont les deux liens.
 - **Calcul** (`app/water_windows.py`) : sur la série de hauteurs au pas de 10 min, dans les horaires de la structure (sources de marée), chaque franchissement de la hauteur est interpolé entre deux points ; début arrondi à la minute supérieure, fin à la minute inférieure. Filtres : période, **lumière du jour** (il faut au moins la durée minimale de jour dans la plage ; la colonne *De jour* donne la partie de jour), **durée minimale**. Les plages qui commencent dans la période sont listées, avec leur hauteur maximale (ou minimale), les jours fériés, vacances et indisponibilités.
 - **Plage « limite »** : quand l'eau ne dépasse la hauteur que de moins de 20 cm, quelques centimètres d'erreur (niveau moyen du port, modèle) décalent beaucoup les heures : la plage est signalée.
 - **Choisir une plage** : comme une étale (type, intitulé, plusieurs créneaux sur la même plage, places, inscriptions) : c'est un **créneau de hauteur d'eau**. **RDV** : début de la plage, arrondi aux 5 minutes inférieures. La hauteur est recopiée : la modifier ou la supprimer ne touche pas les créneaux déjà choisis. Seuls le type et l'intitulé se modifient.
 - **Recalage** : quand les horaires changent (précalcul, mois glissant, changement de sources de la structure), le créneau suit sa plage (celle qui la recouvre le plus, sinon la plus proche à 1 h près) ; une plage disparue laisse le créneau tel quel.
 - Dans **Créneaux choisis**, l'export Excel et les newsletters, le créneau affiche sa hauteur d'eau et sa plage (« ≥ 7,00 m · 09:56 → 14:54 »).
-- API : `GET /api/water-thresholds`, `GET /api/water-windows?threshold_id&start&end&daylight&min_minutes`, `POST /api/selections/height` ; super administrateurs : `/api/admin/water-thresholds`, `POST /api/admin/ports/{id}/water-thresholds`.
+- API : `GET /api/water-thresholds`, `GET /api/water-windows?threshold_id&start&end&daylight&min_minutes` (publiques), `POST /api/selections/height` ; super administrateurs : `/api/admin/water-thresholds`, `POST /api/admin/ports/{id}/water-thresholds`.
 - **Mise à jour d'une base existante** (migration n° 6) : toutes les structures restent sur la recherche par étale.
 
 ### Horaires de marée par structure
@@ -777,7 +777,20 @@ curl -H "Authorization: Bearer cdv_…" "https://<site>/api/selections?upcoming=
 
 ### `GET /api/ports`
 
-Liste des ports présents en base : `id`, `name`, `latitude`, `longitude`.
+Liste des ports présents en base : `id`, `name`, `latitude`, `longitude` (publique).
+
+### Données de marée publiques : `GET /api/ports/{id}/tides` et `GET /api/ports/{id}/heights`
+
+Sans compte (`app/tide_data.py`), pour les outils tiers et les sites des clubs :
+
+- **`/tides?start&end[&kind=PM|BM]`** : étales du port, 366 jours au plus : `time_utc`, `date` et `time` (heure locale du port), `kind` (PM / BM), `height_m`, `coefficient` (une BM prend celui de la PM la plus proche), `source`.
+- **`/heights?start&end[&step=10|20|30|60]`** : hauteurs d'eau (la courbe de marée), 31 jours au plus : `time_utc`, `local`, `height_m`, `source`.
+- Hauteurs en mètres au-dessus du **zéro des cartes** ; `port` rappelle nom, coordonnées, fuseau et sources utilisées. Un visiteur voit tous les horaires (mois glissant api-maree.fr, calcul FES recalé au-delà) ; un compte connecté (session ou jeton d'API), ceux de sa structure. `source` : `api` (api-maree.fr), `cal` (FES recalé), `fes` (FES brut).
+- Dans la documentation, ces routes et les recherches publiques (`/api/dive-windows`, `/api/water-windows`) ont une identification **facultative** (`openapi_extra=PUBLIC`).
+
+```bash
+curl "https://<site>/api/ports/1/tides?start=2026-10-10&end=2026-10-16&kind=PM"
+```
 
 ### `GET /api/dive-windows`
 
@@ -1044,6 +1057,7 @@ app/
   push.py           notifications push (Web Push : VAPID, chiffrement aes128gcm)
   weather.py        météo marine indicative des créneaux (Open-Meteo, en cache)
   api_tokens.py     jetons d'API des comptes (outils tiers : Authorization: Bearer)
+  tide_data.py      données de marée publiques d'un port : étales et hauteurs d'eau
   openapi_doc.py    description OpenAPI (catégories, résumés, authentification), page Swagger
   mailjet.py        client de l'API Mailjet (clés, expéditeurs, Send API v3.1)
   mailjet_admin.py  connexion Mailjet d'une structure : saisie, test, e-mail de test, activation du suivi

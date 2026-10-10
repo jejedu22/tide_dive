@@ -1319,7 +1319,11 @@ const Session = (() => {
     };
     const render = u => {
       if (!u) {
-        el.innerHTML = `<button type="button" class="account-btn" data-act="login">Se connecter</button>`;
+        // visiteur : les pages publiques (icônes seules sur téléphone), puis la connexion
+        const pub = links.filter(l => l.public).map(l => `<a class="account-link" href="${l.href}" title="${esc(l.label)}">
+          ${l.icon ? icon(l.icon) : ""}<span>${esc(l.label)}</span></a>`).join("");
+        el.innerHTML = `${pub ? `<span class="account-links visitor-links">${pub}</span>` : ""}
+          <button type="button" class="account-btn" data-act="login">Se connecter</button>`;
         return;
       }
       const shown = links.filter(l => !l.show || l.show(u));
@@ -1434,9 +1438,9 @@ const Session = (() => {
   }
 
   // Recherche proposée au compte : « tides » (étales), « heights » (hauteur d'eau) ou « both ». Réglée par structure
-  // par les super administrateurs ; un super administrateur a les deux, un visiteur la recherche par étale.
+  // par les super administrateurs ; un super administrateur et un visiteur (pages publiques) ont les deux.
   function searchModes(u) {
-    if (!u) return "tides";
+    if (!u) return "both";
     if (u.is_admin) return "both";
     return u.structure?.search_modes || "tides";
   }
@@ -1450,14 +1454,15 @@ const Session = (() => {
   // Liens d'en-tête communs aux pages
   const LINKS = {
     // "./" renvoie les membres vers leurs créneaux
-    search: { href: "index.html", label: "Recherche", icon: "search", show: u => searchModes(u) !== "heights" },
-    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", icon: "wave", show: u => searchModes(u) !== "tides" },
+    // public : montré aussi aux visiteurs (pages ouvertes sans compte)
+    search: { href: "index.html", label: "Recherche", icon: "search", public: true, show: u => searchModes(u) !== "heights" },
+    heights: { href: "hauteurs.html", label: "Hauteurs d'eau", icon: "wave", public: true, show: u => searchModes(u) !== "tides" },
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", icon: "calendar", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", icon: "gear", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", icon: "mail", show: u => u.can.newsletters },
     divers: { href: "plongeurs.html", label: "Plongeurs", icon: "user", show: u => u.can.view_divers },
-    map: { href: "carte.html", label: "Carte", icon: "map", show: u => u.structure?.features?.map !== false },
-    help: { href: "aide.html", label: "Aide", icon: "help" },
+    map: { href: "carte.html", label: "Carte", icon: "map", public: true, show: u => u.structure?.features?.map !== false },
+    help: { href: "aide.html", label: "Aide", icon: "help", public: true },
   };
 
   // Application installable (PWA) : service worker (interface disponible hors connexion, voir sw.js) et

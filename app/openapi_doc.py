@@ -43,6 +43,12 @@ Bouton **Authorize** : collez un jeton pour essayer les routes avec « Try it ou
 curl -H "Authorization: Bearer cdv_…" https://<site>/api/selections?upcoming=true
 ```
 
+## Sans compte
+
+La liste des ports (`GET /api/ports`), leurs étales et hauteurs d'eau (`/api/ports/{port_id}/tides`,
+`/api/ports/{port_id}/heights`) et les recherches par étale et par hauteur d'eau sont publiques. Identifié,
+on y voit les horaires choisis par sa structure.
+
 ## Règles communes
 
 - Dates `AAAA-MM-JJ` et heures `HH:MM` à l'heure locale de la structure ; instants (`*_utc`, `*_at`) en ISO 8601.
@@ -53,6 +59,10 @@ curl -H "Authorization: Bearer cdv_…" https://<site>/api/selections?upcoming=t
 - Requêtes de modification depuis un navigateur : seule l'origine de l'application est acceptée
   (un outil serveur, qui n'envoie pas d'en-tête `Origin`, n'est pas concerné).
 """
+
+# Route publique qui reconnaît aussi un compte connecté (résultats propres à sa structure) : authentification
+# facultative dans la description (`@router.get(..., openapi_extra=PUBLIC)`)
+PUBLIC = {"x-public": True}
 
 # (catégorie, description, motifs de chemin) : la première qui correspond l'emporte
 TAGS: list[tuple[str, str, tuple[str, ...]]] = [
@@ -178,6 +188,8 @@ def build(app: FastAPI) -> dict:
             if isinstance(op, dict):
                 op["tags"] = [tag_for(path)]
                 used.add(op["tags"][0])
+                if op.pop("x-public", False):
+                    op["security"] = [{}, *op.get("security", [])]   # {} : sans identification
                 summary = _summary(method, path, op)
                 if summary:
                     op["summary"] = summary

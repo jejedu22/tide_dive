@@ -25,7 +25,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import account_security, admin, api_tokens, openapi_doc, audit, communication, ops, quality, auth, dashboard, structure_home, user_bulk, structure_profile, member_prefs, logbook, push, weather, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
+from . import account_security, admin, api_tokens, openapi_doc, tide_data, audit, communication, ops, quality, auth, dashboard, structure_home, user_bulk, structure_profile, member_prefs, logbook, push, weather, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -95,6 +95,8 @@ app.include_router(logbook.router)
 app.include_router(push.router)
 # Jetons d'API des comptes, pour les outils tiers (/api/me/api-tokens)
 app.include_router(api_tokens.router)
+# Données de marée publiques d'un port : étales et hauteurs d'eau (/api/ports/{id}/tides, /heights)
+app.include_router(tide_data.router)
 app.include_router(weather.router)
 app.include_router(account_security.router)
 app.include_router(communication.router)
@@ -189,7 +191,7 @@ def api_calendar_days(
 MAX_SEARCH_DAYS = 400   # un précalcul couvre une année ; au-delà, la requête ne renverrait presque rien et coûterait cher
 
 
-@app.get("/api/dive-windows")
+@app.get("/api/dive-windows", openapi_extra=openapi_doc.PUBLIC)
 def api_dive_windows(
     port_id: int,
     start: date = Query(..., description="Date de début (incluse), YYYY-MM-DD"),

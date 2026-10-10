@@ -11,7 +11,11 @@ Recherche par hauteur d'eau.
   d'eau. RDV : le début de la plage, arrondi aux 5 minutes inférieures. Recalculée avec les horaires
   (précalcul, mois glissant, changement de sources de la structure) : le créneau suit sa plage.
 
-Routes : /api/water-thresholds, /api/water-windows, /api/selections/height (membres) ;
+- La recherche est publique (page hauteurs.html, visiteurs compris) : un visiteur voit tous les horaires
+  (api-maree.fr et correction) ; un membre, ceux de sa structure et ses indisponibilités. Choisir une plage
+  reste réservé aux structures auxquelles la recherche par hauteur d'eau est proposée.
+
+Routes : /api/water-thresholds, /api/water-windows (publiques) ; /api/selections/height (membres) ;
 /api/admin/water-thresholds (super administrateurs).
 """
 
@@ -22,15 +26,17 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db
-from .auth import CurrentPicker, CurrentSuperAdmin, CurrentUser
+from . import auth, calendar_fr, db
+from .openapi_doc import PUBLIC
+from .auth import CurrentPicker, CurrentSuperAdmin
 from .unavailability import blocking, ensure_available
 from .water_windows import TIGHT_MARGIN_M, _ceil_minute, daylight_minutes, describe, find_windows
 
 router = APIRouter(prefix="/api")
+OptionalUser = Annotated[sqlite3.Row | None, Depends(auth.optional_user)]
 
 MAX_DAYS = 400                     # comme la recherche par étale
 MARGIN = timedelta(hours=12)       # plages qui débordent de la période : on calcule large autour
@@ -123,9 +129,8 @@ def admin_delete_threshold(threshold_id: int, admin: CurrentSuperAdmin):
 # ---------------------------------------------------------------------------
 
 @router.get("/water-thresholds")
-def list_thresholds(user: CurrentUser):
-    """Ports dotés de hauteurs d'eau et de marées calculées, avec leurs hauteurs."""
-    _require_heights(user)
+def list_thresholds():
+    """Ports dotés de hauteurs d'eau et de marées calculées, avec leurs hauteurs (public)."""
     with_data = {p["id"] for p in db.list_ports(with_data_only=True)}
     ports: dict[int, dict] = {}
     for r in db.list_thresholds():
@@ -152,18 +157,17 @@ def _day_bounds(port_id: int, first: date, last: date, daylight: str) -> dict:
             for r in db.get_sun_times_range(port_id, first.isoformat(), last.isoformat())}
 
 
-@router.get("/water-windows")
+@router.get("/water-windows", openapi_extra=PUBLIC)
 def search_windows(
-    user: CurrentUser,
     threshold_id: int,
     start: date = Query(..., description="Premier jour (inclus), YYYY-MM-DD"),
     end: date = Query(..., description="Dernier jour (inclus), YYYY-MM-DD"),
     daylight: Annotated[str, Query(pattern="^(civil|nautical|none)$")] = "none",
     min_minutes: Annotated[int, Query(ge=0, le=720)] = 0,
+    user: OptionalUser = None,
 ):
-    """Plages de la hauteur d'eau qui COMMENCENT dans la période. Lumière du jour : il faut au moins
+    """Plages de la hauteur d'eau qui COMMENCENT dans la période (public). Lumière du jour : il faut au moins
     min_minutes de la plage de jour ; sinon, min_minutes de plage tout court."""
-    _require_heights(user)
     threshold = _threshold_or_404(threshold_id)
     if end < start:
         raise HTTPException(422, "La date de fin précède la date de début")
@@ -173,7 +177,7 @@ def search_windows(
     tz = ZoneInfo(port["timezone"])
     start_utc = datetime.combine(start, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(timezone.utc)
-    sid = user["structure_id"]
+    sid = user["structure_id"] if user is not None else None   # visiteur : tous les horaires, aucune indisponibilité
     sources = db.get_structure_sources(sid)
     bounds = _day_bounds(port["id"], start - timedelta(days=1), end + timedelta(days=2), daylight)
     sun = {r["date"]: r for r in db.get_sun_times_range(port["id"], start.isoformat(), end.isoformat())}
