@@ -1824,6 +1824,17 @@ section[id] { scroll-margin-top: 1rem; }
   .preview-banner { padding: 0.6rem 1rem; }
 }
 
+/* Mode super administrateur : bouton de l'en-tête et bandeau d'alerte */
+.super-banner { background: #ffd9d2; color: #6b1a0d; }
+.super-toggle {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font: inherit; font-size: 0.85rem; padding: 0.25rem 0.6rem; cursor: pointer;
+  border: 1px dashed rgba(255, 255, 255, 0.6); border-radius: 999px; background: transparent; color: white;
+}
+.super-toggle:hover { background: rgba(255, 255, 255, 0.15); }
+.super-toggle.on { background: #c0392b; border: 1px solid #c0392b; font-weight: 700; }
+:root[data-theme="dark"] .super-banner { background: #5a1f17; color: #ffd9d2; }
+
 /* --- Ajouter à mon agenda (créneaux choisis) ------------------------- */
 .calendar-dialog { width: min(32rem, calc(100vw - 2rem)); }
 .calendar-dialog fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.75rem 0.25rem; margin: 0 0 0.75rem; }

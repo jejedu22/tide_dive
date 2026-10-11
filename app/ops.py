@@ -280,7 +280,7 @@ def install(app: FastAPI) -> None:
                 from .auth import COOKIE_NAME, optional_user
                 token = request.cookies.get(COOKIE_NAME)
                 user = optional_user(token) if token else None
-                if user is None or not user["is_admin"]:
+                if user is None or not (user["is_admin"] or user["is_super_account"]):
                     return JSONResponse({"detail": state["message"]}, status_code=503, headers={"Retry-After": "600"})
         return await call_next(request)
 

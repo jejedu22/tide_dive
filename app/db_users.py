@@ -15,7 +15,7 @@ from .db_core import fetch_all, get_conn
 # Utilisateurs, sessions et préférences
 # ---------------------------------------------------------------------------
 
-def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
+def _user_query(ctx: str, *, joins: str = "", where: str = "", admin: str = "u.is_admin") -> str:
     """
     Requête d'un compte vu DANS une structure : `ctx` est l'expression SQL (sur u, et s si `joins` joint les
     sessions, ou le paramètre nommé :ctx) de la structure considérée. Un compte appartient à plusieurs
@@ -23,11 +23,13 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
     Si le compte n'y a pas accès (ni membre, ni super administrateur), la structure vaut NULL : il est
     vu comme sans structure plutôt que de disparaître. Un super administrateur agit dans n'importe
     quelle structure, en administration (rôle « manager » faute d'appartenance).
+    `admin` : expression SQL des droits de super administrateur EXERCÉS (is_admin) ; ceux du compte restent dans
+    is_super_account. Une session sans mode super administrateur voit donc le compte comme un simple membre.
     """
     return f"""
-    SELECT u.id, u.username, u.is_admin, st.id AS structure_id,
+    SELECT u.id, u.username, ({admin}) AS is_admin, u.is_admin AS is_super_account, st.id AS structure_id,
            CASE WHEN st.id IS NULL THEN NULL
-                WHEN u.is_admin THEN COALESCE(m.role, 'manager')
+                WHEN ({admin}) THEN COALESCE(m.role, 'manager')
                 ELSE m.role END AS structure_role,
            u.created_at, u.last_login_at, st.name AS structure_name,
            st.rdv_offset_minutes AS structure_rdv_offset_minutes,
@@ -51,7 +53,7 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "") -> str:
            (SELECT COUNT(*) FROM memberships mm WHERE mm.user_id = u.id) AS structures_count
     FROM users u {joins}
     LEFT JOIN memberships m ON m.user_id = u.id AND m.structure_id = {ctx}
-    LEFT JOIN structures st ON st.id = {ctx} AND (u.is_admin OR m.user_id IS NOT NULL)
+    LEFT JOIN structures st ON st.id = {ctx} AND (({admin}) OR m.user_id IS NOT NULL)
     {where}
     """
 
@@ -224,6 +226,7 @@ def get_session_user(token_hash: str, now: str) -> sqlite3.Row | dict | None:
             _user_query(
                 "COALESCE(s.structure_id, u.structure_id)", joins="JOIN sessions s ON s.user_id = u.id",
                 where="WHERE s.token_hash = ? AND s.expires_at > ?",
+                admin="u.is_admin AND s.super_mode = 1",     # droits de super administrateur : mode activé
             ),
             (token_hash, now),
         ).fetchone()
@@ -268,6 +271,30 @@ def set_session_preview(token_hash: str, user_id: int, role: str | None, profile
         stored_profiles = ",".join(profiles or []) if role else ""
         conn.execute("UPDATE sessions SET preview_role = ?, preview_profiles = ? WHERE token_hash = ? AND user_id = ?",
                      (role, stored_profiles or None, token_hash, user_id))
+
+
+def set_super_mode(token_hash: str, user_id: int, enabled: bool) -> None:
+    """Active ou quitte le mode super administrateur de CETTE session. En le quittant, l'aperçu s'arrête et, si la
+    structure active n'est pas une de celles du compte, la session passe à sa première structure (ou à aucune)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE sessions SET super_mode = ? WHERE token_hash = ? AND user_id = ?",
+                     (int(enabled), token_hash, user_id))
+        if enabled:
+            return
+        conn.execute("UPDATE sessions SET preview_role = NULL, preview_profiles = NULL WHERE token_hash = ?",
+                     (token_hash,))
+        active = conn.execute(
+            "SELECT COALESCE(s.structure_id, u.structure_id) AS sid FROM sessions s JOIN users u ON u.id = s.user_id "
+            "WHERE s.token_hash = ?", (token_hash,)).fetchone()
+        if active is None:
+            return
+        member = active["sid"] is not None and conn.execute(
+            "SELECT 1 FROM memberships WHERE user_id = ? AND structure_id = ?", (user_id, active["sid"])).fetchone()
+        if not member:
+            first = conn.execute("SELECT structure_id FROM memberships WHERE user_id = ? "
+                                 "ORDER BY created_at, structure_id LIMIT 1", (user_id,)).fetchone()
+            conn.execute("UPDATE sessions SET structure_id = ? WHERE token_hash = ?",
+                         (first["structure_id"] if first else None, token_hash))
 
 
 def delete_session(token_hash: str) -> None:

@@ -523,6 +523,12 @@ def _m024_offset_estimated(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ports ADD COLUMN offset_estimated INTEGER NOT NULL DEFAULT 0")
 
 
+def _m025_super_mode(conn: sqlite3.Connection) -> None:
+    """Mode super administrateur par session : désactivé à la connexion, le compte agit comme un simple membre."""
+    if "super_mode" not in _columns(conn, "sessions"):
+        conn.execute("ALTER TABLE sessions ADD COLUMN super_mode INTEGER NOT NULL DEFAULT 0")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -548,6 +554,7 @@ MIGRATIONS: list[Migration] = [
     Migration(22, "calcul FES avec les ondes de petits fonds (M4, MS4, MN4)", _m022_shallow_water_constituents),
     Migration(23, "jetons d'API des comptes (outils tiers)", _m023_api_tokens),
     Migration(24, "ports : niveau moyen estimé depuis api-maree.fr", _m024_offset_estimated),
+    Migration(25, "sessions : mode super administrateur activé à la demande", _m025_super_mode),
 ]
 
 
