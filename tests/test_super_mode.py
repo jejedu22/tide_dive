@@ -94,3 +94,31 @@ def test_pas_de_jeton_d_api_pour_un_compte_de_super_administrateur(setup, new_cl
     c = new_client()
     login(c, "sam", super_mode=False)
     assert c.get("/api/me/api-tokens").status_code == 403
+
+
+def test_hors_mode_le_compte_retrouve_sa_structure_meme_apres_un_passage_ailleurs(setup, new_client):
+    """Un super administrateur de passage dans une autre structure (dernière utilisée) se reconnecte, sans le
+    mode, dans sa structure de membre, avec son rôle : il ne perd pas ses droits de membre."""
+    one = new_client()
+    login(one, "sam")
+    one.put("/api/me/structure", json={"structure_id": setup["b"]})          # de passage dans B (défaut du compte)
+    two = new_client()
+    u = login(two, "sam", super_mode=False)
+    assert u["structure"]["id"] == setup["a"] and u["role"] == "viewer"
+
+
+def test_menus_de_super_administration_separes_de_ceux_de_la_structure():
+    """admin.html : les onglets réservés au super administrateur (SUPER_TABS d'admin.js) sont tous, et seuls, dans
+    le groupe « Super administration »."""
+    import re
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "static"
+    html = (static / "admin.html").read_text(encoding="utf-8")
+    js = (static / "admin.js").read_text(encoding="utf-8")
+    declared = re.search(r"const SUPER_TABS = \[(.*?)\]", js).group(1)
+    super_tabs = set(re.findall(r'"(\w+)"', declared))
+    group = re.search(r'<div class="tab-group tab-group-super" data-super>(.*?)</div>\s*</div>', html, re.S).group(1)
+    assert set(re.findall(r'data-tab="(\w+)"', group)) == super_tabs
+    rest = html.replace(group, "")
+    assert not super_tabs & set(re.findall(r'role="tab" data-tab="(\w+)"', rest))
