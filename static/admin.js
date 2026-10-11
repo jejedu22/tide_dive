@@ -107,7 +107,7 @@ function showTab(name) {
   if (name === "mailjet") loadMailjet();
 }
 
-document.querySelector(".tabs").addEventListener("click", e => {
+document.querySelector(".tab-groups").addEventListener("click", e => {
   const btn = e.target.closest("[role=tab]");
   if (btn) showTab(btn.dataset.tab);
 });

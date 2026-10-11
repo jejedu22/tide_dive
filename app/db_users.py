@@ -219,12 +219,25 @@ def create_session(token_hash: str, user_id: int, expires_at: str, now: str) -> 
         conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user_id))
 
 
+# Structure vue par une session : la structure ACTIVE (changée par le sélecteur), à défaut la structure par défaut
+# du compte. Un compte qui n'exerce pas les droits de super administrateur (membre ordinaire, ou super
+# administrateur hors mode) n'agit que dans SES structures : si celle-là n'en est pas une (un super administrateur
+# de passage ailleurs), il retrouve sa première structure plutôt que de perdre ses droits de membre.
+_SESSION_STRUCTURE = """CASE WHEN u.is_admin AND s.super_mode = 1 THEN COALESCE(s.structure_id, u.structure_id)
+    ELSE COALESCE(
+        (SELECT mm.structure_id FROM memberships mm
+          WHERE mm.user_id = u.id AND mm.structure_id = COALESCE(s.structure_id, u.structure_id)),
+        (SELECT mm.structure_id FROM memberships mm WHERE mm.user_id = u.id
+          ORDER BY mm.created_at, mm.structure_id LIMIT 1),
+        COALESCE(s.structure_id, u.structure_id)) END"""
+
+
 def get_session_user(token_hash: str, now: str) -> sqlite3.Row | dict | None:
     with get_conn() as conn:
         # structure ACTIVE de cette session (changée par le sélecteur), à défaut la structure par défaut du compte
         row = conn.execute(
             _user_query(
-                "COALESCE(s.structure_id, u.structure_id)", joins="JOIN sessions s ON s.user_id = u.id",
+                _SESSION_STRUCTURE, joins="JOIN sessions s ON s.user_id = u.id",
                 where="WHERE s.token_hash = ? AND s.expires_at > ?",
                 admin="u.is_admin AND s.super_mode = 1",     # droits de super administrateur : mode activé
             ),

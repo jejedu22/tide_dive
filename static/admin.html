@@ -36,21 +36,32 @@
       <p id="worker-banner" class="banner" role="alert" hidden></p>
       <div id="health-banner" class="banner" role="alert" hidden></div>
 
-      <!-- data-super : réservé au super administrateur (masqué pour un administrateur de structure) -->
-      <div class="tabs" role="tablist" aria-label="Sections">
-        <button type="button" role="tab" data-tab="dashboard" data-super aria-selected="false">Tableau de bord</button>
-        <button type="button" role="tab" data-tab="activite" aria-selected="false">Activité</button>
-        <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
-        <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
-        <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
-        <button type="button" role="tab" data-tab="communication" data-super aria-selected="false">Communication</button>
-        <button type="button" role="tab" data-tab="exploitation" data-super aria-selected="false">Exploitation</button>
-        <button type="button" role="tab" data-tab="fiche" aria-selected="false">Ma structure</button>
-        <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
-        <button type="button" role="tab" data-tab="sites" aria-selected="false">Sites de plongée</button>
-        <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
-        <button type="button" role="tab" data-tab="mailjet" aria-selected="false">Mailjet</button>
-        <button type="button" role="tab" data-tab="journal" aria-selected="false">Journal</button>
+      <!-- data-super : réservé au super administrateur (masqué sans le mode super administrateur) ; ses menus sont
+           séparés de ceux de l'administration d'une structure -->
+      <div class="tab-groups">
+        <div class="tab-group tab-group-super" data-super>
+          <p class="tab-group-label">Super administration <span>toute la plateforme</span></p>
+          <div class="tabs" role="tablist" aria-label="Super administration">
+            <button type="button" role="tab" data-tab="dashboard" data-super aria-selected="false">Tableau de bord</button>
+            <button type="button" role="tab" data-tab="structures" data-super aria-selected="false">Structures</button>
+            <button type="button" role="tab" data-tab="ports" data-super aria-selected="false">Ports</button>
+            <button type="button" role="tab" data-tab="donnees" data-super aria-selected="false">Données et tâches <span id="active-count" class="count" hidden></span></button>
+            <button type="button" role="tab" data-tab="communication" data-super aria-selected="false">Communication</button>
+            <button type="button" role="tab" data-tab="exploitation" data-super aria-selected="false">Exploitation</button>
+          </div>
+        </div>
+        <div class="tab-group">
+          <p class="tab-group-label" data-super>Administration d'une structure <span>celle de votre choix</span></p>
+          <div class="tabs" role="tablist" aria-label="Administration de la structure">
+            <button type="button" role="tab" data-tab="activite" aria-selected="false">Activité</button>
+            <button type="button" role="tab" data-tab="fiche" aria-selected="false">Ma structure</button>
+            <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
+            <button type="button" role="tab" data-tab="sites" aria-selected="false">Sites de plongée</button>
+            <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
+            <button type="button" role="tab" data-tab="mailjet" aria-selected="false">Mailjet</button>
+            <button type="button" role="tab" data-tab="journal" aria-selected="false">Journal</button>
+          </div>
+        </div>
       </div>
       <p id="flash" class="flash" role="status"></p>
 
