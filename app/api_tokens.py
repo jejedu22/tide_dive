@@ -57,7 +57,7 @@ def _out(r) -> dict:
 
 
 def _forbid_super_admin(user) -> None:
-    if user["is_admin"]:
+    if user["is_admin"] or user["is_super_account"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Pas de jeton d'API pour un super administrateur : "
                                                        "son accès exige la double authentification")
 

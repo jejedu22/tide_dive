@@ -92,6 +92,8 @@ def test_endpoint_admin_et_healthz(client, make_user):
     assert client.get("/healthz").json() == {"status": "ok"}
     make_user("root", is_admin=True)
     client.post("/api/auth/login", json={"username": "root", "password": PASSWORD})
+    assert client.get("/api/admin/health").status_code == 403           # connecté sans le mode super administrateur
+    client.put("/api/me/super-mode", json={"enabled": True})
     body = client.get("/api/admin/health").json()
     assert set(body) == {"ok", "errors", "warnings", "problems"}
 

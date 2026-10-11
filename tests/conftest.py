@@ -87,10 +87,17 @@ def new_client(tmp_db):
         c.__exit__(None, None, None)
 
 
-def login(client, username):
+def login(client, username, super_mode=True):
+    """Connecte le compte. Un super administrateur se connecte sans ses droits (mode désactivé, comme un membre) :
+    `super_mode` (par défaut) active le mode pour que les tests exercent ces droits ; False : état à la connexion."""
     r = client.post("/api/auth/login", json={"username": username, "password": PASSWORD})
     assert r.status_code == 200, r.text
-    return r.json()["user"]
+    user = r.json()["user"]
+    if super_mode and user.get("super_account"):
+        r = client.put("/api/me/super-mode", json={"enabled": True})
+        assert r.status_code == 200, r.text
+        user = r.json()["user"]
+    return user
 
 
 @pytest.fixture()

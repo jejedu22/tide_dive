@@ -76,6 +76,8 @@ def test_super_administrateur_bascule_partout_et_peut_n_en_avoir_aucune(tmp_db, 
     a, b = clubs
     uid = make_user("root", is_admin=True)
     db.create_session("s", uid, "2099-01-01T00:00:00+00:00", NOW)
+    assert db.set_active_structure("s", uid, b) is False             # sans le mode super administrateur : comme un membre
+    db.set_super_mode("s", uid, True)
     assert db.set_active_structure("s", uid, b)
     u = db.get_session_user("s", NOW)
     assert (u["structure_id"], u["structure_role"]) == (b, "manager")

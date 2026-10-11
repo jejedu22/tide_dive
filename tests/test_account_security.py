@@ -24,9 +24,9 @@ def setup(make_structure, make_user, new_client):
     return {"a": a, "b": b, "root": root, "bob": bob, "vic": vic, "eve": eve}
 
 
-def _client(new_client, username):
+def _client(new_client, username, **kw):
     c = new_client()
-    login(c, username)
+    login(c, username, **kw)
     return c
 
 
@@ -105,13 +105,16 @@ def test_jeton_bloque_apres_cinq_essais(setup, new_client):
 
 def test_obligatoire_pour_les_super_administrateurs(setup, new_client, monkeypatch):
     monkeypatch.setattr(accounts, "TOTP_REQUIRED_FOR_SUPER_ADMINS", True)
-    root = _client(new_client, "root")
+    root = _client(new_client, "root", super_mode=False)
     assert root.get("/api/auth/me").json()["user"]["totp_setup_required"] is True
     r = root.get("/api/admin/dashboard")
     assert r.status_code == 403 and r.headers["X-Totp-Setup-Required"] == "1"
+    assert root.put("/api/me/super-mode", json={"enabled": True}).status_code == 403   # 2FA d'abord
     assert root.get("/api/me/totp").json() == {"enabled": False, "enabled_at": None, "recovery_left": 0,
                                                  "required": True}
     _enable_totp(root)
+    assert root.get("/api/admin/dashboard").status_code == 403           # connecté sans le mode super administrateur
+    assert root.put("/api/me/super-mode", json={"enabled": True}).status_code == 200
     assert root.get("/api/admin/dashboard").status_code == 200
     # facultative pour les autres
     bob = _client(new_client, "bob")

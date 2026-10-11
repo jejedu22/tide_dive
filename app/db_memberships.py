@@ -125,7 +125,10 @@ def set_active_structure(token_hash: str, user_id: int, structure_id: int | None
     prochaines). Refusé (False) si le compte n'y a pas accès : ni membre, ni super administrateur.
     structure_id None : aucune structure (super administrateur seulement)."""
     with get_conn() as conn:
-        user = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+        # « super administrateur » : seulement session en mode super administrateur (sinon, comme un membre)
+        user = conn.execute("SELECT u.is_admin AND s.super_mode = 1 AS is_admin FROM sessions s "
+                            "JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND u.id = ?",
+                            (token_hash, user_id)).fetchone()
         if user is None:
             return False
         if structure_id is None:

@@ -155,8 +155,9 @@ TOTP_REQUIRED_FOR_SUPER_ADMINS = os.environ.get("TOTP_SUPER_ADMINS", "1").lower(
 
 
 def totp_setup_required(row: sqlite3.Row | dict) -> bool:
-    """Super administrateur sans double authentification alors qu'elle est obligatoire."""
-    return bool(TOTP_REQUIRED_FOR_SUPER_ADMINS and row["is_admin"] and not row["totp_enabled"])
+    """Compte de super administrateur (mode activé ou non) sans double authentification alors qu'elle est obligatoire."""
+    is_super = row["is_super_account"] if "is_super_account" in row.keys() else row["is_admin"]
+    return bool(TOTP_REQUIRED_FOR_SUPER_ADMINS and is_super and not row["totp_enabled"])
 
 
 # Fonctions activables par structure (réglage des super administrateurs : structures.disabled_features). La
@@ -250,7 +251,9 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
         "diver": diver.diver_out(row),
         # CACI vu aujourd'hui, avec la durée de validité de la structure active
         "caci": diver.caci_state(row, date.today(), row["structure_caci_validity_months"]),
-        "is_admin": bool(row["is_admin"]),
+        "is_admin": bool(row["is_admin"]),       # droits de super administrateur EXERCÉS (mode activé)
+        # compte de super administrateur : peut activer le mode (is_admin) ; sinon il agit comme un simple membre
+        "super_account": bool(row["is_super_account"]) if "is_super_account" in row.keys() else bool(row["is_admin"]),
         "structure": (
             {"id": row["structure_id"], "name": row["structure_name"],
              "rdv_offset_minutes": row["structure_rdv_offset_minutes"],

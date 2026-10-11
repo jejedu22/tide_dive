@@ -45,13 +45,14 @@ def test_modifications_journalisees_avec_l_objet_concerne(setup, new_client):
     # administrateur de structure : sa structure seulement ; super administrateur : tout, ou filtré
     assert bob.get(f"/api/admin/audit?structure_id={setup['b']}").status_code == 403
     root = _client(new_client, "root")
-    assert len(root.get("/api/admin/audit").json()) == 5
+    full = root.get("/api/admin/audit").json()
+    assert len(full) == 6 and full[0]["action"] == "Mode super administrateur activé ou quitté"   # activation journalisée
     assert [e["target"] for e in root.get(f"/api/admin/audit?structure_id={setup['b']}").json()] == ["Pointe"]
     assert [e["action"] for e in root.get("/api/admin/audit?q=supprim").json()] == ["Site de plongée supprimé"]
     # pagination
     first = root.get("/api/admin/audit?limit=2").json()
     rest = root.get(f"/api/admin/audit?before_id={first[-1]['id']}").json()
-    assert len(first) == 2 and len(rest) == 3
+    assert len(first) == 2 and len(rest) == 4
     # un membre n'y a pas accès
     assert _client(new_client, "zoe").get("/api/admin/audit").status_code == 403
 
@@ -94,4 +95,4 @@ def test_tableau_de_bord(setup, new_client):
     assert "health" not in data          # chargée à part, pour un affichage immédiat
     health = _client(new_client, "root").get("/api/admin/health").json()
     assert set(health) >= {"ok", "errors", "warnings", "problems"}
-    assert data["recent"][0]["action"] == "Site de plongée ajouté"
+    assert "Site de plongée ajouté" in [e["action"] for e in data["recent"]]

@@ -218,7 +218,7 @@ totp_setup_required = accounts.totp_setup_required
 
 
 # Aperçu d'un super administrateur : lecture seule, sauf pour changer ou quitter l'aperçu et se déconnecter
-_ALLOWED_IN_PREVIEW = {"/api/me/preview", "/api/auth/logout"}
+_ALLOWED_IN_PREVIEW = {"/api/me/preview", "/api/me/super-mode", "/api/auth/logout"}
 _READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -539,6 +539,11 @@ def open_session(response: Response, user_id: int) -> str:
     return token
 
 
+def session_user(token: str) -> sqlite3.Row | dict | None:
+    """Le compte tel que la session `token` le voit (mode super administrateur désactivé à l'ouverture)."""
+    return db.get_session_user(_token_hash(token), _iso(_now()))
+
+
 def _valid_temp_hash(row: sqlite3.Row) -> str | None:
     """Hash du mot de passe provisoire en cours (mot de passe oublié), s'il n'a pas expiré."""
     if not row["temp_password_hash"] or not row["temp_password_expires_at"]:
@@ -582,8 +587,8 @@ def login(creds: Credentials, response: Response, request: Request):
         now = _now()
         db.create_login_challenge(_token_hash(challenge), row["id"], _iso(now + LOGIN_CHALLENGE_TTL), _iso(now))
         return {"user": None, "totp_required": True, "challenge": challenge}
-    open_session(response, row["id"])
-    return {"user": _public_user(db.get_user(row["id"]), with_structures=True)}
+    token = open_session(response, row["id"])
+    return {"user": _public_user(session_user(token), with_structures=True)}
 
 
 class TotpLogin(BaseModel):
@@ -621,8 +626,8 @@ def login_totp(body: TotpLogin, response: Response, request: Request):
     user = db.get_user_credentials_by_id(ch["user_id"])
     if user is None or user["suspended_at"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Ce compte est suspendu : contactez l'administrateur du site.")
-    open_session(response, ch["user_id"])
-    return {"user": _public_user(db.get_user(ch["user_id"]), with_structures=True)}
+    token = open_session(response, ch["user_id"])
+    return {"user": _public_user(session_user(token), with_structures=True)}
 
 
 @router.post("/auth/logout", status_code=204)
@@ -708,6 +713,28 @@ def switch_own_structure(body: StructureSwitch, user: CurrentUser, session: Sess
     return {"user": _public_user(db.get_user(user["id"], body.structure_id), with_structures=True)}
 
 
+class SuperModeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+@router.put("/me/super-mode")
+def set_super_mode(body: SuperModeBody, user: CurrentUser, session: SessionCookie = None):
+    """Active ou quitte le mode super administrateur de CETTE session. Sans lui (état à la connexion), un super
+    administrateur voit les mêmes écrans, avec les mêmes droits, qu'un membre de sa structure (son rôle), pour
+    éviter les fausses manœuvres : les droits de super administrateur (structures, ports, comptes…) ne
+    s'exercent qu'une fois le mode activé. L'activation exige la double authentification quand elle est obligatoire."""
+    _real_super_admin(user, session)
+    real = db.get_user(user["id"])
+    if body.enabled and accounts.totp_setup_required(real):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Activez d'abord la double authentification (Mon compte), obligatoire pour les super administrateurs",
+        )
+    db.set_super_mode(_token_hash(session), user["id"], body.enabled)
+    return {"user": _public_user(db.get_session_user(_token_hash(session), _iso(_now())), with_structures=True)}
+
+
 class PreviewStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     role: Literal["manager", "viewer", "none"]
@@ -733,6 +760,8 @@ def start_preview(body: PreviewStart, user: CurrentUser, session: SessionCookie 
     visualisation (avec ou sans profils) ou un compte sans structure. Propre à CETTE session, en lecture seule :
     l'API applique les droits du rôle choisi et refuse toute modification jusqu'à la fin de l'aperçu."""
     _real_super_admin(user, session)
+    if not user["is_admin"] and not in_preview(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Activez d'abord le mode super administrateur")
     structure_id = None
     if body.role != "none":
         structure_id = body.structure_id if body.structure_id is not None else user["structure_id"]

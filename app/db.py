@@ -172,6 +172,7 @@ from .db_users import (  # noqa: F401
     _STRUCTURE_FIELDS,
     _previewed,
     set_session_preview,
+    set_super_mode,
     delete_session,
     delete_other_sessions,
     create_user_token,

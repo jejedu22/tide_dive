@@ -41,7 +41,7 @@ from pydantic import BaseModel, Field
 
 from . import accounts, db, mailer, security
 from .accounts import display_name, iso, now, public_user, token_hash
-from .auth import CurrentManager, check_new_password, hash_password, open_session, require_mail, target_or_404
+from .auth import CurrentManager, check_new_password, hash_password, open_session, require_mail, session_user, target_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -124,8 +124,8 @@ def reset_password(body: ResetIn, response: Response, request: Request):
     db.update_user(
         user["id"], password_hash=hash_password(body.new_password), must_change_password=False, now=iso(now()),
     )
-    open_session(response, user["id"])
-    return {"user": public_user(db.get_user(user["id"]), with_structures=True), "purpose": tok["purpose"]}
+    token = open_session(response, user["id"])
+    return {"user": public_user(session_user(token), with_structures=True), "purpose": tok["purpose"]}
 
 
 @router.post("/admin/users/{user_id}/send-link")

@@ -367,7 +367,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     structure_id INTEGER REFERENCES structures(id) ON DELETE SET NULL,
     -- aperçu d'un super administrateur (voir l'application avec un autre rôle) ; NULL : pas d'aperçu
     preview_role TEXT CHECK (preview_role IN ('manager', 'viewer', 'none')),
-    preview_profiles TEXT           -- profils de l'aperçu, séparés par des virgules
+    preview_profiles TEXT,          -- profils de l'aperçu, séparés par des virgules
+    -- mode super administrateur de cette session : 0 (à la connexion) = le compte agit comme un membre de sa
+    -- structure, avec son seul rôle ; 1 = il exerce ses droits de super administrateur (users.is_admin)
+    super_mode INTEGER NOT NULL DEFAULT 0
 );
 
 -- Connexion en deux temps (double authentification) : après le mot de passe, un jeton à usage unique attend

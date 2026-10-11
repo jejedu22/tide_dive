@@ -103,6 +103,7 @@ const Session = (() => {
     }
     user = u;
     renderPreviewBanner(u);
+    renderSuperBanner(u);
     loadAnnouncements(u);
     notify();
   }
@@ -178,6 +179,39 @@ const Session = (() => {
         <button type="button" class="btn-quiet" data-preview="change">Changer</button>
         <button type="button" class="btn-primary" data-preview="stop">Quitter l'aperçu</button>
       </span>`;
+  }
+
+  // Mode super administrateur : désactivé à la connexion (le compte agit comme un membre de sa structure) ; un
+  // bandeau rappelle sur toutes les pages qu'il est actif, avec le bouton pour le quitter
+  function renderSuperBanner(u) {
+    let banner = document.getElementById("super-banner");
+    if (!u?.is_admin || u.preview) {
+      banner?.remove();
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "super-banner";
+      banner.className = "preview-banner super-banner";
+      banner.setAttribute("role", "status");
+      document.body.prepend(banner);
+      banner.addEventListener("click", e => { if (e.target.closest("[data-super=stop]")) setSuperMode(false); });
+    }
+    banner.innerHTML = `
+      <span><strong>Mode super administrateur activé</strong> : vos actions s'appliquent à toute la plateforme
+        (structures, ports, comptes).</span>
+      <span class="preview-actions">
+        <button type="button" class="btn-primary" data-super="stop">Quitter le mode super admin</button>
+      </span>`;
+  }
+
+  async function setSuperMode(enabled) {
+    try {
+      await api("/api/me/super-mode", { method: "PUT", body: { enabled } });
+      location.reload();
+    } catch (err) {
+      openMessage("Mode super administrateur", `<p>${esc(err.message)}</p>`);
+    }
   }
 
   async function stopPreview() {
@@ -1337,6 +1371,10 @@ const Session = (() => {
       const attention = u.invitations || !u.profile_complete;
       el.innerHTML = `
         <span class="account-links">${pageLinks("account-link")}</span>
+        ${u.super_account ? `<button type="button" class="super-toggle${u.is_admin ? " on" : ""}" data-act="super-mode"
+          aria-pressed="${u.is_admin}" title="${u.is_admin ? "Quitter le mode super administrateur"
+          : "Activer les droits de super administrateur (structures, ports, comptes…) ; sinon vous agissez comme un membre de votre structure"}">
+          ${icon("lock", 16)}<span>${u.is_admin ? "Super admin activé" : "Mode super admin"}</span></button>` : ""}
         <span class="account-where">${where}</span>
         <button type="button" class="account-menu-btn" data-act="menu" aria-expanded="false" aria-controls="${menuId}"
                 aria-label="Menu du compte" title="${esc(u.display_name)}">
@@ -1350,6 +1388,9 @@ const Session = (() => {
           ${shown.length ? `<nav class="account-menu-pages" aria-label="Pages">${pageLinks("account-item")}</nav><hr>` : ""}
           ${u.invitations ? `<button type="button" class="account-item" data-act="invitations">${icon("invite")}
             <span>Invitations <span class="account-dot">${u.invitations}</span></span></button>` : ""}
+          ${u.super_account ? `<button type="button" class="account-item" data-act="super-mode"
+            title="Les droits de super administrateur ne s'exercent qu'une fois le mode activé">${icon("lock")}<span>${u.is_admin
+            ? "Quitter le mode super admin" : "Activer le mode super admin"}</span></button>` : ""}
           ${u.is_admin ? `<button type="button" class="account-item" data-act="preview"
             title="Voir l'application comme un autre rôle (lecture seule)">${icon("eye")}<span>Voir comme…</span></button>` : ""}
           ${u.structures?.length || u.structure ? `<button type="button" class="account-item" data-act="agenda"
@@ -1363,7 +1404,7 @@ const Session = (() => {
           ${u.can.diver_sheet ? `<button type="button" class="account-item" data-act="diver"
             title="Niveaux, licence FFESSM, certificat médical (CACI)">${icon("wave")}<span>Ma fiche plongeur${caciBlocks(u)
             ? ` <span class="account-dot" title="Certificat médical à jour requis pour s'inscrire">!</span>` : ""}</span></button>` : ""}
-          ${u.structure && !u.is_admin && !u.preview ? `<button type="button" class="account-item" data-act="api-tokens"
+          ${u.structure && !u.is_admin && !u.super_account && !u.preview ? `<button type="button" class="account-item" data-act="api-tokens"
             title="Accès de vos outils (tableur, automate, site du club…) à l'API de Calendive">${icon("lock")}<span>Jetons d'API</span></button>` : ""}
           <button type="button" class="account-item" data-act="security"
             title="Double authentification, sessions ouvertes, export de vos données">${icon("lock")}<span>Sécurité et données</span></button>
@@ -1399,6 +1440,7 @@ const Session = (() => {
       if (act === "logout") logout();
       if (act === "invitations") openInvitations();
       if (act === "preview") openPreview();
+      if (act === "super-mode") setSuperMode(!user?.is_admin);
       if (act === "agenda") openAgenda();
       if (act === "notifications") openNotifications();
       if (act === "api-tokens") openApiTokens();

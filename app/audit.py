@@ -32,6 +32,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/auth/logout"): "Déconnexion",
     ("POST", "/api/me/password"): "Mot de passe changé (titulaire)",
     ("PATCH", "/api/me/profile"): "Profil modifié (titulaire)",
+    ("PUT", "/api/me/super-mode"): "Mode super administrateur activé ou quitté",
     ("PUT", "/api/me/preview"): "Aperçu d'un autre rôle",
     ("DELETE", "/api/me/preview"): "Fin de l'aperçu",
     ("POST", "/api/admin/users"): "Compte créé",

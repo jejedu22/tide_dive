@@ -451,9 +451,19 @@ Chaque compte a une **fiche plongeur** (`app/diver.py`), qu'il remplit dans le m
 - API : `PATCH /api/me/profile` (champs de la fiche et `caci_date`), `GET /api/divers/levels`, `GET /api/divers`, `PUT /api/divers/{id}`, `POST /api/divers/{id}/caci/validate`.
 - **Mise à jour d'une base existante** (migration n° 9) : fiches vides, vérification désactivée dans toutes les structures.
 
+### Mode super administrateur (éviter les fausses manœuvres)
+
+Un compte de super administrateur **se connecte sans ses droits** : tant que le **mode super administrateur** n'est pas activé, il voit les mêmes écrans et a les mêmes droits qu'un **membre de sa structure** (son rôle et ses profils dans celle-ci, comme `GET /api/auth/me` le montre : `is_admin: false`, `super_account: true`). Sans structure, il est vu comme un compte sans structure. Il ne peut pas non plus se mettre dans une structure dont il n'est pas membre.
+
+- **Activer** : bouton **Mode super admin** de l'en-tête (ou *Activer le mode super admin* dans le menu du compte). Un bandeau rouge rappelle sur toutes les pages que le mode est actif, avec **Quitter le mode super admin**. En le quittant, la session revient à une structure dont le compte est membre, et un éventuel aperçu s'arrête.
+- **Par session** : chaque connexion repart désactivée (changer son mot de passe ou se reconnecter aussi) ; un autre navigateur n'est pas affecté (`sessions.super_mode`, migration 25).
+- **Double authentification** : quand elle est obligatoire (`TOTP_SUPER_ADMINS`), le compte doit la mettre en place dès la connexion, et le mode ne peut pas être activé sans elle.
+- **Journal** : chaque activation ou sortie du mode figure dans le journal d'activité.
+- **API** : `PUT /api/me/super-mode` `{"enabled": true|false}` (comptes de super administrateur) ; l'aperçu ci-dessous exige le mode activé. Les jetons d'API restent refusés aux comptes de super administrateur, mode ou non. Le mode maintenance (écritures bloquées) laisse passer le compte de super administrateur même sans le mode, pour qu'il puisse l'activer.
+
 ### Voir comme un autre rôle (super administrateur)
 
-Un super administrateur peut afficher l'application **comme un autre rôle**, pour vérifier ce que chacun voit : bouton **Voir comme…** de l'en-tête, puis le rôle (**administrateur de structure**, **membre en visualisation** ou **compte sans structure**), la structure et, éventuellement, des profils (Gestionnaire, Inscriptions). Un bandeau rappelle l'aperçu sur toutes les pages, avec **Changer** et **Quitter l'aperçu**.
+Un super administrateur (mode activé) peut afficher l'application **comme un autre rôle**, pour vérifier ce que chacun voit : bouton **Voir comme…** de l'en-tête, puis le rôle (**administrateur de structure**, **membre en visualisation** ou **compte sans structure**), la structure et, éventuellement, des profils (Gestionnaire, Inscriptions). Un bandeau rappelle l'aperçu sur toutes les pages, avec **Changer** et **Quitter l'aperçu**.
 
 - **Fidèle** : l'API applique les droits du rôle choisi (pages, menus, données visibles), comme pour un vrai compte de ce rôle ; le compte n'est plus super administrateur pendant l'aperçu.
 - **Lecture seule** : toute modification est refusée (403) pendant l'aperçu, sauf le changer, le quitter ou se déconnecter. Rien n'est créé ni modifié dans la structure.
@@ -601,7 +611,7 @@ Les liens pointent vers `/mot-de-passe.html#token=…` : le jeton est dans le fr
 
 **Double authentification (TOTP)** (`app/totp.py`, `app/account_security.py`) : en plus du mot de passe, un code à 6 chiffres donné par une application d'authentification (Google Authenticator, Microsoft Authenticator, FreeOTP, Aegis, 2FAS…) est demandé à chaque connexion. Mise en place depuis **Sécurité et données** (menu du compte) : QR code (ou clé à saisir), premier code pour l'activer, puis **10 codes de secours** à usage unique, affichés une seule fois (téléchargeables) et renouvelables. Un code accepté ne peut pas resservir ; une dérive d'horloge de 30 s est tolérée. La seconde étape de la connexion dure 5 minutes et accepte 5 essais.
 
-- **Obligatoire pour les super administrateurs** (`TOTP_SUPER_ADMINS=0` pour la rendre facultative) : tant qu'elle n'est pas activée, l'API leur refuse tout le reste (403, en-tête `X-Totp-Setup-Required: 1`) et l'interface impose sa mise en place à la connexion.
+- **Obligatoire pour les super administrateurs** (`TOTP_SUPER_ADMINS=0` pour la rendre facultative) : tant qu'elle n'est pas activée, l'API leur refuse tout le reste (403, en-tête `X-Totp-Setup-Required: 1`) et l'interface impose sa mise en place à la connexion (le compte n'a de toute façon ses droits de super administrateur qu'une fois le [mode super administrateur](#mode-super-administrateur-éviter-les-fausses-manœuvres) activé).
 - **Proposée à tous les autres comptes**, recommandée aux administrateurs de structure.
 - Activer la double authentification ferme les autres sessions du compte. La désactiver demande le mot de passe.
 - Le secret est chiffré en base par `SECRETS_KEY` quand elle est définie (sinon stocké tel quel), les codes de secours sont hachés (SHA-256).
@@ -882,6 +892,7 @@ Chaque résultat contient la date, le type d'étale, l'heure locale, la hauteur 
 | `GET /api/admin/accounts/inactive?months=` | super admin | comptes sans connexion depuis `months` mois (6 à 120) |
 | `POST /api/admin/accounts/purge-inactive` | super admin | `{months, ids}` : suppression des comptes encore inactifs |
 | `GET` / `PUT /api/me/water-preferences` | connecté | préférences de la recherche par hauteur d'eau `{form, filters}` |
+| `PUT /api/me/super-mode` | compte super admin | `{enabled}` : active / quitte le mode super administrateur de la session |
 | `PUT` / `DELETE /api/me/preview` | super admin | aperçu d'un autre rôle `{role, structure_id?, profiles?}` (lecture seule) / fin de l'aperçu |
 | `GET /api/me/calendar-feeds` | connecté | « Mon agenda » : pour chaque structure du compte, son abonnement calendrier et ses types |
 | `POST` / `DELETE /api/me/calendar-feeds/{structure_id}` | membre de la structure | crée (ou remplace) le lien d'abonnement `{mine, type_id?}` : réponse `url` et `webcal_url`, montrés une seule fois / désactive |
