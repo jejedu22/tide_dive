@@ -1538,7 +1538,7 @@ function renderPorts() {
       : `<span class="muted">aucune</span>`;
     const calib = calibrationCell(p);
     const offset = p.offset_zh_m != null
-      ? `${fmtNum(p.offset_zh_m, 2)} m`
+      ? `${fmtNum(p.offset_zh_m, 2)} m${p.offset_estimated ? ` <span class="tag" title="Estimé d'après api-maree.fr (moyenne sur 29,5 jours), pas la valeur officielle du Shom : à vérifier dans les RAM">estimé</span>` : ""}`
       : `<span class="tag job-failed" title="Obligatoire pour calculer">à renseigner</span>`;
     return `
       <tr data-id="${p.id}">
@@ -1598,6 +1598,31 @@ portForm.addEventListener("submit", async e => {
     loadPorts();
   } catch (err) {
     status.textContent = err.message;
+  }
+});
+
+// Niveaux moyens manquants : estimés par lots de 5 ports (une requête api-maree.fr chacun), tant qu'il en reste
+$("estimate-levels").addEventListener("click", async e => {
+  const btn = e.currentTarget, out = $("estimate-status");
+  btn.disabled = true;
+  const done = [], failed = [];
+  try {
+    for (;;) {
+      out.textContent = `Estimation en cours… ${done.length} fait${done.length > 1 ? "s" : ""}`;
+      const r = await Session.api("/api/admin/ports/estimate-levels", {
+        method: "POST", body: { limit: 5, exclude: failed.map(f => f.id) } });
+      done.push(...r.done);
+      failed.push(...r.failed);
+      if (!r.done.length && !r.failed.length) break;
+      if (!r.remaining) break;
+    }
+    out.textContent = `${done.length} niveau${done.length > 1 ? "x" : ""} moyen${done.length > 1 ? "s" : ""} estimé${done.length > 1 ? "s" : ""}`
+      + (failed.length ? `, ${failed.length} en échec : ${failed.map(f => `${f.name} (${f.error})`).join(" ; ")}` : "") + ".";
+  } catch (err) {
+    out.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    loadPorts();
   }
 });
 

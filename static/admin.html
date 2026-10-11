@@ -301,6 +301,10 @@
         <div class="panel">
           <div class="panel-head">
             <h2>Ports enregistrés</h2>
+            <div class="inline-form">
+              <button type="button" id="estimate-levels" class="btn-secondary" title="Calcule le niveau moyen des ports qui n'en ont pas, d'après les hauteurs d'eau d'api-maree.fr (moyenne sur 29,5 jours)">Estimer les niveaux moyens manquants</button>
+              <span id="estimate-status" class="form-status" role="status"></span>
+            </div>
             <form id="annual-form" class="inline-form">
               <label for="annual-year">Calculer tous les ports annuels pour</label>
               <input id="annual-year" type="number" min="1990" max="2100" required>

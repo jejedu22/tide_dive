@@ -208,6 +208,12 @@ Valeurs actuellement renseignées : Binic (6,68 m), Saint-Quay-Portrieux (6,57 m
 
 Le catalogue contient les **133 sites d'api-maree.fr** (liste publique `GET https://api-maree.fr/sites`, avec identifiant, nom et coordonnées de la station) : l'onglet Ports de l'administration les propose pour pré-remplir le formulaire, y compris l'identifiant `api_maree_site` (recalage). Leurs coordonnées sont celles de la station et peuvent tomber à terre ou hors du modèle FES : les ajuster à l'eau avant le calcul. Le niveau moyen reste à renseigner (RAM du Shom).
 
+### Estimer les niveaux moyens manquants
+
+Le bouton **Estimer les niveaux moyens manquants** (onglet Ports, super administrateurs) renseigne `offset_zh_m` des ports qui ont un site api-maree.fr et pas de niveau moyen (`app/level_estimate.py`, `POST /api/admin/ports/estimate-levels`). Pour chaque port, une requête récupère les hauteurs d'eau horaires sur **708 h** (un cycle complet vive-eau / morte-eau) ; leur **moyenne** est le niveau moyen au-dessus du zéro des cartes, la même grandeur que le « niveau moyen de la référence » du recalage. Le navigateur traite les ports par lots de 5 (le quota d'api-maree.fr est de 360 requêtes par heure, `API_MAREE_KEY` requise) et affiche les échecs : série lacunaire, hauteurs sous −1,5 m (autre référentiel) ou niveau hors de 0,3–20 m.
+
+La valeur est une **estimation** (quelques centimètres d'écart avec le Shom, davantage en estuaire) : le port porte l'étiquette « estimé » (`ports.offset_estimated`, migration 24) jusqu'à ce qu'un niveau soit saisi à la main. Le recalage signale déjà un écart de plus de 15 cm entre ce niveau et celui de la référence. L'API accepte aussi `port_id` pour ré-estimer un port précis, même renseigné.
+
 Source officielle : colonne « NM » des Références Altimétriques Maritimes (RAM) du Shom, sur [data.shom.fr](https://data.shom.fr) ou [data.gouv.fr](https://www.data.gouv.fr).
 
 ### Coefficients

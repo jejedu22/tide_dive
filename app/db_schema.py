@@ -120,7 +120,8 @@ CREATE TABLE IF NOT EXISTS ports (
     timezone TEXT NOT NULL DEFAULT 'Europe/Paris',
     offset_zh_m REAL,                         -- niveau moyen au-dessus du zéro des cartes (NULL = inconnu)
     auto_precompute INTEGER NOT NULL DEFAULT 1, -- inclus dans le précalcul annuel automatique
-    api_maree_site TEXT                       -- identifiant du site api-maree.fr (recalage), NULL = aucun
+    api_maree_site TEXT,                      -- identifiant du site api-maree.fr (recalage), NULL = aucun
+    offset_estimated INTEGER NOT NULL DEFAULT 0 -- 1 : offset_zh_m estimé depuis api-maree.fr (level_estimate.py), pas saisi
 );
 
 -- Recalage du modèle FES sur api-maree.fr (voir calibration.py) : la hauteur
