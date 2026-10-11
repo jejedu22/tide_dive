@@ -188,7 +188,8 @@ def create_port(name: str, latitude: float, longitude: float, timezone: str,
         return cur.lastrowid
 
 
-_PORT_FIELDS = {"name", "latitude", "longitude", "timezone", "offset_zh_m", "auto_precompute", "api_maree_site"}
+_PORT_FIELDS = {"name", "latitude", "longitude", "timezone", "offset_zh_m", "auto_precompute", "api_maree_site",
+                "offset_estimated"}
 
 
 def update_port(port_id: int, **fields) -> None:
@@ -196,8 +197,9 @@ def update_port(port_id: int, **fields) -> None:
     fields = {k: v for k, v in fields.items() if k in _PORT_FIELDS}
     if not fields:
         return
-    if "auto_precompute" in fields:
-        fields["auto_precompute"] = int(fields["auto_precompute"])
+    for flag in ("auto_precompute", "offset_estimated"):
+        if flag in fields:
+            fields[flag] = int(fields[flag])
     assignments = ", ".join(f"{k} = ?" for k in fields)
     with get_conn() as conn:
         conn.execute(f"UPDATE ports SET {assignments} WHERE id = ?", (*fields.values(), port_id))

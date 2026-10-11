@@ -19,7 +19,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db, health, jobs, tide_model, tide_reference
+from . import calendar_fr, db, health, jobs, level_estimate, tide_model, tide_reference
 from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
@@ -194,6 +194,7 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, d
         "offset_zh_m": row["offset_zh_m"],
         "auto_precompute": bool(row["auto_precompute"]),
         "api_maree_site": row["api_maree_site"],
+        "offset_estimated": bool(row["offset_estimated"]),
         "calibration": _calibration_out((calibrations or {}).get(row["id"])),
         "short_term": _short_term_out((short_terms or {}).get(row["id"])),
         "years": years.get(row["id"], []),
@@ -232,6 +233,25 @@ def _check_name_free(name: str, except_id: int | None = None) -> None:
             raise HTTPException(status.HTTP_409_CONFLICT, f"Le port « {p['name']} » existe déjà")
 
 
+class EstimateLevelsIn(BaseModel):
+    port_id: int | None = Field(None, description="Un port précis (même s'il a déjà un niveau moyen) ; sinon tous ceux qui n'en ont pas")
+    limit: int = Field(5, ge=1, le=10)
+    exclude: list[int] = Field(default_factory=list, max_length=500, description="Ports déjà en échec")
+
+
+@router.post("/ports/estimate-levels")
+def admin_estimate_levels(body: EstimateLevelsIn, admin: CurrentAdmin):
+    """Estime le niveau moyen des ports depuis api-maree.fr (une requête par port ; quota de 360 par heure)."""
+    if not tide_reference.configured():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Clé api-maree.fr absente : renseigner API_MAREE_KEY dans .env.")
+    if body.port_id is not None:
+        port = _get_port_or_404(body.port_id)
+        if not port["api_maree_site"]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"Renseignez d'abord l'identifiant api-maree.fr de « {port['name']} ».")
+    return level_estimate.estimate_ports(body.port_id, body.limit, tuple(body.exclude))
+
+
 @router.post("/ports", status_code=201)
 def admin_create_port(body: PortIn, admin: CurrentAdmin):
     _check_name_free(body.name)
@@ -244,10 +264,12 @@ def admin_create_port(body: PortIn, admin: CurrentAdmin):
 
 @router.patch("/ports/{port_id}")
 def admin_update_port(port_id: int, body: PortPatch, admin: CurrentAdmin):
-    _get_port_or_404(port_id)
+    current = _get_port_or_404(port_id)
     fields = body.model_dump(exclude_unset=True)
     # seuls l'offset et le site api-maree.fr peuvent être effacés ; un null ailleurs est ignoré
     fields = {k: v for k, v in fields.items() if v is not None or k in ("offset_zh_m", "api_maree_site")}
+    if "offset_zh_m" in fields and fields["offset_zh_m"] != current["offset_zh_m"]:
+        fields["offset_estimated"] = False       # saisi à la main : n'est plus une estimation
     if "name" in fields:
         fields["name"] = fields["name"].strip()
         _check_name_free(fields["name"], except_id=port_id)

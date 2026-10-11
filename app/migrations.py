@@ -517,6 +517,12 @@ def _m023_api_tokens(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)")
 
 
+def _m024_offset_estimated(conn: sqlite3.Connection) -> None:
+    """Ports : indique que le niveau moyen a été estimé depuis api-maree.fr (level_estimate.py) et non saisi."""
+    if "offset_estimated" not in {r["name"] for r in conn.execute("PRAGMA table_info(ports)")}:
+        conn.execute("ALTER TABLE ports ADD COLUMN offset_estimated INTEGER NOT NULL DEFAULT 0")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -541,6 +547,7 @@ MIGRATIONS: list[Migration] = [
     Migration(21, "cache de la météo marine", _m021_weather),
     Migration(22, "calcul FES avec les ondes de petits fonds (M4, MS4, MN4)", _m022_shallow_water_constituents),
     Migration(23, "jetons d'API des comptes (outils tiers)", _m023_api_tokens),
+    Migration(24, "ports : niveau moyen estimé depuis api-maree.fr", _m024_offset_estimated),
 ]
 
 
