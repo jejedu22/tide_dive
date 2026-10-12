@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "communication", "exploitation", "fiche", "types", "sites", "utilisateurs", "mailjet", "journal"];
+const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "communication", "exploitation", "fiche", "types", "sites", "utilisateurs", "mailjet", "paiements", "journal"];
 const SUPER_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "exploitation"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -105,6 +105,7 @@ function showTab(name) {
   if (name === "sites") loadSites();
   if (name === "utilisateurs") loadUsers();
   if (name === "mailjet") loadMailjet();
+  if (name === "paiements") loadPayments();
 }
 
 document.querySelector(".tab-groups").addEventListener("click", e => {
@@ -1261,6 +1262,10 @@ function renderStructureSelects() {
   mjSel.innerHTML = opts(mailjetScope ?? keepTypes);
   mailjetScope = mjSel.value ? Number(mjSel.value) : null;
 
+  const paySel = $("pay-structure");
+  paySel.innerHTML = opts(payScope ?? keepTypes);
+  payScope = paySel.value ? Number(paySel.value) : null;
+
   // création de compte : garde le choix en cours (y compris « Aucune »), sinon la structure du super admin
   const newSel = $("new-structure");
   const keepNew = newSel.options.length
@@ -2109,6 +2114,8 @@ let slotTypes = [];
 let typesScope = null;   // structure affichée (choix du super administrateur)
 const typesBody = $("types-body");
 const typeForm = $("type-form");
+let payConf = null;       // réglages HelloAsso de la structure (prix des types)
+const eur = cents => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
 
 // Super administrateur : structure choisie ; administrateur de structure : la sienne (imposée par l'API)
 const typesQS = () => (isSuper() && typesScope ? `?structure_id=${typesScope}` : "");
@@ -2331,7 +2338,10 @@ async function loadTypes() {
     return;
   }
   try {
-    slotTypes = await Session.api(`/api/admin/slot-types${typesQS()}`);
+    [slotTypes, payConf] = await Promise.all([
+      Session.api(`/api/admin/slot-types${typesQS()}`),
+      Session.api(`/api/admin/helloasso${typesQS()}`).catch(() => null),
+    ]);
   } catch (e) {
     flash(esc(e.message));
     return;
@@ -2542,6 +2552,7 @@ function renderTypes() {
       </td>
       <th scope="row"><span class="type-pill" style="--type-color:${esc(t.color)}">${esc(t.label)}</span></th>
       <td data-label="Niveau minimal">${t.min_level ? esc(diverLevels[t.min_level] || t.min_level) : `<span class="muted">—</span>`}</td>
+      <td data-label="Prix">${t.price_cents ? `${esc(eur(t.price_cents))}${t.free_for_instructors ? ` <span class="muted" title="Gratuit pour les encadrants">(encadrants : gratuit)</span>` : ""}` : `<span class="muted">—</span>`}</td>
       <td data-label="Proposé"><input type="checkbox" data-act="active" ${t.active ? "checked" : ""} aria-label="Proposer ${esc(t.label)}"></td>
       <td class="num" data-label="Utilisé">${t.uses}</td>
       <td class="actions">
@@ -2549,7 +2560,7 @@ function renderTypes() {
         <button type="button" class="btn-danger" data-act="delete" ${t.uses ? `disabled title="Utilisé : décochez « Proposé » à la place"` : ""}>Supprimer</button>
       </td>
     </tr>`).join("")
-    : `<tr><td colspan="6" class="empty">Aucun type : cette structure ne peut pas encore choisir de créneau.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">Aucun type : cette structure ne peut pas encore choisir de créneau.</td></tr>`;
 }
 
 typeForm.addEventListener("submit", async e => {
@@ -2624,6 +2635,11 @@ function editType(t) {
       <label>Libellé <input name="label" required maxlength="40" value="${esc(t.label)}"></label>
       <label>Couleur <input name="color" type="color" value="${esc(t.color)}"></label>
       <label>Niveau minimal <select name="min_level">${levelOptions(t.min_level)}</select></label>
+      ${payConf?.use_slots ? `
+      <label>Prix de la sortie (€) <span class="field-hint">payé avec HelloAsso ; vide : gratuit</span>
+        <input name="price_eur" type="number" min="0" max="1000" step="0.01" inputmode="decimal" value="${t.price_cents ? t.price_cents / 100 : ""}"></label>
+      <label class="check"><input type="checkbox" name="free_for_instructors" ${t.free_for_instructors ? "checked" : ""}> Gratuit pour les encadrants <span class="muted">(membres ayant un niveau d'encadrant dans leur fiche plongeur)</span></label>`
+      : ""}
       <p class="dialog-hint">L'inscription d'un membre qui n'a pas ce niveau (fiche plongeur) est refusée ; un administrateur peut toujours l'inscrire. Un créneau peut fixer son propre niveau.</p>
       <p class="dialog-hint">${t.uses ? `Le nouveau libellé s'appliquera aux ${t.uses} créneau(x) déjà choisi(s).` : ""}</p>
       <p class="dialog-error" role="alert"></p>
@@ -2641,7 +2657,9 @@ function editType(t) {
     try {
       await Session.api(`/api/admin/slot-types/${t.id}`, {
         method: "PATCH",
-        body: { label: form.label.value.trim(), color: form.color.value, min_level: form.min_level.value || null },
+        body: { label: form.label.value.trim(), color: form.color.value, min_level: form.min_level.value || null,
+                ...(form.price_eur ? { price_cents: form.price_eur.value ? Math.round(Number(form.price_eur.value) * 100) : null,
+                                       free_for_instructors: form.free_for_instructors.checked } : {}) },
       });
       d.close();
       loadTypes();
@@ -3597,6 +3615,217 @@ $("import-confirm").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Paiements HelloAsso : compte de la structure, cotisations, paiements reçus
+// ---------------------------------------------------------------------------
+
+let payScope = null;   // structure choisie (super administrateur)
+let payData = null;
+const payForm = $("pay-form");
+const payQS = () => (isSuper() && payScope ? `?structure_id=${payScope}` : "");
+
+$("pay-structure").addEventListener("change", e => {
+  payScope = Number(e.target.value) || null;
+  $("pay-status").textContent = "";
+  loadPayments();
+});
+
+async function loadPayments() {
+  const none = isSuper() && !payScope;
+  payForm.hidden = none;
+  $("pay-members-panel").hidden = $("pay-list-panel").hidden = true;
+  if (none) return;
+  try {
+    payData = await Session.api(`/api/admin/helloasso${payQS()}`);
+  } catch (e) {
+    flash(esc(e.message));
+    return;
+  }
+  renderPaySettings();
+  if (payData.configured) {
+    loadPayList();
+    if (payData.use_membership) loadPayMembers();
+  }
+}
+
+function renderPaySettings() {
+  const c = payData;
+  const [label, cls] = !c.configured ? ["non connecté", "tag-warn"]
+    : c.check_ok === true ? ["connecté", "job-succeeded"]
+    : c.check_ok === false ? ["à corriger", "tag-warn"]
+    : ["non testé", "tag-pending"];
+  $("pay-state").textContent = label;
+  $("pay-state").className = `tag ${cls}`;
+  $("pay-alert").hidden = c.encryption_ok && (c.https || !c.configured);
+  $("pay-alert").textContent = !c.encryption_ok ? `Enregistrement impossible : ${c.encryption_error}`
+    : "APP_BASE_URL n'est pas une adresse https : HelloAsso refusera les paiements.";
+  const check = $("pay-check");
+  check.hidden = !c.checked_at;
+  if (c.checked_at) {
+    check.className = `mailjet-check ${c.check_ok ? "ok" : "ko"}`;
+    check.textContent = `${c.check_message} (testé le ${stamp(c.checked_at)})`;
+  }
+  payForm.org_slug.value = c.org_slug || "";
+  payForm.client_id.value = "";
+  payForm.client_secret.value = "";
+  payForm.client_id.placeholder = c.configured ? `•••• ${c.client_id_hint} — vide : inchangé` : "";
+  payForm.client_secret.placeholder = c.configured ? "•••••••• — vide : inchangé" : "";
+  payForm.sandbox.checked = !!c.sandbox;
+  payForm.use_slots.checked = !!c.use_slots;
+  payForm.use_membership.checked = !!c.use_membership;
+  payForm.membership_amount_eur.value = c.membership_amount_cents ? c.membership_amount_cents / 100 : "";
+  payForm.membership_season_start.value = c.membership_season_start || "09-01";
+  payForm.membership_required.checked = !!c.membership_required;
+  $("pay-notify").value = c.notify_url || "";
+  $("pay-keys-hint").textContent = c.configured
+    ? `Clés enregistrées par ${c.updated_by || "?"} le ${stamp(c.updated_at)}. Pour en changer, saisissez le client_id et le client_secret.`
+    : "Le client_id et le client_secret se trouvent dans l'administration de votre association HelloAsso (voir l'aide ci-dessous).";
+  for (const el of payForm.elements) el.disabled = !c.encryption_ok && el.type !== "button";
+  $("pay-test").disabled = $("pay-delete").disabled = !c.configured;
+  $("pay-notify").disabled = false;
+}
+
+payForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const out = $("pay-status");
+  out.textContent = "";
+  const body = {
+    org_slug: payForm.org_slug.value.trim(), sandbox: payForm.sandbox.checked, use_slots: payForm.use_slots.checked,
+    use_membership: payForm.use_membership.checked,
+    membership_amount_eur: payForm.membership_amount_eur.value ? Number(payForm.membership_amount_eur.value) : null,
+    membership_season_start: payForm.membership_season_start.value.trim() || "09-01",
+    membership_required: payForm.membership_required.checked,
+  };
+  if (payForm.client_id.value.trim() || payForm.client_secret.value.trim()) {
+    body.client_id = payForm.client_id.value.trim();
+    body.client_secret = payForm.client_secret.value.trim();
+  }
+  try {
+    payData = await Session.api(`/api/admin/helloasso${payQS()}`, { method: "PUT", body });
+    renderPaySettings();
+    out.textContent = "Réglages enregistrés.";
+    loadPayList();
+    if (payData.use_membership) loadPayMembers();
+  } catch (err) {
+    out.textContent = err.message;
+  }
+});
+
+$("pay-test").addEventListener("click", async () => {
+  const out = $("pay-status");
+  out.textContent = "Test en cours…";
+  try {
+    payData = await Session.api(`/api/admin/helloasso/test${payQS()}`, { method: "POST" });
+    renderPaySettings();
+    out.textContent = "";
+  } catch (err) {
+    out.textContent = err.message;
+  }
+});
+
+$("pay-delete").addEventListener("click", async () => {
+  if (!confirm("Retirer la connexion HelloAsso ? Plus rien ne sera proposé aux membres (les paiements déjà reçus restent dans la liste).")) return;
+  try {
+    await Session.api(`/api/admin/helloasso${payQS()}`, { method: "DELETE" });
+    loadPayments();
+  } catch (err) {
+    $("pay-status").textContent = err.message;
+  }
+});
+
+async function loadPayMembers() {
+  $("pay-members-panel").hidden = false;
+  let rows;
+  try {
+    rows = await Session.api(`/api/admin/helloasso/members${payQS()}`);
+  } catch (e) {
+    $("pay-members-body").innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  $("pay-members-body").innerHTML = rows.map(m => `
+    <tr data-id="${m.id}"><th scope="row">${esc(m.name)}</th>
+      <td data-label="Cotisation">${m.valid ? `<span class="tag job-succeeded">à jour</span> jusqu'au ${esc(dayLabel(m.valid_until))}${m.method === "manual" ? ` <span class="muted">(enregistrée à la main)</span>` : ""}` : `<span class="tag tag-warn">à régler</span>`}</td>
+      <td class="actions">${m.valid ? "" : `<button type="button" class="btn-quiet btn-small" data-act="pay-manual" title="Cotisation reçue par chèque ou en espèces : vaut pour la saison en cours">Enregistrer</button>`}</td></tr>`).join("")
+    || `<tr><td colspan="3" class="empty">Aucun membre.</td></tr>`;
+}
+
+$("pay-members-body").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-act=pay-manual]");
+  if (!btn) return;
+  const row = btn.closest("tr");
+  if (!confirm(`Enregistrer la cotisation de ${row.querySelector("th").textContent} (reçue hors ligne) pour la saison en cours ?`)) return;
+  try {
+    await Session.api(`/api/admin/helloasso/members/${row.dataset.id}/membership${payQS()}`, { method: "POST" });
+    loadPayMembers();
+    loadPayList();
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
+const PAY_STATUS = { paid: ["reçu", "job-succeeded"], pending: ["en attente", "tag-pending"], failed: ["non abouti", "tag-warn"], refunded: ["remboursé", "tag"] };
+let payRows = [];
+$("pay-filter").addEventListener("change", () => loadPayList());
+
+async function loadPayList() {
+  $("pay-list-panel").hidden = false;
+  const kind = $("pay-filter").value;
+  let data;
+  try {
+    data = await Session.api(`/api/admin/payments${payQS()}${kind ? `${payQS() ? "&" : "?"}kind=${kind}` : ""}`);
+  } catch (e) {
+    $("pay-body").innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  payRows = data.payments;
+  const s = data.summary;
+  $("pay-summary").textContent = `${s.paid_count} paiement(s) reçu(s) : ${eur(s.paid_cents)} (sorties ${eur(s.slots_cents)}, cotisations ${eur(s.membership_cents)})`
+    + (s.refund_due ? ` — ${s.refund_due} à rembourser.` : ".");
+  $("pay-body").innerHTML = payRows.length ? payRows.map(p => {
+    const [label, cls] = PAY_STATUS[p.status] || [p.status, "tag"];
+    return `<tr data-id="${p.id}">
+      <td data-label="Date">${esc(dayLabel((p.paid_at || p.created_at).slice(0, 10)))}</td>
+      <th scope="row">${esc(p.user || "—")}</th>
+      <td data-label="Objet">${esc(p.label)}${p.method === "manual" ? ` <span class="muted">(à la main)</span>` : ""}${p.receipt_url ? ` <a href="${esc(p.receipt_url)}" rel="noopener" target="_blank">reçu</a>` : ""}</td>
+      <td class="num" data-label="Montant">${esc(eur(p.amount_cents))}</td>
+      <td data-label="État"><span class="tag ${cls}">${label}</span>${p.refund_due ? ` <span class="tag tag-warn" title="${esc(p.refund_reason)}">à rembourser</span>` : ""}</td>
+      <td class="actions">${p.status === "paid" ? `<button type="button" class="btn-quiet btn-small" data-act="pay-refunded">Marquer remboursé</button>` : ""}${p.method === "manual" ? `<button type="button" class="btn-danger btn-small" data-act="pay-delete">Supprimer</button>` : ""}</td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">Aucun paiement.</td></tr>`;
+}
+
+$("pay-body").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest("tr").dataset.id;
+  try {
+    if (btn.dataset.act === "pay-refunded") {
+      if (!confirm("Marquer ce paiement remboursé ? (Le remboursement se fait dans l'administration de HelloAsso.)")) return;
+      await Session.api(`/api/admin/payments/${id}/refunded`, { method: "POST" });
+    } else if (btn.dataset.act === "pay-delete") {
+      if (!confirm("Supprimer cette cotisation enregistrée à la main ?")) return;
+      await Session.api(`/api/admin/payments/${id}`, { method: "DELETE" });
+      if (payData?.use_membership) loadPayMembers();
+    }
+    loadPayList();
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
+$("pay-export").addEventListener("click", () => {
+  if (!payRows.length) return;
+  const name = isSuper() ? $("pay-structure").selectedOptions[0]?.textContent : Session.user?.structure?.name;
+  XlsxExport.download(`paiements-${XlsxExport.slug(name || "structure")}.xlsx`, "Paiements", [
+    { header: "Date", type: "date", width: 12, value: p => (p.paid_at || p.created_at).slice(0, 10) },
+    { header: "Membre", width: 26, value: p => p.user },
+    { header: "Objet", width: 40, value: p => p.label },
+    { header: "Montant (€)", type: "decimal", width: 12, value: p => p.amount_cents / 100 },
+    { header: "État", width: 12, value: p => (PAY_STATUS[p.status] || [p.status])[0] },
+    { header: "Mode", width: 12, value: p => (p.method === "manual" ? "à la main" : "HelloAsso") },
+    { header: "À rembourser", width: 14, value: p => (p.refund_due ? "oui" : "") },
+  ], payRows);
+});
+
+// ---------------------------------------------------------------------------
 // Connexion Mailjet de la structure (administrateurs)
 // ---------------------------------------------------------------------------
 
@@ -3816,6 +4045,11 @@ async function onSessionChange(user) {
   $("mailjet-structure").previousElementSibling.hidden = !sup;
   $("mailjet-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
   $("mailjet-structure-name").hidden = sup;
+
+  $("pay-structure").hidden = !sup;
+  $("pay-structure").previousElementSibling.hidden = !sup;
+  $("pay-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("pay-structure-name").hidden = sup;
 
   setupCreateForm();
   await Promise.all([loadStructures(), loadProfileCatalog()]);

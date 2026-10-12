@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import account_security, admin, seo, api_tokens, openapi_doc, tide_data, audit, communication, ops, quality, auth, dashboard, structure_home, user_bulk, structure_profile, member_prefs, logbook, push, weather, calendar_feed, calendar_fr, currents, contact, db, divers, mailjet_admin, memberships, newsletters, recovery, security, selections, structures, unavailability, user_import, water
-from . import cancellations
+from . import cancellations, payments
 from .slots import PM_SEARCH_PAD, rdv_time
 from .slots import local_time as _local_time, nearest_pm_coef as _nearest_pm_coef
 
@@ -72,6 +72,7 @@ app.include_router(structures.router)
 # Types de créneaux et créneaux choisis par structure (/api/slot-types, /api/selections, /api/admin/slot-types)
 app.include_router(selections.router)
 app.include_router(cancellations.router)
+app.include_router(payments.router)
 app.include_router(unavailability.router)
 app.include_router(water.router)
 # Sites de plongée et courants de marée (/api/dive-sites, /api/admin/dive-sites)

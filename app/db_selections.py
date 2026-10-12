@@ -49,15 +49,16 @@ def create_slot_type(structure_id: int, label: str, color: str, active: bool) ->
         return cur.lastrowid
 
 
-_SLOT_TYPE_FIELDS = {"label", "color", "active", "min_level"}
+_SLOT_TYPE_FIELDS = {"label", "color", "active", "min_level", "price_cents", "free_for_instructors"}
 
 
 def update_slot_type(type_id: int, **fields) -> None:
     fields = {k: v for k, v in fields.items() if k in _SLOT_TYPE_FIELDS}
     if not fields:
         return
-    if "active" in fields:
-        fields["active"] = int(fields["active"])
+    for flag in ("active", "free_for_instructors"):
+        if flag in fields:
+            fields[flag] = int(fields[flag])
     assignments = ", ".join(f"{k} = ?" for k in fields)
     with get_conn() as conn:
         conn.execute(f"UPDATE slot_types SET {assignments} WHERE id = ?", (*fields.values(), type_id))
@@ -80,6 +81,7 @@ def delete_slot_type(type_id: int) -> None:
 _SELECTION_SQL = """
     SELECT s.*, COALESCE(p.name, s.location) AS port_name,  -- lieu affiché : port, ou lieu libre
            t.label AS type_label, t.color AS type_color, t.active AS type_active, t.min_level AS type_min_level,
+           t.price_cents AS type_price_cents, t.free_for_instructors AS type_free_for_instructors,
            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                AS picked_by_name
     FROM slot_selections s
@@ -293,6 +295,9 @@ def list_registrations(structure_id: int, selection_id: int | None = None) -> li
     sql = """
         SELECT r.selection_id, r.user_id, r.created_at, r.registered_by_name, r.attendance, r.comment, r.carpool,
                r.carpool_seats, u.username,
+               (SELECT p.status FROM payments p WHERE p.kind = 'slot' AND p.selection_id = r.selection_id
+                  AND p.user_id = r.user_id AND p.status IN ('paid', 'pending')
+                ORDER BY (p.status = 'paid') DESC, p.id DESC LIMIT 1) AS pay_status,
                COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                    AS display_name
         FROM slot_registrations r

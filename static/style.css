@@ -2197,3 +2197,9 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
   :root[data-theme="dark"] .cal-chip.mine { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 3px var(--type-color); }
 }
 #tab-fiche a.btn-secondary { display: inline-block; text-decoration: none; }
+
+/* Paiement HelloAsso (sorties, cotisation) */
+.pay-tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+.pay-tag.paid { background: #d8f3dc; color: #1b4332; }
+.pay-tag.free { background: var(--sand, #f1e9d6); color: var(--brand, #073b4c); }
+:root[data-theme="dark"] .pay-tag.paid { background: #1b4332; color: #d8f3dc; }
