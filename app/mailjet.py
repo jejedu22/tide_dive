@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 
 API_URL = os.environ.get("MAILJET_API_URL", "https://api.mailjet.com").rstrip("/")
-TIMEOUT_S = 20
+TIMEOUT_S = 60     # un appel avec pièces jointes peut peser une dizaine de Mo
 MAX_MESSAGES_PER_CALL = 50
 
 
@@ -84,6 +84,16 @@ def _request(api_key: str, api_secret: str, method: str, path: str,
         raise MailjetError(f"Mailjet injoignable : {getattr(exc, 'reason', exc)}") from exc
     except json.JSONDecodeError as exc:
         raise MailjetError("Réponse de Mailjet illisible (JSON attendu)") from exc
+
+
+MAX_CALL_BYTES = 12 * 1024 * 1024    # Mailjet plafonne un appel d'envoi à 15 Mo : marge pour le HTML et le JSON
+MESSAGE_OVERHEAD = 60 * 1024         # texte, HTML et en-têtes d'un message, hors pièces jointes
+
+
+def batch_size(attachments_bytes: int = 0) -> int:
+    """Messages par appel d'envoi : 50 au plus, moins quand chaque message porte des pièces jointes (base64, en
+    octets) : leur taille se répète dans chaque message de l'appel."""
+    return max(1, min(MAX_MESSAGES_PER_CALL, MAX_CALL_BYTES // (attachments_bytes + MESSAGE_OVERHEAD)))
 
 
 def check_credentials(api_key: str, api_secret: str) -> None:

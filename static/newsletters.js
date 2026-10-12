@@ -301,6 +301,7 @@ async function openEditor(nl) {
   form.preheader.value = nl?.preheader || "";
   form.body.value = nl?.body ?? `Bonjour {{prenom}},\n\n`;
   renderAudiences(nl?.audience);
+  renderAttachments(nl, editable);
   for (const el of form.querySelectorAll("input, select, textarea, .nl-toolbar button")) el.disabled = !editable;
   $("draft-actions").hidden = !editable;
   $("scheduled-actions").hidden = nl?.status !== "scheduled";
@@ -314,6 +315,65 @@ async function openEditor(nl) {
   refreshPreview();
   if (editable) form.subject.focus();
 }
+
+// ---- Pièces jointes : envoyées à chaque destinataire avec le message (PDF, images, Word, Excel, OpenDocument) ----
+
+const ATT_LIMITS = { max_files: 5, max_total: 8 * 1024 * 1024, formats: "PDF, image (PNG, JPEG, WebP, GIF), Word (.docx), Excel (.xlsx), OpenDocument (.odt, .ods)" };
+const fmtBytes = n => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1).replace(".", ",")} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
+
+function renderAttachments(nl, editable = nl?.status === "draft" || !nl) {
+  const files = nl?.attachments || [];
+  const limits = nl?.attachment_limits || ATT_LIMITS;
+  const total = files.reduce((n, f) => n + f.size, 0);
+  $("att-list").innerHTML = files.map(f => `
+    <li data-id="${f.id}"><a href="/api/newsletters/${nl.id}/attachments/${f.id}" download title="Télécharger">${esc(f.filename)}</a>
+      <span class="muted">${fmtBytes(f.size)}</span>
+      ${editable ? `<button type="button" class="btn-quiet btn-small" data-att-remove aria-label="Retirer ${esc(f.filename)}">Retirer</button>` : ""}</li>`).join("");
+  $("att-add").hidden = !editable || files.length >= limits.max_files;
+  $("att-hint").textContent = editable
+    ? `${limits.formats}. ${limits.max_files} fichiers et ${fmtBytes(limits.max_total)} au plus au total${files.length ? ` (${fmtBytes(total)} utilisés)` : ""}. Chaque destinataire reçoit les fichiers avec l'e-mail ; un fichier lourd ralentit l'envoi.`
+    : files.length ? "Pièces jointes envoyées avec cette newsletter." : "";
+  $("nl-attachments").hidden = !editable && !files.length;
+}
+
+$("att-file").addEventListener("change", async e => {
+  const picked = [...e.target.files];
+  e.target.value = "";
+  const out = $("att-status");
+  out.textContent = "";
+  if (!picked.length) return;
+  try {
+    // le brouillon doit exister (et être à jour) pour recevoir des fichiers
+    if (!current || dirty) await save();
+    for (const file of picked) {
+      out.textContent = `Envoi de ${file.name}…`;
+      const res = await fetch(`/api/newsletters/${current.id}/attachments?filename=${encodeURIComponent(file.name)}`, {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/octet-stream" }, body: file,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(`${file.name} : ${typeof data?.detail === "string" ? data.detail : `erreur ${res.status}`}`);
+      current = data;
+      renderAttachments(current);
+    }
+    out.textContent = picked.length > 1 ? `${picked.length} fichiers joints.` : "Fichier joint.";
+  } catch (err) {
+    out.textContent = err.message;
+  }
+});
+
+$("att-list").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-att-remove]");
+  if (!btn) return;
+  const id = btn.closest("li").dataset.id;
+  try {
+    await Session.api(`/api/newsletters/${current.id}/attachments/${id}`, { method: "DELETE" });
+    current = await Session.api(`/api/newsletters/${current.id}`);
+    renderAttachments(current);
+    $("att-status").textContent = "Fichier retiré.";
+  } catch (err) {
+    $("att-status").textContent = err.message;
+  }
+});
 
 const body = () => ({
   subject: form.subject.value.trim(),
@@ -659,6 +719,7 @@ async function loadReport(id) {
     n.sent_by && `envoi lancé par ${n.sent_by}`,
     n.started_at && `démarré le ${stamp(n.started_at)}`,
     n.finished_at && `terminé le ${stamp(n.finished_at)}`,
+    n.attachments?.length && `${n.attachments.length} pièce(s) jointe(s) : ${n.attachments.map(a => a.filename).join(", ")}`,
   ].filter(Boolean).join(" · ");
   $("report-error").hidden = !n.error;
   $("report-error").textContent = n.error || "";

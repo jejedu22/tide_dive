@@ -37,6 +37,8 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/cancellation-reasons"): "Motif d'annulation créé",
     ("PATCH", "/api/admin/cancellation-reasons/{reason_id}"): "Motif d'annulation modifié",
     ("DELETE", "/api/admin/cancellation-reasons/{reason_id}"): "Motif d'annulation supprimé",
+    ("POST", "/api/newsletters/{newsletter_id}/attachments"): "Pièce jointe ajoutée à une newsletter",
+    ("DELETE", "/api/newsletters/{newsletter_id}/attachments/{attachment_id}"): "Pièce jointe retirée d'une newsletter",
     ("PUT", "/api/me/super-mode"): "Mode super administrateur activé ou quitté",
     ("PUT", "/api/me/preview"): "Aperçu d'un autre rôle",
     ("DELETE", "/api/me/preview"): "Fin de l'aperçu",

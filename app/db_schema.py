@@ -541,6 +541,18 @@ CREATE TABLE IF NOT EXISTS newsletters (
 );
 CREATE INDEX IF NOT EXISTS idx_newsletters_structure ON newsletters(structure_id, created_at);
 
+-- Pièces jointes d'une newsletter (attachments.py) : le contenu est stocké avec elle, supprimé avec elle
+CREATE TABLE IF NOT EXISTS newsletter_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    newsletter_id INTEGER NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (newsletter_id, filename)
+);
+
 -- Un destinataire d'une newsletter envoyée, et son suivi (événements Mailjet)
 CREATE TABLE IF NOT EXISTS newsletter_recipients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

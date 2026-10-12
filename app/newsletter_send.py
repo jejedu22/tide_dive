@@ -23,7 +23,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import db, mailer, mailjet, mailjet_admin, newsletters
+from . import attachments, db, mailer, mailjet, mailjet_admin, newsletters
 
 BATCH = mailjet.MAX_MESSAGES_PER_CALL
 
@@ -38,7 +38,7 @@ def _fail(newsletter_id: int, message: str) -> int:
     return 1
 
 
-def _message(nl, slots, cred, r) -> dict:
+def _message(nl, slots, cred, r, files: list[dict] | None = None) -> dict:
     token = r["unsubscribe_token"]
     subject, page, text = newsletters.render_for(
         nl["structure_id"], nl["subject"], nl["preheader"], nl["body"],
@@ -49,7 +49,7 @@ def _message(nl, slots, cred, r) -> dict:
     to = {"Email": r["email"]}
     if r["name"]:
         to["Name"] = r["name"]
-    return {
+    message = {
         "From": {"Email": cred.sender_email, "Name": cred.sender_name},
         "To": [to],
         "Subject": subject,
@@ -63,6 +63,9 @@ def _message(nl, slots, cred, r) -> dict:
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         },
     }
+    if files:
+        message["Attachments"] = files
+    return message
 
 
 def prepare_recipients(nl) -> int:
@@ -95,10 +98,16 @@ def run(newsletter_id: int) -> int:
     if not nl["total"]:
         prepare_recipients(nl)
     pending = db.queued_recipients(newsletter_id)
+    # pièces jointes lues une fois (base64) ; leur taille se répète dans chaque message : lots plus petits
+    attached = db.list_newsletter_attachments(newsletter_id, with_data=True)
+    files = attachments.mailjet_files(attached)
+    per_call = mailjet.batch_size(attachments.encoded_size([a["size"] for a in attached])) if files else BATCH
+    if files:
+        print(f"{len(files)} pièce(s) jointe(s) : {per_call} message(s) par appel.")
     sent = failed = 0
-    for i in range(0, len(pending), BATCH):
-        batch = pending[i:i + BATCH]
-        messages = [_message(nl, slots, cred, r) for r in batch]
+    for i in range(0, len(pending), per_call):
+        batch = pending[i:i + per_call]
+        messages = [_message(nl, slots, cred, r, files) for r in batch]
         try:
             results = mailjet.send(cred.api_key, cred.api_secret, messages)
         except mailjet.MailjetError as exc:
@@ -117,7 +126,7 @@ def run(newsletter_id: int) -> int:
                 marks.append((r["id"], "sent", str(to.get("MessageID") or "") or None, None))
                 sent += 1
         db.mark_recipients(marks, _now())
-        print(f"Lot {i // BATCH + 1} : {sent} envoyé(s), {failed} refusé(s) au total.")
+        print(f"Lot {i // per_call + 1} : {sent} envoyé(s), {failed} refusé(s) au total.")
 
     final = "failed" if sent == 0 and failed else "sent"
     error = f"{failed} adresse(s) refusée(s) par Mailjet" if failed else None

@@ -556,6 +556,20 @@ def _m026_cancellations(conn: sqlite3.Connection) -> None:
                              [(st["id"], label, i) for i, label in enumerate(DEFAULT_CANCELLATION_REASONS)])
 
 
+def _m027_newsletter_attachments(conn: sqlite3.Connection) -> None:
+    """Pièces jointes des newsletters (attachments.py)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS newsletter_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        newsletter_id INTEGER NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (newsletter_id, filename)
+    )""")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -583,6 +597,7 @@ MIGRATIONS: list[Migration] = [
     Migration(24, "ports : niveau moyen estimé depuis api-maree.fr", _m024_offset_estimated),
     Migration(25, "sessions : mode super administrateur activé à la demande", _m025_super_mode),
     Migration(26, "créneaux annulés : motifs d'annulation par structure", _m026_cancellations),
+    Migration(27, "pièces jointes des newsletters", _m027_newsletter_attachments),
 ]
 
 
