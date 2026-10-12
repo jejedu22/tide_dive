@@ -135,6 +135,15 @@
               <p>Le lien de désinscription est ajouté automatiquement en bas de chaque e-mail.</p>
             </details>
           </div>
+          <div class="field nl-attachments" id="nl-attachments">
+            <span class="label">Pièces jointes <span class="optional">facultatif</span></span>
+            <ul id="att-list" class="att-list"></ul>
+            <label class="btn-secondary btn-small att-add" id="att-add">+ Joindre un fichier
+              <input type="file" id="att-file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx,.odt,.ods">
+            </label>
+            <small id="att-hint" class="hint"></small>
+            <p id="att-status" class="form-status" role="status"></p>
+          </div>
           <div class="form-actions nl-actions" id="draft-actions">
             <button type="submit" class="btn-primary">Enregistrer</button>
             <button type="button" id="send-test" class="btn-secondary">M'envoyer un test</button>

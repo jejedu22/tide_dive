@@ -32,10 +32,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from . import accounts, db, jobs, mailer, mailjet, mailjet_admin, newsletter_render, security
+from . import accounts, attachments, db, jobs, mailer, mailjet, mailjet_admin, newsletter_render, security
 from .auth import CurrentMember, CurrentUser
 
 router = APIRouter(prefix="/api")
@@ -195,6 +195,10 @@ def _out(row: sqlite3.Row, with_body: bool = False) -> dict:
     }
     if with_body:
         out["body"] = row["body"]
+        out["attachments"] = [{"id": a["id"], "filename": a["filename"], "content_type": a["content_type"],
+                               "size": a["size"]} for a in db.list_newsletter_attachments(row["id"])]
+        out["attachment_limits"] = {"max_files": attachments.MAX_FILES, "max_total": attachments.MAX_TOTAL,
+                                    "formats": attachments.FORMATS_LABEL}
     return out
 
 
@@ -457,12 +461,76 @@ def delete_newsletter(newsletter_id: int, user: NewsletterUser):
         raise HTTPException(status.HTTP_409_CONFLICT, "Envoi en cours : la newsletter ne peut pas être supprimée")
 
 
+def _draft_or_409(row: sqlite3.Row) -> None:
+    if row["status"] != "draft":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Les pièces jointes d'un brouillon seulement se modifient : annulez d'abord la programmation, ou "
+            "dupliquez la newsletter.",
+        )
+
+
+@router.post("/newsletters/{newsletter_id}/attachments", status_code=201)
+async def add_attachment(newsletter_id: int, request: Request, user: NewsletterUser,
+                         filename: str = Query(min_length=1, max_length=200)):
+    """Joint un fichier au brouillon. Corps de la requête : le fichier lui-même ; `filename` : son nom.
+    PDF, image, Word (.docx), Excel (.xlsx) ou OpenDocument (.odt, .ods), 5 fichiers et 8 Mo au plus au total."""
+    row = _get_or_404(user, newsletter_id)
+    _draft_or_409(row)
+    existing = db.list_newsletter_attachments(newsletter_id)
+    if len(existing) >= attachments.MAX_FILES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"{attachments.MAX_FILES} pièces jointes au plus par newsletter.")
+    room = attachments.MAX_TOTAL - sum(a["size"] for a in existing)
+    data = bytearray()
+    async for chunk in request.stream():     # lu par morceaux : on s'arrête dès que la place est dépassée
+        data += chunk
+        if len(data) > room:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"Pièces jointes trop lourdes : {attachments.MAX_TOTAL // 1024 // 1024} Mo au plus au total "
+                f"(il reste {max(room, 0) / 1024 / 1024:.1f} Mo).")
+    try:
+        name, content_type = attachments.check(filename, bytes(data))
+    except attachments.AttachmentError as exc:
+        raise HTTPException(exc.status, str(exc))
+    try:
+        db.add_newsletter_attachment(newsletter_id, name, content_type, bytes(data), _iso(_now()))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Un fichier « {name} » est déjà joint.")
+    db.update_newsletter(newsletter_id, only_status=("draft",), updated_by=user["id"], updated_at=_iso(_now()))
+    return _out(db.get_newsletter(newsletter_id), with_body=True)
+
+
+@router.get("/newsletters/{newsletter_id}/attachments/{attachment_id}")
+def download_attachment(newsletter_id: int, attachment_id: int, user: NewsletterUser):
+    """Télécharge une pièce jointe (gestionnaires de la structure)."""
+    _get_or_404(user, newsletter_id)
+    att = db.get_newsletter_attachment(newsletter_id, attachment_id)
+    if att is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pièce jointe introuvable")
+    from urllib.parse import quote
+    return Response(att["data"], media_type=att["content_type"], headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(att['filename'])}",
+        "Cache-Control": "private, no-store"})
+
+
+@router.delete("/newsletters/{newsletter_id}/attachments/{attachment_id}", status_code=204)
+def delete_attachment(newsletter_id: int, attachment_id: int, user: NewsletterUser):
+    """Retire une pièce jointe d'un brouillon."""
+    row = _get_or_404(user, newsletter_id)
+    _draft_or_409(row)
+    if not db.delete_newsletter_attachment(newsletter_id, attachment_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pièce jointe introuvable")
+
+
 @router.post("/newsletters/{newsletter_id}/duplicate", status_code=201)
 def duplicate_newsletter(newsletter_id: int, user: NewsletterUser):
     row = _get_or_404(user, newsletter_id)
     subject = row["subject"] if row["subject"].startswith("Copie de ") else f"Copie de {row['subject']}"
     nid = db.create_newsletter(user["structure_id"], subject[:SUBJECT_MAX], row["preheader"], row["body"],
                                row["audience_json"], user["id"], _iso(_now()))
+    db.copy_newsletter_attachments(newsletter_id, nid, _iso(_now()))
     return _out(db.get_newsletter(nid), with_body=True)
 
 
@@ -493,6 +561,9 @@ def send_test(newsletter_id: int, user: NewsletterUser):
         "HTMLPart": page,
         "CustomID": f"test-{newsletter_id}",
     }
+    files = attachments.mailjet_files(db.list_newsletter_attachments(newsletter_id, with_data=True))
+    if files:
+        message["Attachments"] = files
     try:
         result = mailjet.send(cred.api_key, cred.api_secret, [message])[0]
     except mailjet.MailjetError as exc:
@@ -577,7 +648,9 @@ def resume(newsletter_id: int, user: NewsletterUser):
 def report(newsletter_id: int, user: NewsletterUser):
     row = _get_or_404(user, newsletter_id)
     return {
-        "newsletter": _out(row),
+        "newsletter": {**_out(row), "attachments": [
+            {"id": a["id"], "filename": a["filename"], "size": a["size"]}
+            for a in db.list_newsletter_attachments(newsletter_id)]},
         "recipients": [dict(r) for r in db.list_recipients(newsletter_id)],
         "links": [dict(r) for r in db.clicked_links(newsletter_id)],
     }

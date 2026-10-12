@@ -1670,6 +1670,13 @@ main.nl-main { max-width: 1200px; }
 .nl-help summary { cursor: pointer; color: var(--blue-deep); font-weight: 600; margin-top: 0.4rem; }
 .nl-help ul { padding-left: 1.2rem; line-height: 1.6; margin: 0.4rem 0; }
 .nl-actions { margin-top: 0.25rem; }
+.nl-attachments .label { display: block; font-weight: 600; margin-bottom: 0.3rem; }
+.att-list { list-style: none; margin: 0 0 0.5rem; padding: 0; display: grid; gap: 0.3rem; }
+.att-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; padding: 0.35rem 0.6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.att-list a { overflow-wrap: anywhere; font-weight: 600; }
+.att-list .btn-small { margin-left: auto; }
+.nl-form .field .att-add { display: inline-block; width: auto; cursor: pointer; }
+.att-add[hidden] { display: none; }
 .nl-preview { position: sticky; top: 1rem; display: grid; gap: 0.6rem; }
 .nl-preview .hint { margin: 0; }
 .nl-frame { width: 100%; height: 70vh; min-height: 420px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }

@@ -145,6 +145,42 @@ def list_newsletters(structure_id: int) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def list_newsletter_attachments(newsletter_id: int, with_data: bool = False) -> list[sqlite3.Row]:
+    """Pièces jointes d'une newsletter, dans l'ordre d'ajout ; with_data : avec leur contenu."""
+    cols = "id, filename, content_type, size" + (", data" if with_data else "")
+    with get_conn() as conn:
+        return conn.execute(f"SELECT {cols} FROM newsletter_attachments WHERE newsletter_id = ? ORDER BY id",
+                            (newsletter_id,)).fetchall()
+
+
+def get_newsletter_attachment(newsletter_id: int, attachment_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM newsletter_attachments WHERE id = ? AND newsletter_id = ?",
+                            (attachment_id, newsletter_id)).fetchone()
+
+
+def add_newsletter_attachment(newsletter_id: int, filename: str, content_type: str, data: bytes, now: str) -> int:
+    """Lève sqlite3.IntegrityError si un fichier de ce nom est déjà joint."""
+    with get_conn() as conn:
+        return conn.execute(
+            "INSERT INTO newsletter_attachments (newsletter_id, filename, content_type, size, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)", (newsletter_id, filename, content_type, len(data), data, now)).lastrowid
+
+
+def delete_newsletter_attachment(newsletter_id: int, attachment_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM newsletter_attachments WHERE id = ? AND newsletter_id = ?",
+                            (attachment_id, newsletter_id)).rowcount > 0
+
+
+def copy_newsletter_attachments(source_id: int, target_id: int, now: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO newsletter_attachments (newsletter_id, filename, content_type, size, data, created_at) "
+            "SELECT ?, filename, content_type, size, data, ? FROM newsletter_attachments WHERE newsletter_id = ? "
+            "ORDER BY id", (target_id, now, source_id))
+
+
 def delete_newsletter(newsletter_id: int, structure_id: int) -> bool:
     with get_conn() as conn:
         return conn.execute(
