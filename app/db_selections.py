@@ -199,6 +199,82 @@ def update_selection_type(structure_id: int, selection_id: int, type_id: int) ->
         )
 
 
+def cancel_selection(structure_id: int, selection_id: int, *, by: int, reason_id: int | None, reason: str | None,
+                     note: str | None, at: str) -> bool:
+    """Marque le créneau annulé (ses inscriptions restent) ; False s'il n'existe pas ou l'est déjà."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE slot_selections SET cancelled_at = ?, cancelled_by = ?, cancel_reason_id = ?, cancel_reason = ?, "
+            "cancel_note = ? WHERE id = ? AND structure_id = ? AND cancelled_at IS NULL",
+            (at, by, reason_id, reason, note, selection_id, structure_id))
+        return cur.rowcount > 0
+
+
+def reinstate_selection(structure_id: int, selection_id: int) -> bool:
+    """Rétablit un créneau annulé ; False s'il n'existe pas ou n'est pas annulé."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE slot_selections SET cancelled_at = NULL, cancelled_by = NULL, cancel_reason_id = NULL, "
+            "cancel_reason = NULL, cancel_note = NULL WHERE id = ? AND structure_id = ? AND cancelled_at IS NOT NULL",
+            (selection_id, structure_id))
+        return cur.rowcount > 0
+
+
+DEFAULT_CANCELLATION_REASONS = ("Météo défavorable", "Mer trop agitée", "Pas assez d'inscrits",
+                                "Bateau ou matériel indisponible", "Encadrement indisponible", "Autre")
+
+
+def seed_cancellation_reasons(structure_id: int) -> None:
+    """Motifs d'usage d'une structure qui n'en a aucun."""
+    with get_conn() as conn:
+        if not conn.execute("SELECT 1 FROM cancellation_reasons WHERE structure_id = ?", (structure_id,)).fetchone():
+            conn.executemany("INSERT INTO cancellation_reasons (structure_id, label, position) VALUES (?, ?, ?)",
+                             [(structure_id, label, i) for i, label in enumerate(DEFAULT_CANCELLATION_REASONS)])
+
+
+def list_cancellation_reasons(structure_id: int, active_only: bool = False) -> list[sqlite3.Row]:
+    """Motifs d'annulation d'une structure, dans l'ordre choisi, avec leur nombre d'usages."""
+    sql = ("SELECT r.*, (SELECT COUNT(*) FROM slot_selections s WHERE s.cancel_reason_id = r.id) AS uses "
+           "FROM cancellation_reasons r WHERE r.structure_id = ?")
+    if active_only:
+        sql += " AND r.active = 1"
+    with get_conn() as conn:
+        return conn.execute(sql + " ORDER BY r.position, r.label", (structure_id,)).fetchall()
+
+
+def get_cancellation_reason(reason_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM cancellation_reasons WHERE id = ?", (reason_id,)).fetchone()
+
+
+def create_cancellation_reason(structure_id: int, label: str) -> int:
+    """Ajouté en fin de liste. Lève sqlite3.IntegrityError si le libellé existe déjà dans la structure."""
+    with get_conn() as conn:
+        pos = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM cancellation_reasons WHERE structure_id = ?",
+                           (structure_id,)).fetchone()[0]
+        return conn.execute("INSERT INTO cancellation_reasons (structure_id, label, position) VALUES (?, ?, ?)",
+                            (structure_id, label, pos)).lastrowid
+
+
+def update_cancellation_reason(reason_id: int, **fields) -> None:
+    """label, active. Lève sqlite3.IntegrityError si le libellé existe déjà. Les créneaux déjà annulés gardent
+    le libellé d'origine."""
+    fields = {k: v for k, v in fields.items() if k in {"label", "active"}}
+    if not fields:
+        return
+    if "active" in fields:
+        fields["active"] = int(fields["active"])
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE cancellation_reasons SET {assignments} WHERE id = ?", (*fields.values(), reason_id))
+
+
+def delete_cancellation_reason(reason_id: int) -> None:
+    """Les créneaux annulés pour ce motif gardent son libellé recopié."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM cancellation_reasons WHERE id = ?", (reason_id,))
+
+
 def delete_selection(structure_id: int, selection_id: int) -> bool:
     with get_conn() as conn:
         cur = conn.execute(

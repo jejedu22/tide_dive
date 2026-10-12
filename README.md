@@ -723,6 +723,16 @@ Les administrateurs d'une structure déclarent des **plages d'indisponibilité**
 - **Affichage** : dans la recherche, les étales concernées sont hachurées et marquées « Indisponible · motif », sans liste de choix. Dans « Créneaux choisis », un bandeau rappelle les plages à venir et les jours concernés sont hachurés dans le calendrier.
 - Modification et suppression depuis la même liste ; les plages passées sont masquées (case « Afficher les plages passées »).
 
+### Annuler un créneau, avec un motif
+
+Le bouton **Annuler** de chaque créneau à venir (page *Créneaux choisis* ; administrateurs de la structure et profil **Créneaux**, comme « Retirer ») le garde dans la liste, **marqué annulé** (rayé, avec son motif et une éventuelle précision), au lieu de le supprimer. **Rétablir** le remet en place.
+
+- **Motif obligatoire**, choisi dans la liste de la structure, plus une précision facultative (300 caractères). Cette liste se gère dans **Administration → Créneaux → Motifs d'annulation** (ajout, renommage, « Proposé », suppression) par les administrateurs de la structure ; des motifs d'usage (météo défavorable, mer trop agitée, pas assez d'inscrits, bateau ou matériel indisponible, encadrement indisponible, autre) sont créés avec la structure (migration 26 pour les existantes). Le libellé est **recopié** sur le créneau : renommer ou supprimer un motif ne change pas l'historique. Une structure sans aucun motif actif annule sans motif choisi.
+- **Inscrits** : leurs inscriptions sont conservées (elles reviennent si le créneau est rétabli), mais plus aucune inscription, modification ni pointage de présence n'est possible ; ils peuvent se désinscrire. Ils sont **prévenus** (e-mail et notification, case décochable) avec le motif, comme au rétablissement.
+- **Ailleurs** : un créneau annulé quitte les rappels, les alertes de remplissage, le carnet de plongées, les newsletters, la météo, les conflits d'indisponibilité et les comptes « créneaux à venir » ; les agendas l'indiquent (`STATUS:CANCELLED`, titre « ANNULÉ — »).
+- **Statistiques** (Administration → Activité) : les créneaux annulés ne comptent plus parmi les créneaux tenus ; un bloc **Annulations** donne leur nombre et leur part, les inscriptions concernées, le détail par motif et par type, et une colonne *Annulés* par mois (comptés à la date de l'annulation). Le tableau de bord général affiche aussi les annulations des 30 derniers jours par structure.
+- Seul un créneau **à venir** peut être annulé ou rétabli. API : `GET /api/cancellation-reasons`, `POST /api/selections/{id}/cancel` `{reason_id?, note?, notify?}`, `POST /api/selections/{id}/reinstate` `{notify?}` ; administration : `GET` / `POST /api/admin/cancellation-reasons`, `PATCH` / `DELETE /api/admin/cancellation-reasons/{id}`. Chaque action est au journal d'activité.
+
 ### Créneau retiré ou modifié : les inscrits sont prévenus
 
 - **Retirer** un créneau à venir qui a des inscrits ouvre une fenêtre : case **Prévenir les inscrits par e-mail** (cochée) et **motif** facultatif, repris dans l'e-mail. Inscrits confirmés et file d'attente sont prévenus (`DELETE /api/selections/{id}?notify=true&reason=…` ; `notify=false` pour ne prévenir personne).
@@ -938,6 +948,9 @@ Tant qu'un compte a un mot de passe provisoire (`must_change_password`), toutes 
 | `POST /api/selections` | admin. structure | `{port_id, ts_utc, type_id}` ; 409 si déjà choisi par la structure |
 | `POST /api/selections/custom` | admin. structure | créneau personnalisé `{port_id \| location, date, end_date?, time, type_id, note?}` : un port **ou** un lieu libre (`location`, 80 caractères), jamais les deux ; `end_date` : dernier jour d'un séjour (après `date`, 60 jours au plus) ; `time` : heure de RDV `HH:MM` du premier jour |
 | `PATCH` / `DELETE /api/selections/{id}` | admin. structure | `{type_id?, port_id?, location?, date?, end_date?, time?, note?}` (`end_date: null` : un seul jour) (lieu, jour, heure et intitulé : créneau personnalisé uniquement, 422 sinon ; un `port_id` remplace le lieu libre et inversement) / retrait |
+| `POST /api/selections/{id}/cancel` / `…/reinstate` | admin. structure ou profil Créneaux | annuler un créneau à venir avec un motif de la structure (`{reason_id, note?, notify?}`, 422 sans motif) / le rétablir |
+| `GET /api/cancellation-reasons` | admin. structure ou profil Créneaux | motifs d'annulation proposés par la structure |
+| `GET` / `POST /api/admin/cancellation-reasons`, `PATCH` / `DELETE …/{id}` | admin. structure | gérer les motifs d'annulation de la structure |
 | `POST` / `DELETE /api/selections/{id}/registration` | membre d'une structure | s'inscrire / se désinscrire, dans les délais de la structure (409 sinon) |
 | `GET /api/selections/{id}.ics` | membre d'une structure | un créneau au format iCalendar (bouton « Agenda ») |
 | `GET /api/selections.ics` | membre de la structure | créneaux d'une structure du compte `?structure_id=&mine=&type_id=` au format iCalendar |

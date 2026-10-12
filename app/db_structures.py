@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 from .db_core import get_conn
+from .db_selections import DEFAULT_CANCELLATION_REASONS
 
 
 # ---------------------------------------------------------------------------
@@ -38,9 +39,12 @@ def get_structure(structure_id: int) -> sqlite3.Row | None:
 def create_structure(name: str, created_at: str) -> int:
     """Lève sqlite3.IntegrityError si le nom existe déjà (insensible à la casse)."""
     with get_conn() as conn:
-        return conn.execute(
+        structure_id = conn.execute(
             "INSERT INTO structures (name, created_at) VALUES (?, ?)", (name, created_at)
         ).lastrowid
+        conn.executemany("INSERT INTO cancellation_reasons (structure_id, label, position) VALUES (?, ?, ?)",
+                         [(structure_id, label, i) for i, label in enumerate(DEFAULT_CANCELLATION_REASONS)])
+        return structure_id
 
 
 def rename_structure(structure_id: int, name: str) -> None:

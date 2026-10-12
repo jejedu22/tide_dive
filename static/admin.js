@@ -725,11 +725,19 @@ async function loadStats() {
       <td class="num" data-label="Remplissage">${pct(b.fill_rate)}</td><td class="num" data-label="Présents">${b.present}</td>
       <td class="num" data-label="Présence">${pct(b.attendance_rate)}</td></tr>`).join("")
     : `<tr><td colspan="6" class="empty">Aucun créneau sur la période.</td></tr>`;
+  const c = s.cancellations;
+  $("stats-cancel-summary").textContent = c.total
+    ? `${c.total} créneau(x) annulé(s) sur la période (${pct(c.rate)} des créneaux), ${c.registrations} inscription(s) concernée(s)` +
+      (c.by_type.length ? ` — ${c.by_type.map(t => `${t.type} : ${t.count}`).join(", ")}.` : ".")
+    : "Aucune annulation sur la période.";
+  $("stats-cancel-reasons").innerHTML = c.by_reason.length ? c.by_reason.map(r => `
+    <tr><th scope="row">${esc(r.reason)}</th><td class="num" data-label="Créneaux annulés">${r.count}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="empty">Aucune annulation.</td></tr>`;
   const fmtMonth = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
   $("stats-months-body").innerHTML = s.by_month.slice().reverse().map(m => `
     <tr><th scope="row">${esc(fmtMonth.format(new Date(`${m.month}-15T12:00:00`)))}</th>
       <td class="num" data-label="Créneaux">${m.slots}</td><td class="num" data-label="Inscriptions">${m.registrations}</td>
-      <td class="num" data-label="Présents">${m.present}</td></tr>`).join("");
+      <td class="num" data-label="Présents">${m.present}</td><td class="num" data-label="Annulés">${m.cancelled}</td></tr>`).join("");
   $("stats-members").innerHTML = s.members.length ? s.members.map(m => `
     <tr${m.registrations ? "" : ' class="muted"'}><th scope="row">${esc(m.display_name)}</th>
       <td class="num" data-label="Inscriptions">${m.registrations}</td><td class="num" data-label="Présent">${m.present}</td>
@@ -2329,7 +2337,81 @@ async function loadTypes() {
     return;
   }
   renderTypes();
+  loadReasons();
 }
+
+// ---- Motifs d'annulation d'un créneau (proposés par le bouton « Annuler » des créneaux choisis) ----
+
+const reasonsBody = $("reasons-body");
+const reasonForm = $("reason-form");
+let reasons = [];
+
+async function loadReasons() {
+  $("reasons-panel").hidden = isSuper() && !typesScope;
+  if ($("reasons-panel").hidden) return;
+  try {
+    reasons = await Session.api(`/api/admin/cancellation-reasons${typesQS()}`);
+  } catch (e) {
+    reasonsBody.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  reasonsBody.innerHTML = reasons.length ? reasons.map(r => `
+    <tr data-id="${r.id}"><th scope="row">${esc(r.label)}</th>
+      <td data-label="Proposé"><input type="checkbox" data-act="reason-active" ${r.active ? "checked" : ""} aria-label="Proposer « ${esc(r.label)} »"></td>
+      <td class="num" data-label="Utilisé">${r.uses}</td>
+      <td class="actions">
+        <button type="button" class="btn-quiet btn-small" data-act="reason-rename">Renommer</button>
+        <button type="button" class="btn-danger btn-small" data-act="reason-delete">Supprimer</button>
+      </td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">Aucun motif : l'annulation d'un créneau se fera sans motif choisi.</td></tr>`;
+}
+
+reasonForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const out = $("reason-status");
+  out.textContent = "";
+  try {
+    await Session.api(`/api/admin/cancellation-reasons${typesQS()}`, {
+      method: "POST", body: { label: $("reason-label").value.trim() } });
+    reasonForm.reset();
+    loadReasons();
+  } catch (err) {
+    out.textContent = err.message;
+  }
+});
+
+reasonsBody.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const row = btn.closest("tr");
+  const r = reasons.find(x => x.id === Number(row.dataset.id));
+  try {
+    if (btn.dataset.act === "reason-rename") {
+      const label = prompt("Nouveau libellé du motif (les créneaux déjà annulés gardent l'ancien) :", r.label);
+      if (label && label.trim() && label.trim() !== r.label) {
+        await Session.api(`/api/admin/cancellation-reasons/${r.id}`, { method: "PATCH", body: { label: label.trim() } });
+        loadReasons();
+      }
+    } else if (btn.dataset.act === "reason-delete") {
+      if (!confirm(`Supprimer le motif « ${r.label} » ?${r.uses ? ` ${r.uses} créneau(x) annulé(s) gardent ce libellé.` : ""}`)) return;
+      await Session.api(`/api/admin/cancellation-reasons/${r.id}`, { method: "DELETE" });
+      loadReasons();
+    }
+  } catch (err) {
+    flash(esc(err.message));
+  }
+});
+
+reasonsBody.addEventListener("change", async e => {
+  if (e.target.dataset.act !== "reason-active") return;
+  const id = Number(e.target.closest("tr").dataset.id);
+  try {
+    await Session.api(`/api/admin/cancellation-reasons/${id}`, { method: "PATCH", body: { active: e.target.checked } });
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    flash(esc(err.message));
+  }
+});
 
 // ---- Plages d'indisponibilité : aucun créneau ne peut y être choisi ou créé ----
 

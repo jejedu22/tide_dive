@@ -85,7 +85,7 @@ def selections_in_unavailability(structure_id: int, unavailability_id: int) -> l
             JOIN unavailabilities u ON u.id = ? AND u.structure_id = s.structure_id
             LEFT JOIN ports p ON p.id = s.port_id
             JOIN slot_types t ON t.id = s.type_id
-            WHERE s.structure_id = ? AND {_UNAV_START} <= {_UNAV_SEL_END} AND {_UNAV_END} > {_UNAV_SEL_START}
+            WHERE s.structure_id = ? AND s.cancelled_at IS NULL AND {_UNAV_START} <= {_UNAV_SEL_END} AND {_UNAV_END} > {_UNAV_SEL_START}
             ORDER BY s.local_date, s.rdv_date, s.rdv_time
             """,
             (unavailability_id, structure_id),

@@ -33,7 +33,7 @@ def logbook(user: CurrentUser):
             JOIN slot_types t ON t.id = s.type_id
             JOIN structures st ON st.id = s.structure_id
             LEFT JOIN ports p ON p.id = s.port_id
-            WHERE r.user_id = ? AND s.local_date <= ?
+            WHERE r.user_id = ? AND s.local_date <= ? AND s.cancelled_at IS NULL
             ORDER BY s.local_date DESC, s.rdv_time DESC
         """, (user["id"], today)).fetchall()
     entries = [{

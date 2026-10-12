@@ -79,9 +79,9 @@ TAGS: list[tuple[str, str, tuple[str, ...]]] = [
      (r"^/api/me/", r"^/api/push/")),
     ("Marées et recherche", "Ports, calendrier, fenêtres de plongée autour des étales, hauteurs d'eau, météo.",
      (r"^/api/ports", r"^/api/calendar-days", r"^/api/dive-windows", r"^/api/water-", r"^/api/weather/")),
-    ("Créneaux et inscriptions", "Types de créneaux, créneaux choisis par la structure, inscriptions, "
+    ("Créneaux et inscriptions", "Types de créneaux, créneaux choisis par la structure (annulation avec motif), inscriptions, "
      "file d'attente, présence, indisponibilités.",
-     (r"^/api/selections", r"^/api/slot-types", r"^/api/unavailabilities")),
+     (r"^/api/selections", r"^/api/slot-types", r"^/api/unavailabilities", r"^/api/cancellation-reasons")),
     ("Sites et courants", "Sites de plongée de la structure et courants de marée (atlas du SHOM).",
      (r"^/api/dive-sites", r"^/api/admin/dive-sites", r"^/api/admin/currents")),
     ("Plongeurs", "Fiches plongeurs : niveaux, licence, certificat médical (CACI).", (r"^/api/divers",)),
@@ -131,6 +131,7 @@ SUMMARIES = {
     ("GET", "/api/dive-windows"): "Fenêtres de plongée autour des étales d'un port",
     ("GET", "/api/admin/users"): "Comptes de la structure",
     ("GET", "/api/admin/slot-types"): "Types de créneaux de la structure",
+    ("GET", "/api/admin/cancellation-reasons"): "Motifs d'annulation de la structure",
     ("GET", "/api/admin/water-thresholds"): "Seuils de hauteur d'eau de la structure",
     ("GET", "/api/admin/structure-invitations"): "Invitations envoyées par la structure",
     ("GET", "/api/admin/structure-dashboard"): "Tableau de bord de la structure",

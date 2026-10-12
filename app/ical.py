@@ -72,13 +72,19 @@ def summary(s: dict) -> str:
     if s.get("port"):
         parts.append(s["port"])
     title = " · ".join(parts)
-    if s.get("my_status") == "waiting":
+    if s.get("cancelled"):
+        title = "ANNULÉ — " + title
+    elif s.get("my_status") == "waiting":
         title += f" (file d'attente, rang {s['my_position']})"
     return title
 
 
 def description(s: dict, link: str | None = None) -> str:
     lines = []
+    cancelled = s.get("cancelled")
+    if cancelled:
+        lines.append("Créneau annulé" + (f" : {cancelled['reason']}" if cancelled.get("reason") else "")
+                     + (f" ({cancelled['note']})" if cancelled.get("note") else "") + ".")
     water = s.get("water")
     if s.get("custom") and s.get("end_date"):
         lines.append(f"RDV {s['rdv']['time']} le premier jour")
@@ -131,6 +137,7 @@ def calendar(selections: list[dict], name: str, uid_domain: str, link: str | Non
             lines.append(f"LOCATION:{escape(s['port'])}")
         if link:
             lines.append(f"URL:{link}")
-        lines += ["TRANSP:OPAQUE", "END:VEVENT"]
+        lines += ["STATUS:CANCELLED", "TRANSP:TRANSPARENT"] if s.get("cancelled") else ["TRANSP:OPAQUE"]
+        lines.append("END:VEVENT")
     lines.append("END:VCALENDAR")
     return "\r\n".join(fold(line) for line in lines) + "\r\n"

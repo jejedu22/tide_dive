@@ -387,6 +387,9 @@ def _selection_out(
         "min_level_own": row["min_level"],
         "picked_by": row["picked_by_name"],   # None : compte supprimé depuis
         "created_at": row["created_at"],
+        # créneau annulé (cancellations.py) : date, motif (libellé recopié) et précision ; None sinon
+        "cancelled": ({"at": row["cancelled_at"], "reason": row["cancel_reason"], "note": row["cancel_note"]}
+                      if row["cancelled_at"] else None),
         "registrations": registrations,       # par ordre d'inscription : les confirmés, puis la file d'attente
         "registered": mine is not None,       # inscrit, confirmé ou en file d'attente
         "max_registrations": capacity,        # None : illimité
@@ -402,7 +405,7 @@ def _selection_out(
         # feuille de présence : à partir du jour du créneau
         "attendance_open": row["local_date"] <= _today(),
         "register_until": reg_until,
-        "can_register": _today() <= reg_until,
+        "can_register": _today() <= reg_until and not row["cancelled_at"],
         "unregister_until": unreg_until,
         # le délai protège les places confirmées ; un membre en file d'attente n'en occupe aucune : il peut la quitter
         "can_unregister": _today() <= unreg_until or (mine is not None and mine["waiting"]),
@@ -598,6 +601,8 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
     row = db.get_selection(sid, selection_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["cancelled_at"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est annulé : rétablissez-le avant de le modifier")
     sent = body.model_fields_set
     custom_fields = {"port_id", "location", "date", "end_date", "time"}
     if sent & custom_fields:
@@ -705,12 +710,14 @@ def _check_caci(member: sqlite3.Row, row: sqlite3.Row) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, msg)
 
 
-def _upcoming_selection_or_error(structure_id: int, selection_id: int) -> sqlite3.Row:
+def _upcoming_selection_or_error(structure_id: int, selection_id: int, allow_cancelled: bool = False) -> sqlite3.Row:
     row = db.get_selection(structure_id, selection_id)  # filtré par structure
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     if row["local_date"] < _today():
         raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est passé : les inscriptions sont closes")
+    if row["cancelled_at"] and not allow_cancelled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est annulé : les inscriptions sont closes")
     return row
 
 
@@ -813,7 +820,7 @@ def unregister(selection_id: int, user: CurrentMember, background: BackgroundTas
     """Se désinscrire d'un créneau à venir, avant le délai fixé par la structure (quitter la file d'attente :
     à tout moment). Le premier de la file d'attente, s'il y en a un, prend la place libérée et en est prévenu."""
     sid = user["structure_id"]
-    row = _upcoming_selection_or_error(sid, selection_id)
+    row = _upcoming_selection_or_error(sid, selection_id, allow_cancelled=True)
     _, waiting_before = _status(sid, selection_id)
     if user["id"] not in waiting_before:   # quitter la file d'attente reste possible après le délai
         _check_open(row, db.get_lock_days(sid)["unregister_lock_days"], "Désinscription close")
@@ -1111,6 +1118,8 @@ def set_attendance(selection_id: int, body: AttendanceIn, actor: CurrentRegistra
     row = db.get_selection(sid, selection_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
+    if row["cancelled_at"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est annulé : il n'y a pas de présence à pointer")
     if row["local_date"] > _today():
         raise HTTPException(status.HTTP_409_CONFLICT, "Les présences se pointent à partir du jour du créneau")
     registered = {r["user_id"] for r in db.list_registrations(sid, selection_id)}

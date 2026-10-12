@@ -529,6 +529,33 @@ def _m025_super_mode(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN super_mode INTEGER NOT NULL DEFAULT 0")
 
 
+DEFAULT_CANCELLATION_REASONS = ("Météo défavorable", "Mer trop agitée", "Pas assez d'inscrits",
+                                "Bateau ou matériel indisponible", "Encadrement indisponible", "Autre")
+
+
+def _m026_cancellations(conn: sqlite3.Connection) -> None:
+    """Créneaux annulés (cancellations.py) : motifs par structure (ceux d'usage au départ) et colonnes d'annulation."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS cancellation_reasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+        label TEXT NOT NULL COLLATE NOCASE,
+        position INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        UNIQUE (structure_id, label)
+    )""")
+    existing = _columns(conn, "slot_selections")
+    for col, ddl in (("cancelled_at", "TEXT"),
+                     ("cancelled_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
+                     ("cancel_reason_id", "INTEGER REFERENCES cancellation_reasons(id) ON DELETE SET NULL"),
+                     ("cancel_reason", "TEXT"), ("cancel_note", "TEXT")):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_selections ADD COLUMN {col} {ddl}")
+    for st in conn.execute("SELECT id FROM structures").fetchall():
+        if not conn.execute("SELECT 1 FROM cancellation_reasons WHERE structure_id = ?", (st["id"],)).fetchone():
+            conn.executemany("INSERT INTO cancellation_reasons (structure_id, label, position) VALUES (?, ?, ?)",
+                             [(st["id"], label, i) for i, label in enumerate(DEFAULT_CANCELLATION_REASONS)])
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -555,6 +582,7 @@ MIGRATIONS: list[Migration] = [
     Migration(23, "jetons d'API des comptes (outils tiers)", _m023_api_tokens),
     Migration(24, "ports : niveau moyen estimé depuis api-maree.fr", _m024_offset_estimated),
     Migration(25, "sessions : mode super administrateur activé à la demande", _m025_super_mode),
+    Migration(26, "créneaux annulés : motifs d'annulation par structure", _m026_cancellations),
 ]
 
 
