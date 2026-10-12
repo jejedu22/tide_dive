@@ -4,7 +4,8 @@ Tableau de bord d'une structure, pour ses administrateurs (et les super administ
 - À faire : réglages manquants (pas de type de créneau, pas de port par défaut…), certificats médicaux à valider,
   membres sans CACI valable (si la structure le vérifie), invitations et comptes en attente, créneaux passés dont
   la présence n'est pas pointée, créneaux à venir peu remplis ou complets avec une file d'attente.
-- Statistiques sur une période (12 mois par défaut) : par type de créneau (créneaux, inscriptions, taux de
+- Statistiques sur une période (12 mois par défaut ; les créneaux annulés n'y comptent pas, ils ont leur bloc « annulations »,
+  par motif, type et mois) : par type de créneau (créneaux, inscriptions, taux de
   remplissage, présents), par mois, et par membre (inscriptions, présences, absences), avec les membres sans
   aucune inscription.
 
@@ -65,8 +66,10 @@ def structure_dashboard(actor: CurrentManager, structure_id: int | None = None):
               (SELECT COUNT(*) FROM memberships WHERE structure_id = :sid) AS members,
               (SELECT COUNT(*) FROM memberships WHERE structure_id = :sid AND role = 'manager') AS managers,
               (SELECT COUNT(*) FROM slot_types WHERE structure_id = :sid AND active) AS active_types,
-              (SELECT COUNT(*) FROM slot_selections WHERE structure_id = :sid
+              (SELECT COUNT(*) FROM slot_selections WHERE structure_id = :sid AND cancelled_at IS NULL
                  AND COALESCE(end_date, local_date) >= :today) AS upcoming,
+              (SELECT COUNT(*) FROM slot_selections WHERE structure_id = :sid AND cancelled_at >= :since)
+                 AS cancelled_30d,
               (SELECT COUNT(*) FROM slot_registrations r JOIN slot_selections s ON s.id = r.selection_id
                  WHERE s.structure_id = :sid AND r.created_at >= :since) AS registrations_30d,
               (SELECT COUNT(*) FROM users u JOIN memberships m ON m.user_id = u.id
@@ -86,7 +89,7 @@ def structure_dashboard(actor: CurrentManager, structure_id: int | None = None):
             FROM slot_selections s
             JOIN slot_types t ON t.id = s.type_id
             LEFT JOIN ports p ON p.id = s.port_id
-            WHERE s.structure_id = :sid AND s.local_date BETWEEN :start AND :end
+            WHERE s.structure_id = :sid AND s.cancelled_at IS NULL AND s.local_date BETWEEN :start AND :end
             ORDER BY s.local_date, s.rdv_time
         """
         soon = conn.execute(slots_sql, {"sid": sid, "start": today.isoformat(),
@@ -147,7 +150,7 @@ def structure_stats(actor: CurrentManager, structure_id: int | None = None,
             FROM slot_selections s
             JOIN slot_types t ON t.id = s.type_id
             LEFT JOIN slot_registrations r ON r.selection_id = s.id
-            WHERE s.structure_id = :sid AND s.local_date BETWEEN :start AND :end
+            WHERE s.structure_id = :sid AND s.cancelled_at IS NULL AND s.local_date BETWEEN :start AND :end
             GROUP BY s.id ORDER BY s.local_date
         """, params).fetchall()
         per_member = conn.execute("""
@@ -159,16 +162,25 @@ def structure_stats(actor: CurrentManager, structure_id: int | None = None,
                    MAX(s.local_date) AS last_slot
             FROM memberships m
             JOIN users u ON u.id = m.user_id
-            LEFT JOIN slot_selections s ON s.structure_id = m.structure_id AND s.local_date BETWEEN :start AND :end
+            LEFT JOIN slot_selections s ON s.structure_id = m.structure_id AND s.cancelled_at IS NULL
+                 AND s.local_date BETWEEN :start AND :end
             LEFT JOIN slot_registrations r ON r.selection_id = s.id AND r.user_id = u.id
             WHERE m.structure_id = :sid
             GROUP BY u.id
+        """, params).fetchall()
+        # annulations (cancellations.py) : comptées à la date de l'annulation, sur la même période
+        cancelled = conn.execute("""
+            SELECT s.cancelled_at, s.cancel_reason, s.type_id, t.label, t.color,
+                   (SELECT COUNT(*) FROM slot_registrations r WHERE r.selection_id = s.id) AS regs
+            FROM slot_selections s JOIN slot_types t ON t.id = s.type_id
+            WHERE s.structure_id = :sid AND s.cancelled_at IS NOT NULL AND substr(s.cancelled_at, 1, 10) >= :start
         """, params).fetchall()
     by_type: dict[int, dict] = {}
     by_month: dict[str, dict] = {}
     m = start
     while m <= today:
-        by_month[m.isoformat()[:7]] = {"month": m.isoformat()[:7], "slots": 0, "registrations": 0, "present": 0}
+        by_month[m.isoformat()[:7]] = {"month": m.isoformat()[:7], "slots": 0, "registrations": 0, "present": 0,
+                                       "cancelled": 0}
         m = (m + timedelta(days=32)).replace(day=1)
     totals = {"slots": 0, "registrations": 0, "present": 0, "absent": 0, "excused": 0, "marked": 0,
               "capacity": 0, "confirmed_in_capped": 0}
@@ -199,6 +211,23 @@ def structure_stats(actor: CurrentManager, structure_id: int | None = None,
                 "fill_rate": round(b["confirmed_in_capped"] / b["capacity"], 3) if b["capacity"] else None,
                 "attendance_rate": round(b["present"] / b["marked"], 3) if b["marked"] else None}
 
+    reasons: dict[str, int] = {}
+    cancelled_by_type: dict[int, dict] = {}
+    for c in cancelled:
+        reasons[c["cancel_reason"] or "Sans motif"] = reasons.get(c["cancel_reason"] or "Sans motif", 0) + 1
+        t = cancelled_by_type.setdefault(c["type_id"], {"type": c["label"], "color": c["color"], "count": 0})
+        t["count"] += 1
+        month = by_month.get(c["cancelled_at"][:7])
+        if month:
+            month["cancelled"] += 1
+    held = totals["slots"]
+    cancellations = {
+        "total": len(cancelled),
+        "registrations": sum(c["regs"] for c in cancelled),     # inscrits concernés
+        "rate": round(len(cancelled) / (held + len(cancelled)), 3) if held + len(cancelled) else None,
+        "by_reason": sorted(({"reason": k, "count": v} for k, v in reasons.items()), key=lambda x: (-x["count"], x["reason"])),
+        "by_type": sorted(cancelled_by_type.values(), key=lambda x: -x["count"]),
+    }
     members = sorted(({
         "id": r["id"], "display_name": accounts.display_name(r), "username": r["username"], "role": r["role"],
         "registrations": r["regs"], "present": r["present"] or 0, "absent": r["absent"] or 0,
@@ -207,6 +236,7 @@ def structure_stats(actor: CurrentManager, structure_id: int | None = None,
     return {
         "start": start.isoformat(), "end": today.isoformat(), "months": months,
         "totals": rates(totals),
+        "cancellations": cancellations,
         "by_type": sorted((rates(b) for b in by_type.values()), key=lambda b: -b["slots"]),
         "by_month": list(by_month.values()),
         "members": members,

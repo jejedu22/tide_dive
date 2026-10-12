@@ -94,7 +94,7 @@ def selections_weather(user: CurrentMember):
     out: dict[int, dict] = {}
     ports: dict[int, dict | None] = {}
     for row in db.list_selections(user["structure_id"], today.isoformat()):
-        if row["port_id"] is None or row["local_date"] > last:
+        if row["port_id"] is None or row["local_date"] > last or row["cancelled_at"]:
             continue
         if row["port_id"] not in ports:
             port = db.get_port(row["port_id"])

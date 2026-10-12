@@ -71,6 +71,13 @@ SLOT_SELECTIONS_COLUMNS = """(
     max_registrations INTEGER CHECK (max_registrations IS NULL OR max_registrations BETWEEN 1 AND 500),
     -- niveau de plongeur minimal pour s'inscrire (diver.DIVER_LEVELS) ; NULL : celui du type
     min_level TEXT,
+    -- créneau annulé (selections annulé, voir cancellations.py) : il reste dans la liste et les statistiques, ses
+    -- inscriptions sont conservées mais plus aucune n'est possible ; le motif est recopié (le motif peut être supprimé)
+    cancelled_at TEXT,
+    cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    cancel_reason_id INTEGER REFERENCES cancellation_reasons(id) ON DELETE SET NULL,
+    cancel_reason TEXT,
+    cancel_note TEXT,
     -- étale : tous ses champs ; personnalisé : aucun
     CHECK ((ts_utc IS NULL) = (kind IS NULL) AND (ts_utc IS NULL) = (local_time IS NULL)
            AND (ts_utc IS NULL) = (height_m IS NULL)),
@@ -662,6 +669,16 @@ CREATE TABLE IF NOT EXISTS dive_sites """ + DIVE_SITES_COLUMNS + """;
 -- Courant de marée au site, sur un cycle : décalage (minutes) par rapport à la pleine mer du port de référence,
 -- composantes est (u) et nord (v) en m/s pour un coefficient 45 (morte-eau moyenne) et 95 (vive-eau moyenne).
 CREATE TABLE IF NOT EXISTS site_currents """ + SITE_CURRENTS_COLUMNS + """;
+
+-- Motifs d'annulation d'un créneau, gérés par les administrateurs de chaque structure (cancellations.py)
+CREATE TABLE IF NOT EXISTS cancellation_reasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    label TEXT NOT NULL COLLATE NOCASE,
+    position INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (structure_id, label)
+);
 
 CREATE TABLE IF NOT EXISTS slot_selections """ + SLOT_SELECTIONS_COLUMNS + """;
 

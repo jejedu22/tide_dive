@@ -123,6 +123,8 @@ function registrationsCell(p) {
     : "";
   const button = p.past
     ? ""
+    : p.cancelled && !p.registered
+      ? `<span class="reg-locked" title="Ce créneau est annulé : plus d'inscription">🚫 Annulé</span>`
     : !p.registered
       ? !levelOk(p)
         ? `<span class="reg-locked" title="Ce créneau demande le niveau ${esc(p.min_level.label)} au moins (votre fiche plongeur). Un encadrant peut vous inscrire.">🔒 ${esc(p.min_level.label)} requis</span>`
@@ -134,17 +136,17 @@ function registrationsCell(p) {
         ? `<button type="button" class="btn-quiet btn-small" data-act="unregister"
              title="Possible jusqu'au ${formatDay(p.unregister_until)} inclus">${p.my_status === "waiting" ? "Quitter la file" : "Se désinscrire"}</button>`
         : `<span class="reg-locked" title="Désinscription close depuis le ${formatDay(nextDay(p.unregister_until))} : contactez un administrateur de la structure">🔒 Désinscription close</span>`;
-  const others = !p.past && canRegisterOthers()
+  const others = !p.past && !p.cancelled && canRegisterOthers()
     ? `<button type="button" class="btn-quiet btn-small" data-act="register-others" title="Inscrire d'autres membres de la structure">+ Inscrire…</button>`
     : "";
-  const places = !p.past && canPick()
+  const places = !p.past && !p.cancelled && canPick()
     ? `<button type="button" class="btn-quiet btn-small" data-act="capacity" title="Nombre de places et niveau minimal de ce créneau">Places…</button>`
     : "";
   const marked = p.registrations.filter(r => r.attendance).length;
-  const presence = p.attendance_open && canRegisterOthers() && p.registrations.length
+  const presence = p.attendance_open && !p.cancelled && canRegisterOthers() && p.registrations.length
     ? `<button type="button" class="btn-quiet btn-small" data-act="attendance" title="Feuille de présence : qui est venu">Présences${marked ? ` (${marked}/${p.registrations.length})` : "…"}</button>`
     : "";
-  const note = p.registered && !p.past
+  const note = p.registered && !p.past && !p.cancelled
     ? `<button type="button" class="btn-quiet btn-small" data-act="my-note" title="Commentaire et covoiturage">Mon inscription…</button>` : "";
   const car = p.carpool && (p.carpool.seats || p.carpool.needs)
     ? `<span class="carpool-chip" title="Covoiturage : places proposées par les inscrits, et inscrits qui cherchent une place">🚗 ${p.carpool.seats} place(s)${p.carpool.needs ? ` · ${p.carpool.needs} cherche(nt)` : ""}</span>` : "";
@@ -173,9 +175,18 @@ const currentsButton = p => (!p.end_date && hasCurrentSites
   ? `<button type="button" class="btn-quiet btn-small slot-currents" data-act="currents"
       title="Courant de marée aux sites de plongée de la structure, autour du créneau">${Session.icon("wave", 15)}<span>Courants</span></button>`
   : "");
+// Annuler (motif obligatoire : le créneau reste visible, marqué annulé) / Rétablir : créneaux à venir
+const cancelButton = p => (!canPick() || p.past ? ""
+  : p.cancelled
+    ? `<button type="button" class="btn-quiet btn-small" data-act="reinstate" title="Remettre ce créneau en place : ses inscriptions sont conservées">Rétablir</button>`
+    : `<button type="button" class="btn-secondary btn-small" data-act="cancel" title="Annuler ce créneau (motif à choisir) : il reste affiché, marqué annulé, et les inscrits sont prévenus">Annuler</button>`);
+// Mention d'un créneau annulé : motif et précision
+const cancelledLine = p => (p.cancelled
+  ? `<span class="slot-cancelled" title="Créneau annulé le ${esc(formatDay(p.cancelled.at.slice(0, 10)))}">🚫 Annulé${p.cancelled.reason ? ` : ${esc(p.cancelled.reason)}` : ""}${p.cancelled.note ? ` (${esc(p.cancelled.note)})` : ""}</span>`
+  : "");
 const removeButton = () => (canPick() ? `<button type="button" class="btn-danger btn-small" data-act="remove">Retirer</button>` : "");
 // Modifier : créneau personnalisé (lieu, jour, heure, intitulé) ; créneau d'étale : son intitulé seulement
-const editButton = p => (canPick() ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
+const editButton = p => (canPick() && !p.cancelled ? `<button type="button" class="btn-quiet btn-small" data-act="edit"${p.custom ? "" : ` title="Intitulé : distingue les créneaux choisis sur la même étale"`}>Modifier</button>` : "");
 // Dupliquer : créneau personnalisé seulement (un créneau d'étale suit la marée de son jour)
 const duplicateButton = p => (canPick() && p.custom ? `<button type="button" class="btn-quiet btn-small" data-act="duplicate" title="Copier ce créneau à un autre jour">Dupliquer…</button>` : "");
 // Météo marine indicative (Open-Meteo) des créneaux des 7 prochains jours, chargée après les créneaux
@@ -225,11 +236,12 @@ const tideMark = p => (p.water ? waterMark(p) : p.custom
 // c'est elle qui compte pour venir plonger.
 function slotCard(p) {
   return `
-    <li class="slot-card${p.past ? " past" : ""}${p.registered ? " mine" : ""}" data-id="${p.id}" style="--type-color:${esc(p.type.color)}">
+    <li class="slot-card${p.past ? " past" : ""}${p.registered ? " mine" : ""}${p.cancelled ? " cancelled" : ""}" data-id="${p.id}" style="--type-color:${esc(p.type.color)}">
       <div class="slot-head">
         <p class="slot-rdv"><abbr title="${rdvTitle(p)}">RDV</abbr> ${veilleMark(p)}<strong>${p.rdv.time}</strong></p>
         <p class="slot-port">${esc(p.port)}</p>
       </div>
+      ${p.cancelled ? `<p>${cancelledLine(p)}</p>` : ""}
       ${p.note ? `<p>${noteLine(p)}</p>` : ""}
       ${p.end_date ? `<p>${spanLine(p)}</p>` : ""}
       ${p.water ? `<p class="slot-water">${esc(p.water.label)}</p>` : ""}
@@ -243,7 +255,7 @@ function slotCard(p) {
       <div class="slot-row">${registrationsCell(p)}</div>
       <div class="slot-foot">
         <span class="slot-by">${p.custom ? "Ajouté" : "Choisi"} par ${pickedBy(p)}</span>
-        <span class="slot-acts">${shareButton(p)}${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</span>
+        <span class="slot-acts">${shareButton(p)}${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${cancelButton(p)}${removeButton()}</span>
       </div>
     </li>`;
 }
@@ -451,7 +463,7 @@ function renderCalendar(list) {
       (mine ? `, inscrit sur ${mine}` : "");
     // jours suivants d'un séjour : flèche à la place de l'heure de RDV
     const chips = items.slice(0, 3).map(p =>
-      `<span class="cal-chip${p.registered ? " mine" : ""}" style="--type-color:${esc(p.type.color)}"><b>${p.date === day ? p.rdv.time : "→"}</b> ${esc(p.note || p.port)}</span>`).join("") +
+      `<span class="cal-chip${p.registered ? " mine" : ""}${p.cancelled ? " cancelled" : ""}" title="${p.cancelled ? "Annulé" : ""}" style="--type-color:${esc(p.type.color)}"><b>${p.date === day ? p.rdv.time : "→"}</b> ${esc(p.note || p.port)}</span>`).join("") +
       (items.length > 3 ? `<span class="cal-more">+${items.length - 3}</span>` : "");
     cells.push(`<button type="button" class="${cls}" data-day="${day}"
       aria-pressed="${day === selectedDay}" tabindex="${day === selectedDay ? 0 : -1}"
@@ -519,17 +531,17 @@ function renderTable(list) {
   for (const [day, items] of groupByDay(list)) {
     items.forEach((p, i) => {
       rows.push(`
-        <tr data-id="${p.id}" class="${[i === 0 ? "day-start" : "", day < today ? "past" : ""].join(" ").trim()}">
+        <tr data-id="${p.id}" class="${[i === 0 ? "day-start" : "", day < today ? "past" : "", p.cancelled ? "cancelled" : ""].join(" ").trim()}">
           ${i === 0 ? `<th scope="row" rowspan="${items.length}" class="c-date">${formatDay(day)}</th>` : ""}
           <td class="c-rdv">${veilleMark(p)}${p.rdv.time}</td>
-          <td class="c-port">${esc(p.port)}${noteLine(p)}${spanLine(p)}${weatherLine(p)}</td>
+          <td class="c-port">${esc(p.port)}${noteLine(p)}${spanLine(p)}${cancelledLine(p)}${weatherLine(p)}</td>
           <td class="c-tide">${tideMark(p)}</td>
           <td class="num">${fmtHeight(p.height_m)}</td>
           <td class="num"><span class="coef ${coefClass(p.coefficient)}">${fmtCoef(p.coefficient)}</span></td>
           <td class="c-type">${typeCell(p)}</td>
           <td class="c-regs">${registrationsCell(p)}</td>
           <td class="c-by">${pickedBy(p)}</td>
-          <td class="c-actions">${shareButton(p)}${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${removeButton()}</td>
+          <td class="c-actions">${shareButton(p)}${agendaLink(p)}${currentsButton(p)}${editButton(p)}${duplicateButton(p)}${cancelButton(p)}${removeButton()}</td>
         </tr>`);
     });
   }
@@ -822,6 +834,68 @@ picksEl.addEventListener("click", async e => {
       if (notify && reason) q.set("reason", reason);
       await remove(`?${q}`);
       statusEl.textContent = notify ? `Créneau retiré : ${n} inscrit(s) prévenu(s) par e-mail.` : "Créneau retiré.";
+    },
+  });
+});
+
+// ---- Annuler / rétablir un créneau (administration ou profil « Créneaux ») ----
+
+let cancelReasons = null;     // motifs proposés par la structure
+
+picksEl.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act=cancel], button[data-act=reinstate]");
+  if (!btn) return;
+  const id = holderId(btn);
+  const p = picks.find(x => x.id === id);
+  if (!p) return;
+  const n = p.registrations.length;
+  const mail = Session.config.password_reset;   // envoi d'e-mails configuré
+  const done = updated => {
+    picks = picks.map(x => (x.id === id ? updated : x));
+    render();
+  };
+  if (btn.dataset.act === "reinstate") {
+    openDialog({
+      title: "Rétablir le créneau",
+      submitLabel: "Rétablir",
+      body: `
+        <p class="dialog-hint">Le créneau du ${esc(formatLong(p.date))} (${esc(p.note || p.port)}) redevient ouvert aux inscriptions.${n ? ` Ses ${n} inscription(s) sont conservées.` : ""}</p>
+        ${n ? `<label class="check"><input type="checkbox" name="notify" checked> Prévenir les inscrits</label>` : ""}`,
+      onSubmit: async form => {
+        done(await Session.api(`/api/selections/${id}/reinstate`, {
+          method: "POST", body: { notify: !form.notify || form.notify.checked } }));
+        statusEl.textContent = "Créneau rétabli.";
+      },
+    });
+    return;
+  }
+  try {
+    cancelReasons = await Session.api("/api/cancellation-reasons");
+  } catch (err) {
+    statusEl.textContent = `Motifs indisponibles : ${err.message}`;
+    return;
+  }
+  openDialog({
+    title: "Annuler le créneau",
+    submitLabel: "Annuler le créneau",
+    body: `
+      <p class="dialog-hint">Créneau du ${esc(formatLong(p.date))} (${esc(p.note || p.port)}), RDV ${esc(p.rdv.time)}. Il reste affiché, marqué annulé${n ? `, avec ses ${n} inscription(s)` : ""} ; plus personne ne peut s'y inscrire.</p>
+      ${cancelReasons.length ? `
+      <label>Motif
+        <select name="reason" required>
+          <option value="">— Choisir —</option>
+          ${cancelReasons.map(r => `<option value="${r.id}">${esc(r.label)}</option>`).join("")}
+        </select></label>` : `<p class="muted">Aucun motif n'est proposé : un administrateur peut en ajouter (Administration → Créneaux).</p>`}
+      <label>Précision <span class="field-hint">(facultative, montrée avec le motif)</span>
+        <input name="note" maxlength="300" placeholder="ex. houle de 3 m annoncée"></label>
+      ${n ? `<label class="check"><input type="checkbox" name="notify" checked> Prévenir les inscrits${mail ? " par e-mail" : ""}</label>` : ""}`,
+    onSubmit: async form => {
+      const body = { notify: !form.notify || form.notify.checked };
+      if (form.reason) body.reason_id = Number(form.reason.value);
+      const note = form.note.value.trim();
+      if (note) body.note = note;
+      done(await Session.api(`/api/selections/${id}/cancel`, { method: "POST", body }));
+      statusEl.textContent = "Créneau annulé.";
     },
   });
 });

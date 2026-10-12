@@ -56,7 +56,8 @@ def _upcoming(conn: sqlite3.Connection, structure_id: int, start: date, end: dat
         SELECT s.*, COALESCE(p.name, s.location) AS port_name, t.label AS type_label,
                (SELECT COUNT(*) FROM slot_registrations r WHERE r.selection_id = s.id) AS regs
         FROM slot_selections s JOIN slot_types t ON t.id = s.type_id LEFT JOIN ports p ON p.id = s.port_id
-        WHERE s.structure_id = ? AND s.local_date BETWEEN ? AND ? ORDER BY s.local_date, s.rdv_time
+        WHERE s.structure_id = ? AND s.cancelled_at IS NULL AND s.local_date BETWEEN ? AND ?
+        ORDER BY s.local_date, s.rdv_time
     """, (structure_id, start.isoformat(), end.isoformat())).fetchall()
 
 
@@ -172,7 +173,8 @@ def _new_slots(conn: sqlite3.Connection, structure_id: int, since: str, today: d
     sql = ("""SELECT s.*, COALESCE(p.name, s.location) AS port_name, t.label AS type_label,
                     (SELECT COUNT(*) FROM slot_registrations r WHERE r.selection_id = s.id) AS regs
              FROM slot_selections s JOIN slot_types t ON t.id = s.type_id LEFT JOIN ports p ON p.id = s.port_id
-             WHERE s.structure_id = ? AND s.created_at > ? AND COALESCE(s.end_date, s.local_date) >= ?""")
+             WHERE s.structure_id = ? AND s.cancelled_at IS NULL AND s.created_at > ?
+               AND COALESCE(s.end_date, s.local_date) >= ?""")
     params: list = [structure_id, since, today.isoformat()]
     if types:
         sql += f" AND s.type_id IN ({','.join('?' * len(types))})"

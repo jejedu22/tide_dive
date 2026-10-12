@@ -32,6 +32,11 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/auth/logout"): "Déconnexion",
     ("POST", "/api/me/password"): "Mot de passe changé (titulaire)",
     ("PATCH", "/api/me/profile"): "Profil modifié (titulaire)",
+    ("POST", "/api/selections/{selection_id}/cancel"): "Créneau annulé",
+    ("POST", "/api/selections/{selection_id}/reinstate"): "Créneau rétabli",
+    ("POST", "/api/admin/cancellation-reasons"): "Motif d'annulation créé",
+    ("PATCH", "/api/admin/cancellation-reasons/{reason_id}"): "Motif d'annulation modifié",
+    ("DELETE", "/api/admin/cancellation-reasons/{reason_id}"): "Motif d'annulation supprimé",
     ("PUT", "/api/me/super-mode"): "Mode super administrateur activé ou quitté",
     ("PUT", "/api/me/preview"): "Aperçu d'un autre rôle",
     ("DELETE", "/api/me/preview"): "Fin de l'aperçu",
@@ -193,6 +198,9 @@ _RESOLVERS = [
         r["structure_id"] if r else None)),
     (re.compile(r"/slot-types/(\d+)"), lambda m: (
         (r := _simple("SELECT label, structure_id FROM slot_types WHERE id = ?", int(m[1]))) and r["label"],
+        r["structure_id"] if r else None)),
+    (re.compile(r"/cancellation-reasons/(\d+)"), lambda m: (
+        (r := _simple("SELECT label, structure_id FROM cancellation_reasons WHERE id = ?", int(m[1]))) and r["label"],
         r["structure_id"] if r else None)),
     (re.compile(r"/water-thresholds/(\d+)"), lambda m: (
         (r := _simple("SELECT label FROM water_thresholds WHERE id = ?", int(m[1]))) and r["label"], None)),

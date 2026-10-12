@@ -1273,6 +1273,16 @@ main.narrow-main { max-width: 32rem; }
 .slot-card.past .kind,
 .slot-card.past .coef { filter: grayscale(1); opacity: 0.55; }
 
+/* Créneau annulé (motif visible) : estompé, rayé ; il reste dans la liste */
+.c-port .slot-cancelled { display: block; margin-top: 0.15rem; }
+.slot-cancelled { display: inline-block; font-size: 0.82rem; font-weight: 700; color: #a93226; overflow-wrap: anywhere; }
+.slot-card.cancelled { background: #fdf0ee; border-left: 4px solid #c0392b; }
+.slot-card.cancelled .slot-rdv strong, .slot-card.cancelled .slot-port, tr.cancelled .c-rdv, tr.cancelled .c-tide { text-decoration: line-through; opacity: 0.7; }
+tr.cancelled { background: #fdf0ee; }
+.cal-chip.cancelled { text-decoration: line-through; opacity: 0.6; background: repeating-linear-gradient(135deg, transparent 0 4px, rgba(192, 57, 43, 0.15) 4px 8px); }
+:root[data-theme="dark"] .slot-cancelled { color: #f0a69b; }
+:root[data-theme="dark"] .slot-card.cancelled, :root[data-theme="dark"] tr.cancelled { background: #3a1d19; }
+
 .slot-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.2rem 0.75rem; }
 .slot-rdv { color: var(--blue-deep); font-size: 0.8rem; font-weight: 600; }
 .slot-rdv abbr { text-decoration: none; cursor: help; }

@@ -225,7 +225,8 @@ def slot_lister(structure_id: int) -> newsletter_render.SlotLister:
                 "time": s["local_time"], "coefficient": s["coefficient"],
                 "water": ((s["threshold_label"], s["threshold_height"], s["threshold_direction"],
                            s["window_start_time"], s["window_end_time"]) if s["window_start_utc"] else None),
-            } for s in db.list_selections(structure_id, start.isoformat()) if s["local_date"] <= end.isoformat()]
+            } for s in db.list_selections(structure_id, start.isoformat())
+              if s["local_date"] <= end.isoformat() and not s["cancelled_at"]]
         return cache[(start, end)]
     return list_slots
 
@@ -313,7 +314,7 @@ def audiences(user: NewsletterUser):
         members, skipped = recipients_for(sid, audience)
         out.append({**audience, "label": f"Groupe « {group['name']} »", "recipients": len(members), "unsubscribed": skipped})
     today = datetime.now(PARIS).date().isoformat()
-    for sel in db.list_selections(sid, today)[:60]:
+    for sel in [s for s in db.list_selections(sid, today) if not s["cancelled_at"]][:60]:
         audience = {"kind": "selection", "selection_id": sel["id"]}
         members, skipped = recipients_for(sid, audience)
         out.append({**audience, "label": _audience_label(sid, audience), "recipients": len(members), "unsubscribed": skipped})

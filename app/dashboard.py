@@ -33,9 +33,12 @@ def _structures(today: date, since: str) -> list[dict]:
               (SELECT COUNT(*) FROM memberships m WHERE m.structure_id = st.id) AS members,
               (SELECT COUNT(*) FROM memberships m WHERE m.structure_id = st.id AND m.role = 'manager') AS managers,
               (SELECT COUNT(*) FROM slot_types t WHERE t.structure_id = st.id AND t.active) AS active_types,
-              (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id
+              (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id AND s.cancelled_at IS NULL
                  AND COALESCE(s.end_date, s.local_date) >= :today) AS upcoming,
-              (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id) AS selections,
+              (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id AND s.cancelled_at IS NULL)
+                 AS selections,
+              (SELECT COUNT(*) FROM slot_selections s WHERE s.structure_id = st.id AND s.cancelled_at >= :since)
+                 AS cancelled_30d,
               (SELECT COUNT(*) FROM slot_registrations r JOIN slot_selections s ON s.id = r.selection_id
                  WHERE s.structure_id = st.id AND r.created_at >= :since) AS registrations_30d,
               (SELECT COUNT(*) FROM dive_sites d WHERE d.structure_id = st.id) AS sites,
@@ -65,7 +68,8 @@ def dashboard(admin: CurrentSuperAdmin):
     with db.get_conn() as conn:
         users = conn.execute("SELECT COUNT(*) AS n, SUM(last_login_at >= ?) AS active, SUM(is_admin) AS supers, "
                              "SUM(substr(password_hash, 1, 1) = '!') AS pending FROM users", (since,)).fetchone()
-        upcoming = conn.execute("SELECT COUNT(*) FROM slot_selections WHERE COALESCE(end_date, local_date) >= ?",
+        upcoming = conn.execute("SELECT COUNT(*) FROM slot_selections WHERE cancelled_at IS NULL "
+                                "AND COALESCE(end_date, local_date) >= ?",
                                 (today.isoformat(),)).fetchone()[0]
         regs = conn.execute("SELECT COUNT(*) FROM slot_registrations WHERE created_at >= ?", (since,)).fetchone()[0]
     ports = db.list_ports()
