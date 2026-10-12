@@ -570,6 +570,57 @@ def _m027_newsletter_attachments(conn: sqlite3.Connection) -> None:
     )""")
 
 
+def _m028_helloasso(conn: sqlite3.Connection) -> None:
+    """HelloAsso : compte par structure, prix des types de créneaux, paiements (payments.py)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS helloasso_settings (
+        structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+        org_slug TEXT NOT NULL,
+        client_id_enc TEXT NOT NULL,
+        client_secret_enc TEXT NOT NULL,
+        client_id_hint TEXT NOT NULL,
+        sandbox INTEGER NOT NULL DEFAULT 0,
+        use_slots INTEGER NOT NULL DEFAULT 0,
+        use_membership INTEGER NOT NULL DEFAULT 0,
+        membership_amount_cents INTEGER,
+        membership_season_start TEXT NOT NULL DEFAULT '09-01',
+        membership_required INTEGER NOT NULL DEFAULT 0,
+        notify_token TEXT NOT NULL UNIQUE,
+        checked_at TEXT,
+        check_ok INTEGER,
+        check_message TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('slot', 'membership')),
+        selection_id INTEGER REFERENCES slot_selections(id) ON DELETE SET NULL,
+        label TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed', 'refunded')),
+        method TEXT NOT NULL DEFAULT 'helloasso' CHECK (method IN ('helloasso', 'manual')),
+        checkout_intent_id TEXT,
+        order_id TEXT,
+        receipt_url TEXT,
+        valid_from TEXT,
+        valid_until TEXT,
+        created_at TEXT NOT NULL,
+        paid_at TEXT,
+        recorded_by TEXT
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_payments_structure ON payments(structure_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, kind, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_payments_selection ON payments(selection_id, user_id)")
+    existing = _columns(conn, "slot_types")
+    if "price_cents" not in existing:
+        conn.execute("ALTER TABLE slot_types ADD COLUMN price_cents INTEGER "
+                     "CHECK (price_cents IS NULL OR price_cents BETWEEN 0 AND 100000)")
+    if "free_for_instructors" not in existing:
+        conn.execute("ALTER TABLE slot_types ADD COLUMN free_for_instructors INTEGER NOT NULL DEFAULT 0")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -598,6 +649,7 @@ MIGRATIONS: list[Migration] = [
     Migration(25, "sessions : mode super administrateur activé à la demande", _m025_super_mode),
     Migration(26, "créneaux annulés : motifs d'annulation par structure", _m026_cancellations),
     Migration(27, "pièces jointes des newsletters", _m027_newsletter_attachments),
+    Migration(28, "HelloAsso : compte par structure, prix des types de créneaux, paiements", _m028_helloasso),
 ]
 
 

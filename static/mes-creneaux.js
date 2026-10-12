@@ -111,6 +111,23 @@ const levelBadge = p => (p.min_level ? `<span class="level-badge" title="Niveau 
 let diverLevels = {};
 const typeLevel = p => types.find(t => t.id === p.type.id)?.min_level || null;
 
+// ---- Paiement HelloAsso (proposé seulement si la structure l'a réglé : Session.user.payments) ----
+const eur = cents => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
+// ce que paie ce membre pour ce créneau : 0 si gratuit (encadrants, quand le type le prévoit)
+const myPrice = p => (p.price && !(p.price.free_for_instructors && Session.user?.diver?.instructor_level) ? p.price.cents : 0);
+function payCell(p) {
+  const cfg = Session.user?.payments;
+  if (!cfg?.slots || !p.price || p.past || p.cancelled || !p.registered || p.my_status === "waiting") return "";
+  if (p.my_pay_status === "paid") return `<span class="pay-tag paid" title="Paiement reçu, merci">✓ Payé</span>`;
+  const price = myPrice(p);
+  if (!price) return `<span class="pay-tag free" title="Cette sortie est gratuite pour vous">Gratuit</span>`;
+  return `<button type="button" class="btn-secondary btn-small" data-act="pay"
+    title="Paiement facultatif, sécurisé par HelloAsso : votre inscription ne dépend pas du paiement">Payer ${eur(price)}</button>${
+    p.my_pay_status === "pending" ? ` <span class="muted" title="Un paiement a été commencé : s'il a abouti, il apparaîtra ici dans quelques instants">paiement en cours…</span>` : ""}`;
+}
+// l'administration voit qui a payé (€ : reçu)
+const paidMark = r => (r.pay_status === "paid" ? ` <span class="pay-tag paid" title="A payé sa sortie">€</span>` : "");
+
 function registrationsCell(p) {
   const open = popFor === p.id;
   const waiting = p.waiting_count
@@ -150,7 +167,7 @@ function registrationsCell(p) {
     ? `<button type="button" class="btn-quiet btn-small" data-act="my-note" title="Commentaire et covoiturage">Mon inscription…</button>` : "";
   const car = p.carpool && (p.carpool.seats || p.carpool.needs)
     ? `<span class="carpool-chip" title="Covoiturage : places proposées par les inscrits, et inscrits qui cherchent une place">🚗 ${p.carpool.seats} place(s)${p.carpool.needs ? ` · ${p.carpool.needs} cherche(nt)` : ""}</span>` : "";
-  return `<div class="regs">${count}${mine}${button}${note}${others}${places}${presence}${car}</div>`;
+  return `<div class="regs">${count}${mine}${button}${payCell(p)}${note}${others}${places}${presence}${car}</div>`;
 }
 
 // Délai étale → RDV fixé par la structure (2 h par défaut) ; RDV au pas de 5 min.
@@ -308,7 +325,7 @@ function renderPop() {
     const car = r.carpool === "offer" ? ` <span class="carpool-tag" title="Propose ${r.carpool_seats} place(s) en voiture">🚗 ${r.carpool_seats}</span>`
       : r.carpool === "need" ? ` <span class="carpool-tag" title="Cherche une place en voiture">🚗 ?</span>` : "";
     const comment = r.comment ? `<span class="reg-comment">${esc(r.comment)}</span>` : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${att}${car}${by}${comment}</span>${remove}</li>`;
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${paidMark(r)}${att}${car}${by}${comment}</span>${remove}</li>`;
   };
   const confirmed = p.registrations.filter(r => !r.waiting);
   const waiting = p.registrations.filter(r => r.waiting);
@@ -837,6 +854,39 @@ picksEl.addEventListener("click", async e => {
     },
   });
 });
+
+// ---- Payer une sortie avec HelloAsso : redirection vers la page de paiement ----
+
+picksEl.addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act=pay]");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const r = await Session.api(`/api/selections/${holderId(btn)}/pay`, { method: "POST" });
+    location.href = r.redirect_url;
+  } catch (err) {
+    statusEl.textContent = `Paiement impossible : ${err.message}`;
+    btn.disabled = false;
+  }
+});
+
+// Retour de la page de paiement (?paiement=<identifiant>) : l'état est relu chez HelloAsso, jamais cru d'après l'adresse
+async function handlePaymentReturn() {
+  const params = new URLSearchParams(location.search);
+  const id = params.get("paiement");
+  if (!id) return;
+  history.replaceState(null, "", location.pathname + location.hash);
+  if (params.get("erreur")) { statusEl.textContent = "Le paiement n'a pas abouti : aucun montant n'a été débité."; return; }
+  try {
+    const p = await Session.api(`/api/me/payments/${encodeURIComponent(id)}`);
+    statusEl.textContent = p.status === "paid" ? `Paiement reçu, merci : ${p.label} (${eur(p.amount_cents)}).`
+      : p.status === "pending" ? "Paiement en cours de confirmation par HelloAsso : il apparaîtra ici dans quelques instants."
+      : "Le paiement n'a pas abouti : aucun montant n'a été débité.";
+    await Session.init();      // recharge le compte (cotisation à jour) et les créneaux (✓ Payé)
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
+}
 
 // ---- Annuler / rétablir un créneau (administration ou profil « Créneaux ») ----
 
@@ -1529,6 +1579,7 @@ Session.onChange(user => {
       (user.can.manage_registrations ? " « + Inscrire… » inscrit d'autres membres de la structure." : "");
   renderCaciNote(user);
   load();
+  handlePaymentReturn();
 });
 Session.init();
 

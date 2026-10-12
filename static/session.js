@@ -281,6 +281,29 @@ const Session = (() => {
     });
   }
 
+  // Cotisation au club (HelloAsso) : état de la saison et paiement en ligne ; proposée seulement si la structure l'a réglée
+  function openMembership() {
+    const m = user?.payments?.membership;
+    if (!m) return;
+    const fr = iso => new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR");
+    const amount = `${(m.amount_cents / 100).toFixed(2).replace(".", ",")} €`;
+    openMessage("Ma cotisation", m.valid
+      ? `<p>Votre cotisation est <strong>à jour</strong> jusqu'au ${fr(m.valid_until)}${m.method === "manual" ? " (enregistrée par le club)" : ""}. Merci !</p>`
+      : `<p>Cotisation de la saison (jusqu'au ${fr(m.season_end)}) : <strong>${amount}</strong>. ${m.required
+          ? "Elle est nécessaire pour vous inscrire aux sorties." : "Elle n'est pas obligatoire pour vous inscrire."}</p>
+         <p><button type="button" class="btn-primary" data-pay-membership>Payer ${amount} avec HelloAsso</button></p>
+         <p class="dialog-hint">Paiement sécurisé par HelloAsso, directement au profit du club${user.payments.sandbox ? " (<strong>mode test</strong> : aucun vrai paiement)" : ""}. Vous pouvez aussi la régler au club (chèque, espèces) : un administrateur l'enregistrera.</p>`);
+    document.querySelector("dialog[open] [data-pay-membership]")?.addEventListener("click", async e => {
+      e.target.disabled = true;
+      try {
+        const r = await api("/api/me/membership/pay", { method: "POST" });
+        location.assign(r.redirect_url);
+      } catch (err) {
+        openMessage("Ma cotisation", `<p>${esc(err.message)}</p>`);
+      }
+    });
+  }
+
   async function init() {
     const [me, cfg] = await Promise.all([
       api("/api/auth/me").catch(() => ({ user: null })),
@@ -1397,6 +1420,9 @@ const Session = (() => {
             title="Les créneaux de vos structures dans le calendrier de votre téléphone">${icon("calendar")}<span>Mon agenda</span></button>` : ""}
           ${u.can.view_selections ? `<a class="account-item" href="mes-creneaux.html#carnet"
             title="Vos plongées passées, pointées par l'encadrement">${icon("wave")}<span>Mon carnet de plongées</span></a>` : ""}
+          ${u.payments?.membership ? `<button type="button" class="account-item" data-act="membership"
+            title="Cotisation au club">${icon("user")}<span>Ma cotisation${u.payments.membership.required && !u.payments.membership.valid
+            ? ` <span class="account-dot" title="Cotisation à régler pour vous inscrire">!</span>` : ""}</span></button>` : ""}
           <button type="button" class="account-item" data-act="notifications"
             title="E-mails de rappel, nouveaux créneaux, notifications sur ce téléphone">${icon("mail")}<span>Mes notifications</span></button>
           <button type="button" class="account-item" data-act="profile">${icon("user")}<span>Mon compte${u.profile_complete ? ""
@@ -1443,6 +1469,7 @@ const Session = (() => {
       if (act === "super-mode") setSuperMode(!user?.is_admin);
       if (act === "agenda") openAgenda();
       if (act === "notifications") openNotifications();
+      if (act === "membership") openMembership();
       if (act === "api-tokens") openApiTokens();
     });
     document.addEventListener("click", e => { if (!el.contains(e.target)) closeMenu(); });
@@ -1542,6 +1569,6 @@ const Session = (() => {
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     openDiver, caciText, qrSvg, caciBlocks, loadQr, openSecurity, openTotpSetup,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,
-    openPreview, openAgenda, openApiTokens, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
+    openPreview, openAgenda, openApiTokens, openMembership, icon, promptInstall, installed, onInstallable: fn => { installListeners.push(fn); fn(!!installPrompt); },
   };
 })();

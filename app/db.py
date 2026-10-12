@@ -420,3 +420,20 @@ from .db_api_tokens import (  # noqa: F401, E402
     list_api_tokens,
     touch_api_token,
 )
+
+from .db_payments import (  # noqa: E402,F401
+    _HELLO_FIELDS,
+    _PAYMENT_FIELDS,
+    _PAYMENT_SELECT,
+    get_helloasso,
+    get_helloasso_by_token,
+    save_helloasso,
+    save_helloasso_check,
+    delete_helloasso,
+    create_payment,
+    get_payment,
+    update_payment,
+    list_payments,
+    membership_payments,
+    open_slot_payment,
+)

@@ -238,6 +238,13 @@ def public_user(row: sqlite3.Row, *, with_structures: bool = False) -> dict:
     return out
 
 
+def _payments_config(row: sqlite3.Row) -> dict | None:
+    from . import payments_core
+    if row["structure_id"] is None or (structure_archived(row) and not row["is_admin"]):
+        return None
+    return payments_core.member_config(row["structure_id"], row["id"], date.today())
+
+
 def _public_user_fields(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
@@ -270,6 +277,8 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
              "archived": structure_archived(row)}
             if row["structure_id"] is not None else None
         ),
+        # paiement HelloAsso proposé par la structure (payments_core) : None = rien à afficher
+        "payments": _payments_config(row),
         "role": row["structure_role"],
         "structures_count": row["structures_count"],   # > 1 : compte partagé, profil réservé à son titulaire
         "profiles": profiles_of(row),

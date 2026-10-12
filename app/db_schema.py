@@ -541,6 +541,53 @@ CREATE TABLE IF NOT EXISTS newsletters (
 );
 CREATE INDEX IF NOT EXISTS idx_newsletters_structure ON newsletters(structure_id, created_at);
 
+-- HelloAsso : paiement des sorties et cotisation du club (helloasso.py, payments.py). Un compte HelloAsso (clés
+-- API de l'association) par structure ; les clés sont chiffrées (secrets_store.py) et ne ressortent jamais.
+-- Sans ligne ici, ou sans usage activé, rien n'est affiché aux membres.
+CREATE TABLE IF NOT EXISTS helloasso_settings (
+    structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+    org_slug TEXT NOT NULL,                      -- identifiant de l'association chez HelloAsso (… /associations/<slug>)
+    client_id_enc TEXT NOT NULL,
+    client_secret_enc TEXT NOT NULL,
+    client_id_hint TEXT NOT NULL,                -- 4 derniers caractères du client_id
+    sandbox INTEGER NOT NULL DEFAULT 0,          -- 1 : bac à sable de HelloAsso (essais)
+    use_slots INTEGER NOT NULL DEFAULT 0,        -- paiement des sorties (prix par type de créneau)
+    use_membership INTEGER NOT NULL DEFAULT 0,   -- cotisation du club
+    membership_amount_cents INTEGER,
+    membership_season_start TEXT NOT NULL DEFAULT '09-01',   -- MM-JJ : début de la saison
+    membership_required INTEGER NOT NULL DEFAULT 0,          -- 1 : pas d'inscription sans cotisation à jour
+    notify_token TEXT NOT NULL UNIQUE,           -- secret de l'adresse de notification donnée à HelloAsso
+    checked_at TEXT,
+    check_ok INTEGER,
+    check_message TEXT,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+);
+
+-- Paiements : une ligne par demande de paiement (HelloAsso) ou par cotisation enregistrée à la main
+CREATE TABLE IF NOT EXISTS payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('slot', 'membership')),
+    selection_id INTEGER REFERENCES slot_selections(id) ON DELETE SET NULL,   -- sortie payée
+    label TEXT NOT NULL,                         -- libellé recopié (créneau, saison) : survit à leur suppression
+    amount_cents INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed', 'refunded')),
+    method TEXT NOT NULL DEFAULT 'helloasso' CHECK (method IN ('helloasso', 'manual')),
+    checkout_intent_id TEXT,
+    order_id TEXT,
+    receipt_url TEXT,
+    valid_from TEXT,                             -- cotisation : saison couverte
+    valid_until TEXT,
+    created_at TEXT NOT NULL,
+    paid_at TEXT,
+    recorded_by TEXT                             -- paiement enregistré à la main : qui
+);
+CREATE INDEX IF NOT EXISTS idx_payments_structure ON payments(structure_id, id);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, kind, status);
+CREATE INDEX IF NOT EXISTS idx_payments_selection ON payments(selection_id, user_id);
+
 -- Pièces jointes d'une newsletter (attachments.py) : le contenu est stocké avec elle, supprimé avec elle
 CREATE TABLE IF NOT EXISTS newsletter_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -649,6 +696,8 @@ CREATE TABLE IF NOT EXISTS slot_types (
     position INTEGER NOT NULL DEFAULT 0,    -- ordre d'affichage
     active INTEGER NOT NULL DEFAULT 1,      -- 0 : plus proposé, mais conservé sur les choix existants
     min_level TEXT,                         -- niveau de plongeur minimal (diver.DIVER_LEVELS) ; NULL : aucun
+    price_cents INTEGER CHECK (price_cents IS NULL OR price_cents BETWEEN 0 AND 100000),   -- prix (HelloAsso) ; NULL : gratuit
+    free_for_instructors INTEGER NOT NULL DEFAULT 0,   -- 1 : gratuit pour les membres ayant un niveau d'encadrant
     UNIQUE (structure_id, label)
 );
 

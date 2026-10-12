@@ -88,6 +88,8 @@ class SlotTypeIn(BaseModel):
     color: str = Field("#118ab2", pattern=COLOR_PATTERN)
     active: bool = True
     min_level: str | None = None     # niveau de plongeur minimal (diver.DIVER_LEVELS)
+    price_cents: int | None = Field(None, ge=0, le=100_000)    # prix de la sortie (HelloAsso) ; None ou 0 : gratuit
+    free_for_instructors: bool = False                         # gratuit pour les membres ayant un niveau d'encadrant
 
     @field_validator("min_level")
     @classmethod
@@ -105,6 +107,8 @@ class SlotTypePatch(BaseModel):
     color: str | None = Field(None, pattern=COLOR_PATTERN)
     active: bool | None = None
     min_level: str | None = None     # null : aucun
+    price_cents: int | None = Field(None, ge=0, le=100_000)    # null : gratuit
+    free_for_instructors: bool | None = None
 
     @field_validator("min_level")
     @classmethod
@@ -292,6 +296,8 @@ def _type_out(row: sqlite3.Row) -> dict:
         "active": bool(row["active"]),
         "uses": row["uses"],
         "min_level": row["min_level"],
+        "price_cents": row["price_cents"],
+        "free_for_instructors": bool(row["free_for_instructors"]),
     }
 
 
@@ -333,17 +339,22 @@ def _registrations_by_selection(structure_id: int, selection_id: int | None = No
              "registered_by": r["registered_by_name"],   # inscrit par un tiers, sinon None
              "attendance": r["attendance"],               # present, absent, excused ; None : pas pointé
              # commentaire et covoiturage (offer : propose des places, need : cherche une place)
-             "comment": r["comment"], "carpool": r["carpool"], "carpool_seats": r["carpool_seats"]}
+             "comment": r["comment"], "carpool": r["carpool"], "carpool_seats": r["carpool_seats"],
+             "pay_status": r["pay_status"]}   # paid, pending ou None (HelloAsso : visible de l'administration)
         )
     return out
 
 
 def _selection_out(
     row: sqlite3.Row, registrations: list[dict] | None = None, me_id: int | None = None,
-    locks: dict | None = None,
+    locks: dict | None = None, show_payments: bool = False,
 ) -> dict:
+    """show_payments : montre qui a payé sa sortie (administration, profil Inscriptions) ; sinon chacun ne voit
+    que son propre paiement."""
     registrations = registrations or []
     locks = locks or {}
+    if not show_payments:
+        registrations = [{**r, "pay_status": r.get("pay_status") if r["user_id"] == me_id else None} for r in registrations]
     capacity = row["max_registrations"]
     confirmed, waiting = split_registrations(registrations, capacity)
     # file d'attente : rang (1 = prochain à être confirmé) ; les confirmés n'en ont pas
@@ -387,6 +398,9 @@ def _selection_out(
         "min_level_own": row["min_level"],
         "picked_by": row["picked_by_name"],   # None : compte supprimé depuis
         "created_at": row["created_at"],
+        # paiement HelloAsso (payments.py) : prix du type ; l'interface ne l'affiche que si la structure le propose
+        "price": ({"cents": row["type_price_cents"], "free_for_instructors": bool(row["type_free_for_instructors"])}
+                  if row["type_price_cents"] else None),
         # créneau annulé (cancellations.py) : date, motif (libellé recopié) et précision ; None sinon
         "cancelled": ({"at": row["cancelled_at"], "reason": row["cancel_reason"], "note": row["cancel_note"]}
                       if row["cancelled_at"] else None),
@@ -401,6 +415,7 @@ def _selection_out(
         "carpool": {"seats": sum(r["carpool_seats"] or 0 for r in registrations if r["carpool"] == "offer"),
                     "needs": sum(1 for r in registrations if r["carpool"] == "need")},
         "my_position": mine["position"] if mine else None,
+        "my_pay_status": mine["pay_status"] if mine and "pay_status" in mine else None,
         "past": (row["end_date"] or row["local_date"]) < _today(),
         # feuille de présence : à partir du jour du créneau
         "attendance_open": row["local_date"] <= _today(),
@@ -417,12 +432,18 @@ def _level_out(key: str | None) -> dict | None:
         if key in diver.DIVER_LEVELS else None
 
 
+def _sees_payments(structure_id: int, me_id: int) -> bool:
+    me = db.get_user(me_id, structure_id)
+    return me is not None and accounts.permissions(me)["manage_registrations"]
+
+
 def _one_out(structure_id: int, selection_id: int, me_id: int) -> dict:
     row = db.get_selection(structure_id, selection_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     regs = _registrations_by_selection(structure_id, selection_id).get(selection_id, [])
-    return _selection_out(row, regs, me_id, db.get_lock_days(structure_id))
+    return _selection_out(row, regs, me_id, db.get_lock_days(structure_id),
+                          show_payments=_sees_payments(structure_id, me_id))
 
 
 def _active_type_or_422(type_id: int, structure_id: int) -> sqlite3.Row:
@@ -453,7 +474,8 @@ def list_structure_selections(user: CurrentMember, upcoming: bool = False):
     locks = db.get_lock_days(sid)
     # valeurs déjà JSON (str, int, None…) : réponse directe, sans le parcours récursif de jsonable_encoder,
     # coûteux sur des centaines de créneaux et leurs inscriptions
-    return JSONResponse([_selection_out(r, regs.get(r["id"]), user["id"], locks) for r in rows])
+    see = accounts.permissions(user)["manage_registrations"]
+    return JSONResponse([_selection_out(r, regs.get(r["id"]), user["id"], locks, see) for r in rows])
 
 
 def _initial_capacity(body: BaseModel, structure_id: int) -> int | None:
@@ -703,6 +725,14 @@ def _check_open(row: sqlite3.Row, lock_days: int | None, what: str) -> None:
         )
 
 
+def _check_membership(member: sqlite3.Row, row: sqlite3.Row, *, own: bool = True) -> None:
+    """Cotisation du club exigée (HelloAsso, payments_core) : à jour aujourd'hui, sinon 409."""
+    from .payments_core import registration_block
+    msg = registration_block(row["structure_id"], member, own=own)
+    if msg:
+        raise HTTPException(status.HTTP_409_CONFLICT, msg)
+
+
 def _check_caci(member: sqlite3.Row, row: sqlite3.Row) -> None:
     """Certificat médical valable le jour du créneau (dernier jour d'un séjour), si la structure le vérifie."""
     msg = diver.registration_block(member, db.get_structure(row["structure_id"]), row["end_date"] or row["local_date"])
@@ -804,6 +834,7 @@ def register(selection_id: int, user: CurrentMember, body: RegistrationNoteIn | 
     _check_open(row, db.get_lock_days(sid)["register_lock_days"], "Inscriptions closes")
     member = db.get_user(user["id"], sid)
     _check_caci(member, row)
+    _check_membership(member, row)
     msg = diver.level_block(member, row["min_level"] or row["type_min_level"])
     if msg:
         raise HTTPException(status.HTTP_409_CONFLICT, msg)
@@ -1053,6 +1084,9 @@ def register_others(selection_id: int, body: RegistrationsIn, actor: CurrentRegi
     refused = [msg for uid in dict.fromkeys(body.user_ids) if uid not in already
                if (msg := diver.registration_block(db.get_user(uid, sid), db.get_structure(sid),
                                                    row["end_date"] or row["local_date"], own=uid == actor["id"]))]
+    from .payments_core import registration_block
+    refused += [msg for uid in dict.fromkeys(body.user_ids) if uid not in already
+                if (msg := registration_block(sid, db.get_user(uid, sid), own=uid == actor["id"]))]
     if refused:
         raise HTTPException(status.HTTP_409_CONFLICT, " ".join(refused))
     by = accounts.display_name(actor)
@@ -1152,8 +1186,10 @@ def admin_create_type(body: SlotTypeIn, actor: CurrentManager, structure_id: int
     sid = scope_structure(actor, structure_id)
     try:
         type_id = db.create_slot_type(sid, body.label, body.color.lower(), body.active)
-        if body.min_level:
-            db.update_slot_type(type_id, min_level=body.min_level)
+        extra = {k: v for k, v in (("min_level", body.min_level), ("price_cents", body.price_cents),
+                                   ("free_for_instructors", body.free_for_instructors or None)) if v}
+        if extra:
+            db.update_slot_type(type_id, **extra)
     except sqlite3.IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Le type « {body.label} » existe déjà")
     return _type_out(db.get_slot_type(type_id))
@@ -1173,7 +1209,8 @@ def admin_reorder_types(body: SlotTypeOrder, actor: CurrentManager, structure_id
 @router.patch("/admin/slot-types/{type_id}")
 def admin_update_type(type_id: int, body: SlotTypePatch, actor: CurrentManager):
     _managed_type_or_404(actor, type_id)
-    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None or k == "min_level"}
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()
+              if v is not None or k in ("min_level", "price_cents")}
     if "color" in fields:
         fields["color"] = fields["color"].lower()
     try:
