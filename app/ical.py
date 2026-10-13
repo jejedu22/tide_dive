@@ -134,7 +134,8 @@ def calendar(selections: list[dict], name: str, uid_domain: str, link: str | Non
             f"DESCRIPTION:{escape(description(s, link))}",
         ]
         if s.get("port"):
-            lines.append(f"LOCATION:{escape(s['port'])}")
+            site = (s.get("site") or {}).get("name")
+            lines.append(f"LOCATION:{escape(s['port'] + (' – ' + site if site else ''))}")
         if link:
             lines.append(f"URL:{link}")
         lines += ["STATUS:CANCELLED", "TRANSP:TRANSPARENT"] if s.get("cancelled") else ["TRANSP:OPAQUE"]

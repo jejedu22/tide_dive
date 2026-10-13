@@ -804,6 +804,8 @@ table.picks .c-port { color: var(--muted); }
 table.picks .c-actions { white-space: nowrap; }
 table.picks .c-actions :is(a, button) + :is(a, button) { margin-left: 0.3rem; }
 /* intitulé d'un créneau personnalisé */
+.slot-site { display: block; font-size: 0.82rem; color: var(--muted, #5b6b7c); }
+.slot-site::before { content: "⚓ "; }
 .slot-note { display: block; font-size: 0.82rem; font-style: italic; color: var(--blue-deep); }
 .slot-span { display: block; font-size: 0.82rem; font-weight: 600; color: var(--blue-deep); }
 .slot-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.3rem; margin-left: auto; }

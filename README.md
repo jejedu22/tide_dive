@@ -764,6 +764,7 @@ Le bouton **Annuler** de chaque créneau à venir (page *Créneaux choisis* ; ad
 
 - **Série** : case **Répéter** du créneau personnalisé, chaque semaine ou toutes les 2 à 4 semaines jusqu'à une date (60 créneaux au plus, pas de séjour). Les jours d'une plage d'indisponibilité sont sautés et signalés (`POST /api/selections/custom/series`).
 - **Dupliquer…** un créneau personnalisé à un autre jour : lieu, heure, type, intitulé et places repris, sans les inscrits ; un séjour garde sa durée (`POST /api/selections/{id}/duplicate`).
+- **Site de plongée** (facultatif) : un créneau peut porter un des sites de plongée de la structure (Administration → Sites). Liste « Site de plongée » à la création d'un créneau personnalisé (et de sa série), dans le choix groupé d'étales, et dans **Modifier** (tout créneau, étale ou plage comprise ; `site_id` de `POST /api/selections*` et `PATCH /api/selections/{id}`, `null` pour l'enlever). Il s'affiche sur la fiche du créneau, dans `site` de l'API et dans le lieu des agendas `.ics`. Le site doit appartenir à la structure ; supprimé, il disparaît des créneaux sans les supprimer. Migration 30.
 
 ### Choisir tous les créneaux affichés
 

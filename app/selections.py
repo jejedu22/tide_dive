@@ -136,6 +136,7 @@ class SelectionIn(BaseModel):
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)
     # intitulé facultatif : distingue plusieurs créneaux choisis sur la même étale (« Bateau 1 », « Baptêmes »…)
     note: str | None = Field(None, max_length=80)
+    site_id: int | None = None   # site de plongée de la structure (facultatif)
 
     @field_validator("note")
     @classmethod
@@ -156,6 +157,7 @@ class BulkSelectionIn(BaseModel):
     type_id: int
     items: list[TideRef] = Field(min_length=1, max_length=MAX_BULK)
     note: str | None = Field(None, max_length=80)
+    site_id: int | None = None   # site de plongée de la structure (facultatif)
 
     @field_validator("note")
     @classmethod
@@ -197,6 +199,7 @@ class CustomSelectionIn(BaseModel):
     time: str = Field(pattern=TIME_PATTERN)   # heure de RDV, HH:MM
     type_id: int
     note: str | None = Field(None, max_length=80)
+    site_id: int | None = None   # site de plongée de la structure (facultatif)
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # absent : défaut de la structure ; 0/null : illimité
 
     @field_validator("note")
@@ -260,6 +263,7 @@ class SelectionPatch(BaseModel):
     end_date: dt.date | None = Field(None, ge=MIN_DATE, le=MAX_DATE)   # null : un seul jour
     time: str | None = Field(None, pattern=TIME_PATTERN)
     note: str | None = Field(None, max_length=80)
+    site_id: int | None = None   # tout créneau ; null : aucun site
     max_registrations: int | None = Field(None, ge=0, le=MAX_PLACES)   # tout créneau ; 0 ou null : illimité
     # créneau personnalisé déplacé (jour, heure, lieu) : prévenir ses inscrits par e-mail
     notify: bool = True
@@ -376,6 +380,7 @@ def _selection_out(
             "end_date": row["window_end_date"], "end": row["window_end_time"],
         } if row["window_start_utc"] is not None else None),
         "note": row["note"],
+        "site": {"id": row["site_id"], "name": row["site_name"]} if row["site_id"] is not None else None,
         "port_id": row["port_id"],       # None : créneau personnalisé dans un autre lieu
         "location": row["location"],     # lieu libre, sinon None
         "port": row["port_name"],        # à afficher : nom du port, ou lieu libre
@@ -486,6 +491,15 @@ def _initial_capacity(body: BaseModel, structure_id: int) -> int | None:
     return db.get_default_max_registrations(structure_id)
 
 
+def _site_or_422(site_id: int | None, structure_id: int) -> None:
+    """Le site choisi doit appartenir à la structure."""
+    if site_id is None:
+        return
+    site = db.get_dive_site(site_id)
+    if site is None or site["structure_id"] != structure_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Site de plongée inconnu dans cette structure")
+
+
 @router.post("/selections", status_code=201)
 def create_selection(body: SelectionIn, user: CurrentPicker):
     sid = user["structure_id"]
@@ -500,12 +514,13 @@ def create_selection(body: SelectionIn, user: CurrentPicker):
             "Ce créneau n'existe plus (l'année a peut-être été recalculée) : relancez la recherche.",
         )
     _active_type_or_422(body.type_id, sid)
+    _site_or_422(body.site_id, sid)
     snapshot = describe_extremum(port, ex, db.get_rdv_offset(sid), sources)
     ensure_available(sid, *tide_span(snapshot["rdv_date"], snapshot["rdv_time"], snapshot["date"], snapshot["time"]))
     # plusieurs créneaux possibles sur la même étale : pas de refus « déjà choisi »
     sel_id = db.create_selection(
         sid, user["id"], body.port_id, body.ts_utc, body.type_id, snapshot, _now_iso(),
-        max_registrations=_initial_capacity(body, sid), note=body.note,
+        max_registrations=_initial_capacity(body, sid), note=body.note, site_id=body.site_id,
     )
     return _one_out(sid, sel_id, user["id"])
 
@@ -516,6 +531,7 @@ def create_selections_bulk(body: BulkSelectionIn, user: CurrentPicker):
     étales déjà choisies par la structure, celles d'une plage d'indisponibilité et celles qui n'existent plus."""
     sid = user["structure_id"]
     _active_type_or_422(body.type_id, sid)
+    _site_or_422(body.site_id, sid)
     rdv_offset = db.get_rdv_offset(sid)
     sources = db.get_structure_sources(sid)
     capacity = _initial_capacity(body, sid)
@@ -540,7 +556,7 @@ def create_selections_bulk(body: BulkSelectionIn, user: CurrentPicker):
             skipped.append({"port_id": item.port_id, "ts_utc": item.ts_utc, "reason": "indisponible"})
             continue
         sel_id = db.create_selection(sid, user["id"], item.port_id, item.ts_utc, body.type_id, snapshot, _now_iso(),
-                                     max_registrations=capacity, note=body.note)
+                                     max_registrations=capacity, note=body.note, site_id=body.site_id)
         taken.add(key)   # la même étale deux fois dans la requête : un seul créneau
         created.append(sel_id)
     locks = db.get_lock_days(sid)
@@ -559,12 +575,13 @@ def create_custom_selection(body: CustomSelectionIn, user: CurrentPicker):
     if body.port_id is not None and db.get_port(body.port_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
     _active_type_or_422(body.type_id, sid)
+    _site_or_422(body.site_id, sid)
     ensure_available(sid, *custom_span(body.date.isoformat(), body.time,
                                        body.end_date.isoformat() if body.end_date else None))
     sel_id = db.create_custom_selection(
         sid, user["id"], body.port_id, body.location, body.type_id, body.date.isoformat(),
         body.end_date.isoformat() if body.end_date else None, body.time, body.note, _now_iso(),
-        max_registrations=_initial_capacity(body, sid),
+        max_registrations=_initial_capacity(body, sid), site_id=body.site_id,
     )
     return _one_out(sid, sel_id, user["id"])
 
@@ -577,6 +594,7 @@ def create_custom_series(body: CustomSeriesIn, user: CurrentPicker):
     if body.port_id is not None and db.get_port(body.port_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Port inconnu")
     _active_type_or_422(body.type_id, sid)
+    _site_or_422(body.site_id, sid)
     capacity = _initial_capacity(body, sid)
     unavailable = db.list_unavailabilities(sid)
     created, skipped = [], []
@@ -586,7 +604,7 @@ def create_custom_series(body: CustomSeriesIn, user: CurrentPicker):
             continue
         created.append(db.create_custom_selection(
             sid, user["id"], body.port_id, body.location, body.type_id, day.isoformat(), None, body.time, body.note,
-            _now_iso(), max_registrations=capacity))
+            _now_iso(), max_registrations=capacity, site_id=body.site_id))
     locks = db.get_lock_days(sid)
     rows = {r["id"]: r for r in db.list_selections(sid) if r["id"] in set(created)}
     return {"created": [_selection_out(rows[i], [], user["id"], locks) for i in created], "skipped": skipped}
@@ -613,7 +631,7 @@ def duplicate_selection(selection_id: int, body: DuplicateIn, user: CurrentPicke
     ensure_available(sid, *custom_span(body.date.isoformat(), row["rdv_time"], end))
     sel_id = db.create_custom_selection(
         sid, user["id"], row["port_id"], row["location"], type_id, body.date.isoformat(), end, row["rdv_time"],
-        row["note"], _now_iso(), max_registrations=row["max_registrations"])
+        row["note"], _now_iso(), max_registrations=row["max_registrations"], site_id=row["site_id"])
     return _one_out(sid, sel_id, user["id"])
 
 
@@ -653,6 +671,8 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Dates du séjour : {exc}.")
     if body.type_id is not None:
         _active_type_or_422(body.type_id, sid)
+    if "site_id" in sent:
+        _site_or_422(body.site_id, sid)
     if sent & {"date", "end_date", "time"}:
         # déplacé : pas dans une plage d'indisponibilité (rester où il est, ou changer de lieu, reste permis)
         ensure_available(sid, *custom_span(start.isoformat(), body.time or row["rdv_time"],
@@ -667,6 +687,8 @@ def update_selection(selection_id: int, body: SelectionPatch, user: CurrentPicke
         )
     if body.type_id is not None:
         db.update_selection_type(sid, selection_id, body.type_id)
+    if "site_id" in sent:
+        db.update_selection_site(sid, selection_id, body.site_id)
     if "note" in sent and not sent & custom_fields:   # sinon déjà enregistré avec les champs du créneau personnalisé
         db.update_selection_note(sid, selection_id, body.note)
     if "min_level" in sent:

@@ -592,9 +592,10 @@ function renderBulkButton() {
   bulkBtn.textContent = n ? `Choisir les ${n} créneau${n > 1 ? "x" : ""} affiché${n > 1 ? "s" : ""}…` : "Tous les créneaux affichés sont choisis";
 }
 
-bulkBtn.addEventListener("click", () => {
+bulkBtn.addEventListener("click", async () => {
   const todo = bulkCandidates();
   if (!todo.length) return;
+  const sites = await Session.api("/api/dive-sites").catch(() => []);   // facultatif : sans site, pas de choix
   const picked = lastShown.filter(isPicked).length;
   const off = lastShown.filter(r => !isPicked(r) && r.unavailable).length;
   const ignored = [picked && `${picked} déjà choisi(s)`, off && `${off} indisponible(s)`].filter(Boolean);
@@ -606,7 +607,10 @@ bulkBtn.addEventListener("click", () => {
       // le type avant l'intitulé (openForm place « extra » après les champs)
       + `<label>Type
         <select name="type_id" required>${slotTypes.map(t => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join("")}</select>
-      </label>`,
+      </label>`
+      + (sites.length ? `<label>Site de plongée <span class="field-hint">(facultatif, le même pour tous)</span>
+        <select name="site_id"><option value="">— aucun —</option>${sites.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}</select>
+      </label>` : ""),
     fields: [{ name: "note", label: "Intitulé", required: false, value: "", hint: "Facultatif, le même pour tous (ex. Sortie club)." }],
     submitLabel: `Choisir ${todo.length} créneau(x)`,
     onSubmit: async values => {
@@ -616,6 +620,7 @@ bulkBtn.addEventListener("click", () => {
         body: {
           type_id: Number(values.type_id),
           note: (values.note || "").trim().slice(0, 80) || null,
+          site_id: values.site_id ? Number(values.site_id) : null,
           items: todo.map(x => ({ port_id: x.port_id, ts_utc: x.ts_utc })),
         },
       });

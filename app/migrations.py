@@ -629,6 +629,12 @@ def _m029_license(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE payments ADD COLUMN license_cents INTEGER NOT NULL DEFAULT 0")
 
 
+def _m030_selection_site(conn: sqlite3.Connection) -> None:
+    """Site de plongée (facultatif) d'un créneau choisi."""
+    if "site_id" not in _columns(conn, "slot_selections"):
+        conn.execute("ALTER TABLE slot_selections ADD COLUMN site_id INTEGER REFERENCES dive_sites(id) ON DELETE SET NULL")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -659,6 +665,7 @@ MIGRATIONS: list[Migration] = [
     Migration(27, "pièces jointes des newsletters", _m027_newsletter_attachments),
     Migration(28, "HelloAsso : compte par structure, prix des types de créneaux, paiements", _m028_helloasso),
     Migration(29, "licence FFESSM payable avec la cotisation", _m029_license),
+    Migration(30, "site de plongée d'un créneau choisi", _m030_selection_site),
 ]
 
 

@@ -39,6 +39,7 @@ const listCardsEl = $("list-cards");
 const narrow = window.matchMedia("(max-width: 700px)");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+let diveSites = [];   // sites de plongée de la structure (choix du site d'un créneau)
 let types = [];       // types actifs, ordre de l'administration
 let picks = [];       // triés par date puis heure de RDV
 let ports = null;     // ports proposés dans le formulaire des créneaux personnalisés (chargés à la demande)
@@ -231,6 +232,14 @@ async function loadWeather() {
 
 // Partager : lien direct vers le créneau (membres de la structure, connectés)
 const shareButton = p => `<button type="button" class="btn-quiet btn-small" data-act="share" title="Copier le lien de ce créneau, pour le partager avec un membre de la structure">Partager</button>`;
+// Site de plongée choisi : liste déroulante (créneaux modifiables) et mention sur la fiche
+const siteLine = p => (p.site ? `<span class="slot-site" title="Site de plongée">${esc(p.site.name)}</span>` : "");
+const siteField = current => (diveSites.length ? `
+      <label>Site de plongée <span class="field-hint">(facultatif)</span>
+        <select name="site_id"><option value="">— aucun —</option>${diveSites.map(s =>
+          `<option value="${s.id}"${s.id === current ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>` : "");
+const siteValue = form => (form.site_id?.value ? Number(form.site_id.value) : null);
+
 const noteLine = p => (p.note ? `<span class="slot-note">${esc(p.note)}</span>` : "");
 
 // Séjour sur plusieurs jours (créneau personnalisé) : dernier jour, nombre de jours, mention affichée
@@ -260,6 +269,7 @@ function slotCard(p) {
       </div>
       ${p.cancelled ? `<p>${cancelledLine(p)}</p>` : ""}
       ${p.note ? `<p>${noteLine(p)}</p>` : ""}
+      ${p.site ? `<p>${siteLine(p)}</p>` : ""}
       ${p.end_date ? `<p>${spanLine(p)}</p>` : ""}
       ${p.water ? `<p class="slot-water">${esc(p.water.label)}</p>` : ""}
       ${weatherLine(p) ? `<p class="slot-weather-line">${weatherLine(p)}</p>` : ""}
@@ -710,14 +720,13 @@ async function load() {
     Session.api("/api/divers/levels").then(r => { diverLevels = r.levels; }).catch(() => {});
   }
   try {
-    let sites;
-    [types, picks, unavailabilities, sites] = await Promise.all([
+    [types, picks, unavailabilities, diveSites] = await Promise.all([
       canPick() ? Session.api("/api/slot-types") : [],
       Session.api("/api/selections"),
       Session.api("/api/unavailabilities"),
       Session.api("/api/dive-sites").catch(() => []),   // sans les sites, pas de bouton Courants
     ]);
-    hasCurrentSites = sites.some(x => x.current);
+    hasCurrentSites = diveSites.some(x => x.current);
   } catch (e) {
     statusEl.textContent = e.message;
     return;
@@ -1267,6 +1276,7 @@ async function openCustomDialog(p = null) {
         <input type="date" name="end_date" min="${addDays(day, 1)}" value="${p?.end_date || ""}"></label>
       <label>Heure de rendez-vous <input type="time" name="time" required value="${p ? p.rdv.time : ""}"></label>
       ${p ? "" : `<label>Type <select name="type_id" required>${types.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>`}
+      ${siteField(p?.site?.id)}
       <label>Intitulé <span class="field-hint">(facultatif)</span>
         <input type="text" name="note" maxlength="80" placeholder="ex. Épave du Pélican, sortie de nuit" value="${esc(p?.note || "")}"></label>
       ${p && !p.past && p.registrations.length && Session.config.password_reset ? `
@@ -1294,6 +1304,7 @@ async function openCustomDialog(p = null) {
         end_date: f.get("end_date") || null,
         time: f.get("time").slice(0, 5),
         note: f.get("note").trim() || null,
+        site_id: siteValue(form),
       };
       if (p) body.notify = !form.notify || form.notify.checked;
       if (!p) {
@@ -1389,18 +1400,19 @@ function openNoteDialog(p) {
     : `Étale ${esc(p.kind)} de ${esc(p.time)}`;
   const same = p.water ? "cette plage" : "cette étale";
   openDialog({
-    title: "Intitulé du créneau",
+    title: diveSites.length ? "Intitulé et site du créneau" : "Intitulé du créneau",
     submitLabel: "Enregistrer",
     body: `
       <p class="dialog-hint">${what} le ${esc(formatLong(p.date))}, ${esc(p.port)}.${twins.length
         ? ` Autres créneaux sur ${same} : ${twins.map(x => esc(x.type.label + (x.note ? ` (${x.note})` : ""))).join(", ")}.` : ""}</p>
       <label>Intitulé <span class="field-hint">(facultatif)</span>
-        <input type="text" name="note" maxlength="80" placeholder="ex. Bateau 2, Baptêmes" value="${esc(p.note || "")}"></label>`,
+        <input type="text" name="note" maxlength="80" placeholder="ex. Bateau 2, Baptêmes" value="${esc(p.note || "")}"></label>
+      ${siteField(p.site?.id)}`,
     onSubmit: async form => {
-      const saved = await Session.api(`/api/selections/${p.id}`, { method: "PATCH", body: { note: form.note.value.trim() || null } });
+      const saved = await Session.api(`/api/selections/${p.id}`, { method: "PATCH", body: { note: form.note.value.trim() || null, site_id: siteValue(form) } });
       picks = picks.map(x => (x.id === p.id ? saved : x));
       render();
-      statusEl.textContent = "Intitulé enregistré.";
+      statusEl.textContent = "Créneau enregistré.";
     },
   });
 }

@@ -81,6 +81,7 @@ def delete_slot_type(type_id: int) -> None:
 _SELECTION_SQL = """
     SELECT s.*, COALESCE(p.name, s.location) AS port_name,  -- lieu affiché : port, ou lieu libre
            t.label AS type_label, t.color AS type_color, t.active AS type_active, t.min_level AS type_min_level,
+           (SELECT d.name FROM dive_sites d WHERE d.id = s.site_id) AS site_name,
            t.price_cents AS type_price_cents, t.free_for_instructors AS type_free_for_instructors,
            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                AS picked_by_name
@@ -134,7 +135,8 @@ def update_selection_rdvs(rdvs: list[tuple[str, str, int]]) -> None:
 
 
 def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: str, type_id: int,
-                     snapshot: dict, now: str, max_registrations: int | None = None, note: str | None = None) -> int:
+                     snapshot: dict, now: str, max_registrations: int | None = None, note: str | None = None,
+                     site_id: int | None = None) -> int:
     """Une structure peut choisir plusieurs fois la même étale (note : intitulé pour les distinguer).
     max_registrations : nombre de places (None : illimité)."""
     with get_conn() as conn:
@@ -142,13 +144,13 @@ def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: st
             """
             INSERT INTO slot_selections
                 (structure_id, picked_by, port_id, ts_utc, type_id, kind, local_date, local_time,
-                 rdv_date, rdv_time, height_m, coefficient, created_at, max_registrations, note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rdv_date, rdv_time, height_m, coefficient, created_at, max_registrations, note, site_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 structure_id, picked_by, port_id, ts_utc, type_id, snapshot["kind"], snapshot["date"],
                 snapshot["time"], snapshot["rdv_date"], snapshot["rdv_time"], snapshot["height_m"],
-                snapshot["coefficient"], now, max_registrations, note,
+                snapshot["coefficient"], now, max_registrations, note, site_id,
             ),
         )
         return cur.lastrowid
@@ -156,7 +158,8 @@ def create_selection(structure_id: int, picked_by: int, port_id: int, ts_utc: st
 
 def create_custom_selection(structure_id: int, picked_by: int, port_id: int | None, location: str | None,
                             type_id: int, local_date: str, end_date: str | None, rdv_time: str,
-                            note: str | None, now: str, max_registrations: int | None = None) -> int:
+                            note: str | None, now: str, max_registrations: int | None = None,
+                            site_id: int | None = None) -> int:
     """
     Créneau personnalisé : un jour (ou du premier jour à end_date) et une heure
     de RDV le premier jour, sans étale, dans un port OU un lieu libre.
@@ -166,11 +169,11 @@ def create_custom_selection(structure_id: int, picked_by: int, port_id: int | No
             """
             INSERT INTO slot_selections
                 (structure_id, picked_by, port_id, location, type_id, local_date, end_date,
-                 rdv_date, rdv_time, note, created_at, max_registrations)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rdv_date, rdv_time, note, created_at, max_registrations, site_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (structure_id, picked_by, port_id, location, type_id, local_date, end_date,
-             local_date, rdv_time, note, now, max_registrations),
+             local_date, rdv_time, note, now, max_registrations, site_id),
         )
         return cur.lastrowid
 
@@ -190,6 +193,14 @@ def update_selection_note(structure_id: int, selection_id: int, note: str | None
     with get_conn() as conn:
         conn.execute(
             "UPDATE slot_selections SET note = ? WHERE id = ? AND structure_id = ?", (note, selection_id, structure_id),
+        )
+
+
+def update_selection_site(structure_id: int, selection_id: int, site_id: int | None) -> None:
+    """Site de plongée d'un créneau, étale ou personnalisé (None : aucun)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE slot_selections SET site_id = ? WHERE id = ? AND structure_id = ?", (site_id, selection_id, structure_id),
         )
 
 
