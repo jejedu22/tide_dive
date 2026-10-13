@@ -281,22 +281,40 @@ const Session = (() => {
     });
   }
 
-  // Cotisation au club (HelloAsso) : état de la saison et paiement en ligne ; proposée seulement si la structure l'a réglée
+  // Cotisation au club et licence FFESSM (HelloAsso) : état de la saison et paiement en ligne ; proposés seulement si la structure les a réglés
   function openMembership() {
     const m = user?.payments?.membership;
     if (!m) return;
+    const lic = m.license;
     const fr = iso => new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR");
-    const amount = `${(m.amount_cents / 100).toFixed(2).replace(".", ",")} €`;
-    openMessage("Ma cotisation", m.valid
-      ? `<p>Votre cotisation est <strong>à jour</strong> jusqu'au ${fr(m.valid_until)}${m.method === "manual" ? " (enregistrée par le club)" : ""}. Merci !</p>`
-      : `<p>Cotisation de la saison (jusqu'au ${fr(m.season_end)}) : <strong>${amount}</strong>. ${m.required
-          ? "Elle est nécessaire pour vous inscrire aux sorties." : "Elle n'est pas obligatoire pour vous inscrire."}</p>
-         <p><button type="button" class="btn-primary" data-pay-membership>Payer ${amount} avec HelloAsso</button></p>
-         <p class="dialog-hint">Paiement sécurisé par HelloAsso, directement au profit du club${user.payments.sandbox ? " (<strong>mode test</strong> : aucun vrai paiement)" : ""}. Vous pouvez aussi la régler au club (chèque, espèces) : un administrateur l'enregistrera.</p>`);
-    document.querySelector("dialog[open] [data-pay-membership]")?.addEventListener("click", async e => {
+    const eur = cents => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
+    const done = (what, s) => `<p>${what} : <strong>à jour</strong> jusqu'au ${fr(s.valid_until)}${s.method === "manual" ? " (enregistrée par le club)" : ""}. Merci !</p>`;
+    const parts = [];
+    if (m.valid) parts.push(done("Votre cotisation", m));
+    else parts.push(`<p>Cotisation de la saison (jusqu'au ${fr(m.season_end)}) : <strong>${eur(m.amount_cents)}</strong>. ${m.required
+      ? "Elle est nécessaire pour vous inscrire aux sorties." : "Elle n'est pas obligatoire pour vous inscrire."}</p>`);
+    if (lic) {
+      if (lic.valid) parts.push(done("Votre licence FFESSM", lic));
+      else if (m.valid) parts.push(`<p>Licence FFESSM de la saison : <strong>${eur(lic.amount_cents)}</strong>.</p>`);
+      else parts.push(`<p><label class="check"><input type="checkbox" data-with-license> Ajouter la licence FFESSM (${eur(lic.amount_cents)})</label></p>`);
+    }
+    const toPay = !m.valid || (lic && !lic.valid);
+    if (toPay) {
+      parts.push(`<p><button type="button" class="btn-primary" data-pay-membership>Payer <span data-pay-total></span> avec HelloAsso</button></p>
+        <p class="dialog-hint">Paiement sécurisé par HelloAsso, directement au profit du club${user.payments.sandbox ? " (<strong>mode test</strong> : aucun vrai paiement)" : ""}. Vous pouvez aussi les régler au club (chèque, espèces) : un administrateur les enregistrera.</p>`);
+    }
+    openMessage(lic ? "Ma cotisation et licence" : "Ma cotisation", parts.join(""));
+    const dlg = document.querySelector("dialog[open]");
+    const box = dlg?.querySelector("[data-with-license]");
+    const total = () => (m.valid ? 0 : m.amount_cents) + (lic && !lic.valid && (m.valid || box?.checked) ? lic.amount_cents : 0);
+    const refresh = () => { const t = dlg?.querySelector("[data-pay-total]"); if (t) t.textContent = eur(total()); };
+    refresh();
+    box?.addEventListener("change", refresh);
+    dlg?.querySelector("[data-pay-membership]")?.addEventListener("click", async e => {
       e.target.disabled = true;
       try {
-        const r = await api("/api/me/membership/pay", { method: "POST" });
+        const withLicense = !!lic && !lic.valid && (m.valid || !!box?.checked);
+        const r = await api("/api/me/membership/pay", { method: "POST", body: { membership: !m.valid, license: withLicense } });
         location.assign(r.redirect_url);
       } catch (err) {
         openMessage("Ma cotisation", `<p>${esc(err.message)}</p>`);
@@ -1427,7 +1445,7 @@ const Session = (() => {
           ${u.can.view_selections ? `<a class="account-item" href="mes-creneaux.html#carnet"
             title="Vos plongées passées, pointées par l'encadrement">${icon("wave")}<span>Mon carnet de plongées</span></a>` : ""}
           ${u.payments?.membership ? `<button type="button" class="account-item" data-act="membership"
-            title="Cotisation au club">${icon("user")}<span>Ma cotisation${u.payments.membership.required && !u.payments.membership.valid
+            title="Cotisation au club">${icon("user")}<span>Ma cotisation${u.payments.membership.license ? " et licence" : ""}${u.payments.membership.required && !u.payments.membership.valid
             ? ` <span class="account-dot" title="Cotisation à régler pour vous inscrire">!</span>` : ""}</span></button>` : ""}
           <button type="button" class="account-item" data-act="notifications"
             title="E-mails de rappel, nouveaux créneaux, notifications sur ce téléphone">${icon("mail")}<span>Mes notifications</span></button>

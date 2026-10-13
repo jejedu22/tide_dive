@@ -3675,6 +3675,7 @@ function renderPaySettings() {
   payForm.membership_amount_eur.value = c.membership_amount_cents ? c.membership_amount_cents / 100 : "";
   payForm.membership_season_start.value = c.membership_season_start || "09-01";
   payForm.membership_required.checked = !!c.membership_required;
+  payForm.license_amount_eur.value = c.license_amount_cents ? c.license_amount_cents / 100 : "";
   $("pay-notify").value = c.notify_url || "";
   $("pay-keys-hint").textContent = c.configured
     ? `Clés enregistrées par ${c.updated_by || "?"} le ${stamp(c.updated_at)}. Pour en changer, saisissez le client_id et le client_secret.`
@@ -3694,6 +3695,7 @@ payForm.addEventListener("submit", async e => {
     membership_amount_eur: payForm.membership_amount_eur.value ? Number(payForm.membership_amount_eur.value) : null,
     membership_season_start: payForm.membership_season_start.value.trim() || "09-01",
     membership_required: payForm.membership_required.checked,
+    license_amount_eur: payForm.license_amount_eur.value ? Number(payForm.license_amount_eur.value) : null,
   };
   if (payForm.client_id.value.trim() || payForm.client_secret.value.trim()) {
     body.client_id = payForm.client_id.value.trim();
@@ -3741,20 +3743,28 @@ async function loadPayMembers() {
     $("pay-members-body").innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
     return;
   }
+  const withLicense = rows.some(m => m.license);
+  $("pay-license-col").hidden = !withLicense;
+  const state = (s, manualHint) => s.valid
+    ? `<span class="tag job-succeeded">à jour</span> jusqu'au ${esc(dayLabel(s.valid_until))}${s.method === "manual" ? ` <span class="muted">(${manualHint})</span>` : ""}`
+    : `<span class="tag tag-warn">à régler</span>`;
   $("pay-members-body").innerHTML = rows.map(m => `
     <tr data-id="${m.id}"><th scope="row">${esc(m.name)}</th>
-      <td data-label="Cotisation">${m.valid ? `<span class="tag job-succeeded">à jour</span> jusqu'au ${esc(dayLabel(m.valid_until))}${m.method === "manual" ? ` <span class="muted">(enregistrée à la main)</span>` : ""}` : `<span class="tag tag-warn">à régler</span>`}</td>
-      <td class="actions">${m.valid ? "" : `<button type="button" class="btn-quiet btn-small" data-act="pay-manual" title="Cotisation reçue par chèque ou en espèces : vaut pour la saison en cours">Enregistrer</button>`}</td></tr>`).join("")
-    || `<tr><td colspan="3" class="empty">Aucun membre.</td></tr>`;
+      <td data-label="Cotisation">${state(m, "enregistrée à la main")}</td>
+      ${withLicense ? `<td data-label="Licence FFESSM">${m.license ? state(m.license, "enregistrée à la main") : ""}</td>` : ""}
+      <td class="actions">${m.valid ? "" : `<button type="button" class="btn-quiet btn-small" data-act="pay-manual" title="Cotisation reçue par chèque ou en espèces : vaut pour la saison en cours">Enregistrer la cotisation</button>`}${m.license && !m.license.valid ? `<button type="button" class="btn-quiet btn-small" data-act="pay-manual-license" title="Licence FFESSM reçue par chèque ou en espèces : vaut pour la saison en cours">Enregistrer la licence</button>` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="empty">Aucun membre.</td></tr>`;
 }
 
 $("pay-members-body").addEventListener("click", async e => {
-  const btn = e.target.closest("[data-act=pay-manual]");
+  const btn = e.target.closest("[data-act=pay-manual], [data-act=pay-manual-license]");
   if (!btn) return;
   const row = btn.closest("tr");
-  if (!confirm(`Enregistrer la cotisation de ${row.querySelector("th").textContent} (reçue hors ligne) pour la saison en cours ?`)) return;
+  const license = btn.dataset.act === "pay-manual-license";
+  if (!confirm(`Enregistrer ${license ? "la licence FFESSM" : "la cotisation"} de ${row.querySelector("th").textContent} (reçue hors ligne) pour la saison en cours ?`)) return;
   try {
-    await Session.api(`/api/admin/helloasso/members/${row.dataset.id}/membership${payQS()}`, { method: "POST" });
+    await Session.api(`/api/admin/helloasso/members/${row.dataset.id}/membership${payQS()}`,
+      { method: "POST", body: { membership: !license, license } });
     loadPayMembers();
     loadPayList();
   } catch (err) {
@@ -3778,7 +3788,7 @@ async function loadPayList() {
   }
   payRows = data.payments;
   const s = data.summary;
-  $("pay-summary").textContent = `${s.paid_count} paiement(s) reçu(s) : ${eur(s.paid_cents)} (sorties ${eur(s.slots_cents)}, cotisations ${eur(s.membership_cents)})`
+  $("pay-summary").textContent = `${s.paid_count} paiement(s) reçu(s) : ${eur(s.paid_cents)} (sorties ${eur(s.slots_cents)}, cotisations ${eur(s.membership_cents)}${s.license_cents ? `, licences ${eur(s.license_cents)}` : ""})`
     + (s.refund_due ? ` — ${s.refund_due} à rembourser.` : ".");
   $("pay-body").innerHTML = payRows.length ? payRows.map(p => {
     const [label, cls] = PAY_STATUS[p.status] || [p.status, "tag"];

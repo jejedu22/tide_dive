@@ -780,6 +780,11 @@
               <label for="pay-season">Début de la saison (MM-JJ)</label>
               <input id="pay-season" name="membership_season_start" pattern="\d\d-\d\d" maxlength="5" value="09-01" placeholder="09-01">
             </div>
+            <div class="field">
+              <label for="pay-license">Licence FFESSM (€) <span class="muted">— facultatif</span></label>
+              <input id="pay-license" name="license_amount_eur" type="number" min="0" max="1000" step="0.01" inputmode="decimal" placeholder="vide : non proposée">
+              <small class="hint">Le membre peut la régler avec la cotisation, en un seul paiement, ou seule. Le montant est reversé au club, qui règle la licence à la fédération.</small>
+            </div>
             <label class="check span-all"><input type="checkbox" name="membership_required"> Cotisation obligatoire : pas d'inscription à une sortie sans cotisation à jour <span class="muted">(un administrateur peut enregistrer une cotisation reçue par chèque ou en espèces)</span></label>
             <div class="field span-all">
               <label for="pay-notify">Adresse de notification (à déclarer chez HelloAsso)</label>
@@ -806,10 +811,10 @@
         </div>
 
         <div class="panel" id="pay-members-panel" hidden>
-          <h2>Cotisation des membres</h2>
+          <h2>Cotisation et licence des membres</h2>
           <p class="hint">Un membre paie en ligne depuis « Ma cotisation » (menu du compte). Pour une cotisation reçue autrement (chèque, espèces), cliquez sur « Enregistrer » : elle vaut pour la saison en cours.</p>
           <div class="table-wrap"><table class="users">
-            <thead><tr><th scope="col">Membre</th><th scope="col">Cotisation</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <thead><tr><th scope="col">Membre</th><th scope="col">Cotisation</th><th scope="col" id="pay-license-col">Licence FFESSM</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
             <tbody id="pay-members-body"></tbody>
           </table></div>
         </div>

@@ -621,6 +621,14 @@ def _m028_helloasso(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE slot_types ADD COLUMN free_for_instructors INTEGER NOT NULL DEFAULT 0")
 
 
+def _m029_license(conn: sqlite3.Connection) -> None:
+    """Licence FFESSM payable avec la cotisation (payments.py)."""
+    if "license_amount_cents" not in _columns(conn, "helloasso_settings"):
+        conn.execute("ALTER TABLE helloasso_settings ADD COLUMN license_amount_cents INTEGER")
+    if "license_cents" not in _columns(conn, "payments"):
+        conn.execute("ALTER TABLE payments ADD COLUMN license_cents INTEGER NOT NULL DEFAULT 0")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -650,6 +658,7 @@ MIGRATIONS: list[Migration] = [
     Migration(26, "créneaux annulés : motifs d'annulation par structure", _m026_cancellations),
     Migration(27, "pièces jointes des newsletters", _m027_newsletter_attachments),
     Migration(28, "HelloAsso : compte par structure, prix des types de créneaux, paiements", _m028_helloasso),
+    Migration(29, "licence FFESSM payable avec la cotisation", _m029_license),
 ]
 
 

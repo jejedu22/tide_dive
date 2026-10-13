@@ -8,7 +8,8 @@ Paiement des sorties et cotisation du club par HelloAsso.
   est FACULTATIF : un membre inscrit (confirmé) peut payer depuis la liste des créneaux ; l'inscription ne dépend pas
   du paiement. Un paiement reçu pour une sortie annulée, ou dont l'inscription a disparu, est signalé « à rembourser » ;
   le remboursement se fait dans HelloAsso, puis se marque ici.
-- Cotisation : montant unique, saison à date réglable ; payée en ligne ou enregistrée à la main (chèque, espèces) par
+- Cotisation : montant unique, saison à date réglable ; licence FFESSM optionnelle (montant à part, payable avec la
+  cotisation en un seul règlement ou seule) ; payée en ligne ou enregistrée à la main (chèque, espèces) par
   un administrateur ; peut bloquer l'inscription (payments_core.registration_block).
 - Confirmation d'un paiement : relue chez HelloAsso (helloasso.get_checkout), au retour du membre ou à la
   réception d'une notification — jamais d'après l'adresse de retour du navigateur.
@@ -71,6 +72,7 @@ class SettingsIn(BaseModel):
     membership_amount_eur: float | None = Field(None, ge=0, le=MAX_AMOUNT_CENTS / 100)
     membership_season_start: str = "09-01"
     membership_required: bool = False
+    license_amount_eur: float | None = Field(None, ge=0, le=MAX_AMOUNT_CENTS / 100)
 
     @field_validator("org_slug")
     @classmethod
@@ -114,6 +116,7 @@ def _out(structure_id: int) -> dict:
             "membership_amount_cents": row["membership_amount_cents"],
             "membership_season_start": row["membership_season_start"],
             "membership_required": bool(row["membership_required"]),
+            "license_amount_cents": row["license_amount_cents"],
             "notify_url": notify_url(row["notify_token"]),
             "checked_at": row["checked_at"], "check_ok": None if row["check_ok"] is None else bool(row["check_ok"]),
             "check_message": row["check_message"], "updated_at": row["updated_at"], "updated_by": row["updated_by"],
@@ -156,6 +159,10 @@ def save_settings(body: SettingsIn, actor: CurrentManager, structure_id: int | N
     cents = round(body.membership_amount_eur * 100) if body.membership_amount_eur else None
     if body.use_membership and not cents:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Indiquez le montant de la cotisation.")
+    license_cents = round(body.license_amount_eur * 100) if body.license_amount_eur else None
+    if license_cents and not body.use_membership:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "La licence FFESSM se règle avec la cotisation : activez d'abord la cotisation.")
     if body.membership_required and not body.use_membership:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "La cotisation ne peut être exigée que si elle est activée.")
@@ -165,7 +172,7 @@ def save_settings(body: SettingsIn, actor: CurrentManager, structure_id: int | N
     fields = dict(org_slug=body.org_slug, sandbox=body.sandbox, use_slots=body.use_slots,
                   use_membership=body.use_membership, membership_amount_cents=cents,
                   membership_season_start=body.membership_season_start, membership_required=body.membership_required,
-                  updated_at=_iso(), updated_by=actor["username"])
+                  license_amount_cents=license_cents, updated_at=_iso(), updated_by=actor["username"])
     if body.client_id is not None:
         if row is not None:
             helloasso.forget_token(bool(row["sandbox"]), secrets_store.decrypt(row["client_id_enc"]))
@@ -206,8 +213,8 @@ def delete_settings(actor: CurrentManager, structure_id: int | None = None):
 def _payment_out(p: sqlite3.Row) -> dict:
     due = bool(p["kind"] == "slot" and p["status"] == "paid" and (p["slot_cancelled"] or p["registration_gone"]))
     return {"id": p["id"], "kind": p["kind"], "label": p["label"], "user_id": p["user_id"], "user": p["user_name"],
-            "amount_cents": p["amount_cents"], "status": p["status"], "method": p["method"],
-            "created_at": p["created_at"], "paid_at": p["paid_at"], "receipt_url": p["receipt_url"],
+            "amount_cents": p["amount_cents"], "license_cents": p["license_cents"], "status": p["status"],
+            "method": p["method"], "created_at": p["created_at"], "paid_at": p["paid_at"], "receipt_url": p["receipt_url"],
             "valid_until": p["valid_until"], "recorded_by": p["recorded_by"],
             "refund_due": due, "refund_reason": ("sortie annulée" if p["slot_cancelled"] else "inscription retirée") if due else None}
 
@@ -223,7 +230,8 @@ def list_payments(actor: CurrentManager, structure_id: int | None = None, kind: 
     return {"payments": out, "summary": {
         "paid_count": len(paid), "paid_cents": sum(p["amount_cents"] for p in paid),
         "slots_cents": sum(p["amount_cents"] for p in paid if p["kind"] == "slot"),
-        "membership_cents": sum(p["amount_cents"] for p in paid if p["kind"] == "membership"),
+        "membership_cents": sum(p["amount_cents"] - p["license_cents"] for p in paid if p["kind"] == "membership"),
+        "license_cents": sum(p["license_cents"] for p in paid),
         "refund_due": sum(1 for p in out if p["refund_due"])}}
 
 
@@ -264,13 +272,43 @@ def membership_members(actor: CurrentManager, structure_id: int | None = None):
     for m in db.structure_members(sid):
         state = payments_core.membership_state(settings, sid, m["id"], today)
         out.append({"id": m["id"], "name": " ".join(x for x in (m["first_name"], m["last_name"]) if x) or m["username"],
-                    "role": m["structure_role"], **state})
+                    "role": m["structure_role"], **state,
+                    "license": (payments_core.membership_state(settings, sid, m["id"], today, license=True)
+                                if payments_core.license_enabled(settings) else None)})
     return out
 
 
+class PartsIn(BaseModel):
+    """Ce qu'un paiement couvre : la cotisation, la licence FFESSM, ou les deux."""
+    model_config = ConfigDict(extra="forbid")
+    membership: bool = True
+    license: bool = False
+
+
+def _parts(settings: sqlite3.Row, structure_id: int, user_id: int, body: PartsIn | None, today) -> tuple[bool, bool]:
+    """(cotisation, licence) à régler : ce qui est demandé ET pas encore à jour pour la saison ; 409 s'il ne reste rien."""
+    body = body or PartsIn()
+    if body.license and not payments_core.license_enabled(settings):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La licence FFESSM n'est pas proposée par cette structure")
+    state = payments_core.membership_state(settings, structure_id, user_id, today)
+    membership = body.membership and not state["valid"]
+    license = body.license and not payments_core.membership_state(settings, structure_id, user_id, today, license=True)["valid"]
+    if not (membership or license):
+        if body.membership and not body.license:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Cotisation déjà à jour jusqu'au {state['valid_until']}")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Déjà à jour pour la saison en cours")
+    return membership, license
+
+
+def _parts_amount(settings: sqlite3.Row, membership: bool, license: bool) -> tuple[int, int]:
+    """(montant total, part de la licence) en centimes."""
+    lic = settings["license_amount_cents"] if license else 0
+    return (settings["membership_amount_cents"] if membership else 0) + lic, lic
+
+
 @router.post("/admin/helloasso/members/{user_id}/membership", status_code=201)
-def record_membership(user_id: int, actor: CurrentManager, structure_id: int | None = None):
-    """Enregistre une cotisation reçue hors ligne (chèque, espèces) pour la saison en cours."""
+def record_membership(user_id: int, actor: CurrentManager, structure_id: int | None = None, body: PartsIn | None = None):
+    """Enregistre une cotisation (et/ou une licence FFESSM) reçue hors ligne (chèque, espèces) pour la saison en cours."""
     sid = _scope(actor, structure_id)
     settings = db.get_helloasso(sid)
     if settings is None or not (settings["use_membership"] and settings["membership_amount_cents"]):
@@ -278,12 +316,12 @@ def record_membership(user_id: int, actor: CurrentManager, structure_id: int | N
     if db.get_membership(user_id, sid) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Membre inconnu dans cette structure")
     today = datetime.now(PARIS).date()
-    state = payments_core.membership_state(settings, sid, user_id, today)
-    if state["valid"]:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Cotisation déjà à jour jusqu'au {state['valid_until']}")
+    membership, license = _parts(settings, sid, user_id, body, today)
+    amount, lic = _parts_amount(settings, membership, license)
     start, end = payments_core.season_bounds(settings["membership_season_start"], today)
-    pid = db.create_payment(sid, user_id, "membership", payments_core.membership_label(settings, today),
-                            settings["membership_amount_cents"], _iso(), status="paid", method="manual",
+    pid = db.create_payment(sid, user_id, "membership",
+                            payments_core.payment_label(settings, today, membership=membership, license=license),
+                            amount, _iso(), status="paid", method="manual", license_cents=lic,
                             valid_from=start.isoformat(), valid_until=end.isoformat(), paid_at=_iso(),
                             recorded_by=actor["username"])
     return _payment_out(db.get_payment(pid))
@@ -350,19 +388,17 @@ def pay_slot(selection_id: int, user: CurrentMember):
 
 
 @router.post("/me/membership/pay")
-def pay_membership(user: CurrentMember):
-    """Paie la cotisation de la saison avec HelloAsso."""
+def pay_membership(user: CurrentMember, body: PartsIn | None = None):
+    """Paie avec HelloAsso la cotisation de la saison, la licence FFESSM, ou les deux en un seul règlement."""
     sid = user["structure_id"]
     settings = db.get_helloasso(sid)
     if settings is None or not (settings["use_membership"] and settings["membership_amount_cents"]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La cotisation en ligne n'est pas proposée par votre structure")
     today = datetime.now(PARIS).date()
-    state = payments_core.membership_state(settings, sid, user["id"], today)
-    if state["valid"]:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Votre cotisation est à jour jusqu'au {state['valid_until']}")
-    label = payments_core.membership_label(settings, today)
-    amount = settings["membership_amount_cents"]
-    pid = db.create_payment(sid, user["id"], "membership", label, amount, _iso())
+    membership, license = _parts(settings, sid, user["id"], body, today)
+    amount, lic = _parts_amount(settings, membership, license)
+    label = payments_core.payment_label(settings, today, membership=membership, license=license)
+    pid = db.create_payment(sid, user["id"], "membership", label, amount, _iso(), license_cents=lic)
     return _start_checkout(user, sid, pid, amount, f"{label} — {user['structure_name']}")
 
 

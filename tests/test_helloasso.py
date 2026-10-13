@@ -349,3 +349,54 @@ def test_client_nouveau_jeton_apres_401(monkeypatch):
     helloasso._tokens.clear()
     assert helloasso.request(False, "cid2", "sec", "GET", "/organizations/x") == {"ok": True}
     assert seen == ["Bearer old", "Bearer new"]
+
+
+def test_licence_ffessm_avec_la_cotisation_ou_seule(club, new_client, fake):
+    alice, m1 = _client(new_client, "alice"), _client(new_client, "m1")
+    # sans montant de licence : rien n'est proposé, et la licence ne se règle pas
+    _setup(alice, club)
+    assert "license" not in m1.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert m1.post("/api/me/membership/pay", json={"membership": True, "license": True}).status_code == 422
+    # la licence suppose la cotisation
+    assert alice.put("/api/admin/helloasso", json={**SETTINGS, "use_membership": False, "membership_amount_eur": None,
+                                                    "license_amount_eur": 40}).status_code == 422
+
+    _setup(alice, club, license_amount_eur=40)
+    mem = m1.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert mem["license"]["amount_cents"] == 4000 and not mem["license"]["valid"]
+
+    # cotisation + licence : un seul règlement de 70 €
+    r = m1.post("/api/me/membership/pay", json={"membership": True, "license": True})
+    assert r.status_code == 200, r.text
+    assert fake["created"][-1]["amount_cents"] == 7000
+    pid = r.json()["payment_id"]
+    fake["paid"].add(db.get_payment(pid)["checkout_intent_id"])
+    assert m1.get(f"/api/me/payments/{pid}").json()["status"] == "paid"
+    mem = m1.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert mem["valid"] and mem["license"]["valid"]
+    summary = alice.get("/api/admin/payments").json()["summary"]
+    assert summary["membership_cents"] == 3000 and summary["license_cents"] == 4000
+    assert m1.post("/api/me/membership/pay", json={"membership": True, "license": True}).status_code == 409
+
+
+def test_licence_seule_apres_la_cotisation_et_saisie_manuelle(club, new_client, fake, make_user):
+    alice, m1 = _client(new_client, "alice"), _client(new_client, "m1")
+    _setup(alice, club, license_amount_eur=40)
+    # cotisation seule d'abord : la licence reste à régler, et ne la compte pas comme cotisation
+    assert m1.post("/api/me/membership/pay", json={"membership": True, "license": False}).status_code == 200
+    pid = db.list_payments(club["sid"])[0]["id"]
+    fake["paid"].add(db.get_payment(pid)["checkout_intent_id"])
+    m1.get(f"/api/me/payments/{pid}")
+    mem = m1.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert mem["valid"] and not mem["license"]["valid"]
+    # puis la licence seule : 40 €, la cotisation n'est pas réclamée deux fois
+    assert m1.post("/api/me/membership/pay", json={"membership": True, "license": True}).status_code == 200
+    assert fake["created"][-1]["amount_cents"] == 4000
+    # enregistrement manuel par l'administrateur : licence seule pour un autre membre
+    uid = db.get_user_credentials("enc")["id"]
+    r = alice.post(f"/api/admin/helloasso/members/{uid}/membership", json={"membership": False, "license": True})
+    assert r.status_code == 201 and r.json()["amount_cents"] == 4000 and r.json()["license_cents"] == 4000
+    rows = {m["name"] or m["id"]: m for m in alice.get("/api/admin/helloasso/members").json()}
+    enc = next(m for m in rows.values() if m["id"] == uid)
+    assert not enc["valid"] and enc["license"]["valid"]            # licence payée ≠ cotisation à jour
+    assert alice.post(f"/api/admin/helloasso/members/{uid}/membership", json={"membership": False, "license": True}).status_code == 409
