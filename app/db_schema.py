@@ -390,6 +390,29 @@ CREATE TABLE IF NOT EXISTS login_challenges (
     attempts INTEGER NOT NULL DEFAULT 0
 );
 
+-- Connexion avec un compte externe (Google, voir google_login.py) : identité liée à un compte, créée depuis « Mon compte »
+-- (jamais rapprochée d'après l'adresse e-mail, qui n'est pas vérifiée dans l'application)
+CREATE TABLE IF NOT EXISTS user_identities (
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,                 -- identifiant stable chez le fournisseur (« sub »)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT,                            -- adresse du compte externe au moment du lien (affichage)
+    created_at TEXT NOT NULL,
+    last_login_at TEXT,
+    PRIMARY KEY (provider, subject),
+    UNIQUE (provider, user_id)
+);
+
+-- Étapes en cours d'une connexion externe : état (anti-CSRF), nonce et code de vérification PKCE, à usage unique
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state_hash TEXT PRIMARY KEY,
+    verifier TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('login', 'link')),
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,   -- mode « link » : le compte qui se lie
+    expires_at TEXT NOT NULL
+);
+
 -- Appartenance d'un compte à une structure, avec son rôle DANS cette structure : un compte peut appartenir
 -- à plusieurs structures (visualisation chez l'une, administration chez l'autre). users.structure_id et
 -- users.structure_role ne sont plus que la structure par défaut (la dernière utilisée) : le rôle, les

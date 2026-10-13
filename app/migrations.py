@@ -644,6 +644,28 @@ def _m031_membership_discount(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE payments ADD COLUMN discount_pct INTEGER NOT NULL DEFAULT 0")
 
 
+def _m032_identities(conn: sqlite3.Connection) -> None:
+    """Connexion avec un compte Google : identités liées et étapes de connexion en cours (google_login.py)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS user_identities (
+        provider TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT,
+        created_at TEXT NOT NULL,
+        last_login_at TEXT,
+        PRIMARY KEY (provider, subject),
+        UNIQUE (provider, user_id)
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS oauth_states (
+        state_hash TEXT PRIMARY KEY,
+        verifier TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('login', 'link')),
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL
+    )""")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -676,6 +698,7 @@ MIGRATIONS: list[Migration] = [
     Migration(29, "licence FFESSM payable avec la cotisation", _m029_license),
     Migration(30, "site de plongée d'un créneau choisi", _m030_selection_site),
     Migration(31, "réduction sur la cotisation d'un adhérent", _m031_membership_discount),
+    Migration(32, "connexion avec un compte Google", _m032_identities),
 ]
 
 
