@@ -54,6 +54,7 @@ SLOT_SELECTIONS_COLUMNS = """(
     height_m REAL,
     coefficient REAL,
     note TEXT,                              -- intitulé (facultatif) : distingue les créneaux d'une même étale
+    site_id INTEGER REFERENCES dive_sites(id) ON DELETE SET NULL,   -- site de plongée choisi (facultatif)
     created_at TEXT NOT NULL,
     -- créneau de hauteur d'eau : plage où l'eau est au-dessus (ou au-dessous) d'une hauteur du port ; ts_utc,
     -- kind, local_time et height_m sont alors NULL (pas d'étale). Le seuil est recopié : il peut être supprimé.
