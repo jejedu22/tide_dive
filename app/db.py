@@ -198,6 +198,7 @@ from .db_memberships import (  # noqa: F401
     _sync_default,
     list_memberships,
     get_membership,
+    set_membership_discount,
     count_memberships,
     _add_membership,
     add_membership,

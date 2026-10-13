@@ -213,7 +213,8 @@ def delete_settings(actor: CurrentManager, structure_id: int | None = None):
 def _payment_out(p: sqlite3.Row) -> dict:
     due = bool(p["kind"] == "slot" and p["status"] == "paid" and (p["slot_cancelled"] or p["registration_gone"]))
     return {"id": p["id"], "kind": p["kind"], "label": p["label"], "user_id": p["user_id"], "user": p["user_name"],
-            "amount_cents": p["amount_cents"], "license_cents": p["license_cents"], "status": p["status"],
+            "amount_cents": p["amount_cents"], "license_cents": p["license_cents"],
+            "discount_pct": p["discount_pct"], "status": p["status"],
             "method": p["method"], "created_at": p["created_at"], "paid_at": p["paid_at"], "receipt_url": p["receipt_url"],
             "valid_until": p["valid_until"], "recorded_by": p["recorded_by"],
             "refund_due": due, "refund_reason": ("sortie annulée" if p["slot_cancelled"] else "inscription retirée") if due else None}
@@ -272,7 +273,9 @@ def membership_members(actor: CurrentManager, structure_id: int | None = None):
     for m in db.structure_members(sid):
         state = payments_core.membership_state(settings, sid, m["id"], today)
         out.append({"id": m["id"], "name": " ".join(x for x in (m["first_name"], m["last_name"]) if x) or m["username"],
-                    "role": m["structure_role"], **state,
+                    "role": m["structure_role"], **state, "discount_pct": m["discount_pct"],
+                    "due_cents": (payments_core.discounted_cents(settings["membership_amount_cents"], m["discount_pct"])
+                                  if settings is not None and settings["membership_amount_cents"] else None),
                     "license": (payments_core.membership_state(settings, sid, m["id"], today, license=True)
                                 if payments_core.license_enabled(settings) else None)})
     return out
@@ -300,10 +303,26 @@ def _parts(settings: sqlite3.Row, structure_id: int, user_id: int, body: PartsIn
     return membership, license
 
 
-def _parts_amount(settings: sqlite3.Row, membership: bool, license: bool) -> tuple[int, int]:
-    """(montant total, part de la licence) en centimes."""
+def _parts_amount(settings: sqlite3.Row, membership: bool, license: bool, discount_pct: int = 0) -> tuple[int, int]:
+    """(montant total, part de la licence) en centimes ; la réduction du membre ne porte que sur la cotisation."""
     lic = settings["license_amount_cents"] if license else 0
-    return (settings["membership_amount_cents"] if membership else 0) + lic, lic
+    cotisation = payments_core.discounted_cents(settings["membership_amount_cents"], discount_pct) if membership else 0
+    return cotisation + lic, lic
+
+
+class DiscountIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    percent: int = Field(ge=0, le=100)
+
+
+@router.put("/admin/helloasso/members/{user_id}/discount")
+def set_discount(user_id: int, body: DiscountIn, actor: CurrentManager, structure_id: int | None = None):
+    """Réduction (0 à 100 %, 100 : offerte) sur la cotisation d'un membre. Elle s'applique aux paiements à venir ;
+    la licence FFESSM n'est pas concernée."""
+    sid = _scope(actor, structure_id)
+    if not db.set_membership_discount(user_id, sid, body.percent):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membre inconnu dans cette structure")
+    return {"user_id": user_id, "discount_pct": body.percent}
 
 
 @router.post("/admin/helloasso/members/{user_id}/membership", status_code=201)
@@ -317,11 +336,13 @@ def record_membership(user_id: int, actor: CurrentManager, structure_id: int | N
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Membre inconnu dans cette structure")
     today = datetime.now(PARIS).date()
     membership, license = _parts(settings, sid, user_id, body, today)
-    amount, lic = _parts_amount(settings, membership, license)
+    pct = payments_core.member_discount(sid, user_id) if membership else 0
+    amount, lic = _parts_amount(settings, membership, license, pct)
     start, end = payments_core.season_bounds(settings["membership_season_start"], today)
     pid = db.create_payment(sid, user_id, "membership",
-                            payments_core.payment_label(settings, today, membership=membership, license=license),
-                            amount, _iso(), status="paid", method="manual", license_cents=lic,
+                            payments_core.payment_label(settings, today, membership=membership, license=license,
+                                                        discount_pct=pct),
+                            amount, _iso(), status="paid", method="manual", license_cents=lic, discount_pct=pct,
                             valid_from=start.isoformat(), valid_until=end.isoformat(), paid_at=_iso(),
                             recorded_by=actor["username"])
     return _payment_out(db.get_payment(pid))
@@ -396,9 +417,17 @@ def pay_membership(user: CurrentMember, body: PartsIn | None = None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La cotisation en ligne n'est pas proposée par votre structure")
     today = datetime.now(PARIS).date()
     membership, license = _parts(settings, sid, user["id"], body, today)
-    amount, lic = _parts_amount(settings, membership, license)
-    label = payments_core.payment_label(settings, today, membership=membership, license=license)
-    pid = db.create_payment(sid, user["id"], "membership", label, amount, _iso(), license_cents=lic)
+    pct = payments_core.member_discount(sid, user["id"]) if membership else 0
+    amount, lic = _parts_amount(settings, membership, license, pct)
+    label = payments_core.payment_label(settings, today, membership=membership, license=license, discount_pct=pct)
+    if amount == 0:
+        # cotisation offerte (réduction de 100 %) et rien d'autre à régler : pas de passage par HelloAsso
+        start, end = payments_core.season_bounds(settings["membership_season_start"], today)
+        pid = db.create_payment(sid, user["id"], "membership", label, 0, _iso(), status="paid", method="manual",
+                                discount_pct=pct, valid_from=start.isoformat(), valid_until=end.isoformat(),
+                                paid_at=_iso(), recorded_by="réduction de 100 %")
+        return {"payment_id": pid, "free": True, "redirect_url": None}
+    pid = db.create_payment(sid, user["id"], "membership", label, amount, _iso(), license_cents=lic, discount_pct=pct)
     return _start_checkout(user, sid, pid, amount, f"{label} — {user['structure_name']}")
 
 

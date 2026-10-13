@@ -77,14 +77,15 @@ _PAYMENT_SELECT = """
 def create_payment(structure_id: int, user_id: int, kind: str, label: str, amount_cents: int, now: str, *,
                    selection_id: int | None = None, status: str = "pending", method: str = "helloasso",
                    valid_from: str | None = None, valid_until: str | None = None, paid_at: str | None = None,
-                   recorded_by: str | None = None, license_cents: int = 0) -> int:
+                   recorded_by: str | None = None, license_cents: int = 0,
+                   discount_pct: int = 0) -> int:
     with get_conn() as conn:
         return conn.execute(
             "INSERT INTO payments (structure_id, user_id, kind, selection_id, label, amount_cents, status, method, "
-            "valid_from, valid_until, created_at, paid_at, recorded_by, license_cents) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "valid_from, valid_until, created_at, paid_at, recorded_by, license_cents, discount_pct) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (structure_id, user_id, kind, selection_id, label, amount_cents, status, method, valid_from, valid_until,
-             now, paid_at, recorded_by, license_cents)).lastrowid
+             now, paid_at, recorded_by, license_cents, discount_pct)).lastrowid
 
 
 def get_payment(payment_id: int) -> sqlite3.Row | None:

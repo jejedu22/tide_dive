@@ -59,7 +59,8 @@ def membership_state(settings: sqlite3.Row | None, structure_id: int, user_id: i
     best = None
     for p in db.membership_payments(structure_id, user_id):
         part = p["license_cents"] if license else p["amount_cents"] - p["license_cents"]
-        if part > 0 and p["valid_from"] and p["valid_until"] and p["valid_from"] <= on.isoformat() <= p["valid_until"]:
+        offered = not license and p["discount_pct"] == 100         # cotisation offerte : montant nul mais payée
+        if (part > 0 or offered) and p["valid_from"] and p["valid_until"] and p["valid_from"] <= on.isoformat() <= p["valid_until"]:
             if best is None or p["valid_until"] > best["valid_until"]:
                 best = p
     return {"valid": best is not None, "valid_until": best["valid_until"] if best else None,
@@ -71,12 +72,23 @@ def license_enabled(settings: sqlite3.Row | None) -> bool:
                 and settings["license_amount_cents"])
 
 
-def payment_label(settings: sqlite3.Row, on: date, *, membership: bool = True, license: bool = False) -> str:
+def member_discount(structure_id: int, user_id: int) -> int:
+    """Réduction (en %) accordée au membre sur la cotisation du club."""
+    m = db.get_membership(user_id, structure_id)
+    return int(m["membership_discount_pct"]) if m is not None else 0
+
+
+def discounted_cents(full_cents: int, percent: int) -> int:
+    return round(full_cents * (100 - percent) / 100)
+
+
+def payment_label(settings: sqlite3.Row, on: date, *, membership: bool = True, license: bool = False,
+                  discount_pct: int = 0) -> str:
     start, end = season_bounds(settings["membership_season_start"], on)
     season = f"{start.year}-{end.year}" if start.year != end.year else str(start.year)
     what = {(True, False): "Cotisation", (True, True): "Cotisation et licence FFESSM",
             (False, True): "Licence FFESSM"}[(membership, license)]
-    return f"{what} {season}"
+    return f"{what} {season}" + (f" (réduction {discount_pct} %)" if membership and discount_pct else "")
 
 
 def member_config(structure_id: int | None, user_id: int, today: date) -> dict | None:
@@ -89,7 +101,9 @@ def member_config(structure_id: int | None, user_id: int, today: date) -> dict |
     membership = None
     if s["use_membership"] and s["membership_amount_cents"]:
         start, end = season_bounds(s["membership_season_start"], today)
-        membership = {"amount_cents": s["membership_amount_cents"], "required": bool(s["membership_required"]),
+        pct = member_discount(structure_id, user_id)
+        membership = {"amount_cents": discounted_cents(s["membership_amount_cents"], pct),
+                      "full_amount_cents": s["membership_amount_cents"], "discount_pct": pct, "required": bool(s["membership_required"]),
                       "season_start": start.isoformat(), "season_end": end.isoformat(),
                       **membership_state(s, structure_id, user_id, today)}
         if license_enabled(s):
@@ -107,7 +121,7 @@ def registration_block(structure_id: int, member, *, own: bool = True) -> str | 
         return None
     if membership_state(s, structure_id, member["id"], datetime.now(PARIS).date())["valid"]:
         return None
-    amount = f"{s['membership_amount_cents'] / 100:.2f}".replace(".", ",")
+    amount = f"{discounted_cents(s['membership_amount_cents'], member_discount(structure_id, member['id'])) / 100:.2f}".replace(".", ",")
     if own:
         return (f"Inscription impossible : votre cotisation au club n'est pas à jour ({amount} €). "
                 "Réglez-la depuis « Ma cotisation » (menu du compte).")
