@@ -400,3 +400,53 @@ def test_licence_seule_apres_la_cotisation_et_saisie_manuelle(club, new_client, 
     enc = next(m for m in rows.values() if m["id"] == uid)
     assert not enc["valid"] and enc["license"]["valid"]            # licence payée ≠ cotisation à jour
     assert alice.post(f"/api/admin/helloasso/members/{uid}/membership", json={"membership": False, "license": True}).status_code == 409
+
+
+def test_reduction_sur_la_cotisation_d_un_adherent(club, new_client, fake):
+    alice, m1, enc = _client(new_client, "alice"), _client(new_client, "m1"), _client(new_client, "enc")
+    _setup(alice, club, license_amount_eur=40)
+    uid = db.get_user_credentials("m1")["id"]
+    # réservée aux administrateurs, bornée, membres de la structure seulement
+    assert enc.put(f"/api/admin/helloasso/members/{uid}/discount", json={"percent": 50}).status_code in (401, 403)
+    assert alice.put(f"/api/admin/helloasso/members/{uid}/discount", json={"percent": 101}).status_code == 422
+    eve = db.get_user_credentials("eve")["id"]
+    assert alice.put(f"/api/admin/helloasso/members/{eve}/discount", json={"percent": 10}).status_code == 404
+    assert alice.put(f"/api/admin/helloasso/members/{uid}/discount", json={"percent": 50}).json()["discount_pct"] == 50
+
+    mem = m1.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert mem["amount_cents"] == 1500 and mem["full_amount_cents"] == 3000 and mem["discount_pct"] == 50
+    row = next(m for m in alice.get("/api/admin/helloasso/members").json() if m["id"] == uid)
+    assert row["discount_pct"] == 50 and row["due_cents"] == 1500
+    # cotisation réduite + licence au plein tarif
+    r = m1.post("/api/me/membership/pay", json={"membership": True, "license": True})
+    assert r.status_code == 200 and fake["created"][-1]["amount_cents"] == 1500 + 4000
+    p = db.get_payment(r.json()["payment_id"])
+    assert p["discount_pct"] == 50 and p["license_cents"] == 4000 and "50 %" in p["label"]
+
+
+def test_cotisation_offerte_a_100_pour_cent(club, new_client, fake):
+    alice, m1 = _client(new_client, "alice"), _client(new_client, "m1")
+    _setup(alice, club, license_amount_eur=40, membership_required=True)
+    uid = db.get_user_credentials("m1")["id"]
+    alice.put(f"/api/admin/helloasso/members/{uid}/discount", json={"percent": 100})
+    before = len(fake["created"])
+    r = m1.post("/api/me/membership/pay", json={"membership": True, "license": False})
+    assert r.status_code == 200 and r.json()["free"] is True and len(fake["created"]) == before   # pas de HelloAsso
+    mem = m1.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert mem["valid"] and not mem["license"]["valid"]
+    assert m1.post("/api/me/membership/pay", json={"membership": True, "license": False}).status_code == 409
+    # offerte + licence : seule la licence est facturée, la cotisation compte quand même
+    uid2 = db.get_user_credentials("enc")["id"]
+    alice.put(f"/api/admin/helloasso/members/{uid2}/discount", json={"percent": 100})
+    enc = _client(new_client, "enc")
+    r = enc.post("/api/me/membership/pay", json={"membership": True, "license": True})
+    assert fake["created"][-1]["amount_cents"] == 4000
+    fake["paid"].add(db.get_payment(r.json()["payment_id"])["checkout_intent_id"])
+    enc.get(f"/api/me/payments/{r.json()['payment_id']}")
+    mem = enc.get("/api/auth/me").json()["user"]["payments"]["membership"]
+    assert mem["valid"] and mem["license"]["valid"]
+    # enregistrement manuel au montant réduit (alice n'a pas encore de cotisation)
+    me = db.get_user_credentials("alice")["id"]
+    alice.put(f"/api/admin/helloasso/members/{me}/discount", json={"percent": 20})
+    r = alice.post(f"/api/admin/helloasso/members/{me}/membership", json={"membership": True, "license": False})
+    assert r.status_code == 201 and r.json()["amount_cents"] == 2400 and r.json()["discount_pct"] == 20

@@ -68,6 +68,14 @@ def get_membership(user_id: int, structure_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def set_membership_discount(user_id: int, structure_id: int, percent: int) -> bool:
+    """Réduction (0 à 100 %) sur la cotisation du club ; False si le compte n'est pas membre de la structure."""
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE memberships SET membership_discount_pct = ? WHERE user_id = ? AND structure_id = ?",
+            (percent, user_id, structure_id)).rowcount > 0
+
+
 def count_memberships(user_id: int) -> int:
     with get_conn() as conn:
         return conn.execute("SELECT COUNT(*) FROM memberships WHERE user_id = ?", (user_id,)).fetchone()[0]

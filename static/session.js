@@ -291,7 +291,8 @@ const Session = (() => {
     const done = (what, s) => `<p>${what} : <strong>à jour</strong> jusqu'au ${fr(s.valid_until)}${s.method === "manual" ? " (enregistrée par le club)" : ""}. Merci !</p>`;
     const parts = [];
     if (m.valid) parts.push(done("Votre cotisation", m));
-    else parts.push(`<p>Cotisation de la saison (jusqu'au ${fr(m.season_end)}) : <strong>${eur(m.amount_cents)}</strong>. ${m.required
+    else parts.push(`<p>Cotisation de la saison (jusqu'au ${fr(m.season_end)}) : <strong>${m.amount_cents ? eur(m.amount_cents) : "offerte"}</strong>${m.discount_pct
+      ? ` <span class="muted">(${eur(m.full_amount_cents)} moins ${m.discount_pct} % de réduction accordée par le club)</span>` : ""}. ${m.required
       ? "Elle est nécessaire pour vous inscrire aux sorties." : "Elle n'est pas obligatoire pour vous inscrire."}</p>`);
     if (lic) {
       if (lic.valid) parts.push(done("Votre licence FFESSM", lic));
@@ -300,14 +301,17 @@ const Session = (() => {
     }
     const toPay = !m.valid || (lic && !lic.valid);
     if (toPay) {
-      parts.push(`<p><button type="button" class="btn-primary" data-pay-membership>Payer <span data-pay-total></span> avec HelloAsso</button></p>
+      parts.push(`<p><button type="button" class="btn-primary" data-pay-membership></button></p>
         <p class="dialog-hint">Paiement sécurisé par HelloAsso, directement au profit du club${user.payments.sandbox ? " (<strong>mode test</strong> : aucun vrai paiement)" : ""}. Vous pouvez aussi les régler au club (chèque, espèces) : un administrateur les enregistrera.</p>`);
     }
     openMessage(lic ? "Ma cotisation et licence" : "Ma cotisation", parts.join(""));
     const dlg = document.querySelector("dialog[open]");
     const box = dlg?.querySelector("[data-with-license]");
     const total = () => (m.valid ? 0 : m.amount_cents) + (lic && !lic.valid && (m.valid || box?.checked) ? lic.amount_cents : 0);
-    const refresh = () => { const t = dlg?.querySelector("[data-pay-total]"); if (t) t.textContent = eur(total()); };
+    const refresh = () => {
+      const b = dlg?.querySelector("[data-pay-membership]");
+      if (b) b.textContent = total() ? `Payer ${eur(total())} avec HelloAsso` : "Valider ma cotisation offerte";
+    };
     refresh();
     box?.addEventListener("change", refresh);
     dlg?.querySelector("[data-pay-membership]")?.addEventListener("click", async e => {
@@ -315,6 +319,7 @@ const Session = (() => {
       try {
         const withLicense = !!lic && !lic.valid && (m.valid || !!box?.checked);
         const r = await api("/api/me/membership/pay", { method: "POST", body: { membership: !m.valid, license: withLicense } });
+        if (r.free) { location.reload(); return; }      // cotisation offerte : rien à payer
         location.assign(r.redirect_url);
       } catch (err) {
         openMessage("Ma cotisation", `<p>${esc(err.message)}</p>`);

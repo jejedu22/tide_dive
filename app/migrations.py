@@ -635,6 +635,15 @@ def _m030_selection_site(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE slot_selections ADD COLUMN site_id INTEGER REFERENCES dive_sites(id) ON DELETE SET NULL")
 
 
+def _m031_membership_discount(conn: sqlite3.Connection) -> None:
+    """Réduction sur la cotisation d'un adhérent (payments.py)."""
+    if "membership_discount_pct" not in _columns(conn, "memberships"):
+        conn.execute("ALTER TABLE memberships ADD COLUMN membership_discount_pct INTEGER NOT NULL DEFAULT 0 "
+                     "CHECK (membership_discount_pct BETWEEN 0 AND 100)")
+    if "discount_pct" not in _columns(conn, "payments"):
+        conn.execute("ALTER TABLE payments ADD COLUMN discount_pct INTEGER NOT NULL DEFAULT 0")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -666,6 +675,7 @@ MIGRATIONS: list[Migration] = [
     Migration(28, "HelloAsso : compte par structure, prix des types de créneaux, paiements", _m028_helloasso),
     Migration(29, "licence FFESSM payable avec la cotisation", _m029_license),
     Migration(30, "site de plongée d'un créneau choisi", _m030_selection_site),
+    Migration(31, "réduction sur la cotisation d'un adhérent", _m031_membership_discount),
 ]
 
 

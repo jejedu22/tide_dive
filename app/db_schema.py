@@ -403,6 +403,8 @@ CREATE TABLE IF NOT EXISTS memberships (
     -- récapitulatif des nouveaux créneaux (reminders.py) : NULL désactivé, '' tous les types, sinon les
     -- identifiants des types retenus séparés par des virgules
     digest_types TEXT,
+    -- réduction (en %) sur la cotisation du club, accordée par un administrateur (payments.py) ; 100 : offerte
+    membership_discount_pct INTEGER NOT NULL DEFAULT 0 CHECK (membership_discount_pct BETWEEN 0 AND 100),
     PRIMARY KEY (user_id, structure_id)
 );
 CREATE INDEX IF NOT EXISTS idx_memberships_structure ON memberships(structure_id, role);
@@ -576,6 +578,7 @@ CREATE TABLE IF NOT EXISTS payments (
     label TEXT NOT NULL,                         -- libellé recopié (créneau, saison) : survit à leur suppression
     amount_cents INTEGER NOT NULL,
     license_cents INTEGER NOT NULL DEFAULT 0,    -- cotisation : part du montant qui est la licence FFESSM
+    discount_pct INTEGER NOT NULL DEFAULT 0,     -- cotisation : réduction appliquée au moment du paiement (100 : offerte)
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed', 'refunded')),
     method TEXT NOT NULL DEFAULT 'helloasso' CHECK (method IN ('helloasso', 'manual')),
     checkout_intent_id TEXT,

@@ -3740,7 +3740,7 @@ async function loadPayMembers() {
   try {
     rows = await Session.api(`/api/admin/helloasso/members${payQS()}`);
   } catch (e) {
-    $("pay-members-body").innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
+    $("pay-members-body").innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`;
     return;
   }
   const withLicense = rows.some(m => m.license);
@@ -3752,9 +3752,26 @@ async function loadPayMembers() {
     <tr data-id="${m.id}"><th scope="row">${esc(m.name)}</th>
       <td data-label="Cotisation">${state(m, "enregistrée à la main")}</td>
       ${withLicense ? `<td data-label="Licence FFESSM">${m.license ? state(m.license, "enregistrée à la main") : ""}</td>` : ""}
+      <td data-label="Réduction"><label class="visually-hidden" for="disc-${m.id}">Réduction sur la cotisation de ${esc(m.name)} (%)</label>
+        <input id="disc-${m.id}" class="discount-input" type="number" min="0" max="100" step="1" inputmode="numeric" value="${m.discount_pct}" data-discount="${m.id}" data-was="${m.discount_pct}"> %
+        ${m.due_cents != null ? `<span class="muted">→ ${esc(eur(m.due_cents))}</span>` : ""}</td>
       <td class="actions">${m.valid ? "" : `<button type="button" class="btn-quiet btn-small" data-act="pay-manual" title="Cotisation reçue par chèque ou en espèces : vaut pour la saison en cours">Enregistrer la cotisation</button>`}${m.license && !m.license.valid ? `<button type="button" class="btn-quiet btn-small" data-act="pay-manual-license" title="Licence FFESSM reçue par chèque ou en espèces : vaut pour la saison en cours">Enregistrer la licence</button>` : ""}</td></tr>`).join("")
-    || `<tr><td colspan="4" class="empty">Aucun membre.</td></tr>`;
+    || `<tr><td colspan="5" class="empty">Aucun membre.</td></tr>`;
 }
+
+$("pay-members-body").addEventListener("change", async e => {
+  const input = e.target.closest("[data-discount]");
+  if (!input) return;
+  const percent = Math.round(Number(input.value));
+  if (!(percent >= 0 && percent <= 100)) { input.value = input.dataset.was; flash("La réduction va de 0 à 100 %."); return; }
+  try {
+    await Session.api(`/api/admin/helloasso/members/${input.dataset.discount}/discount${payQS()}`, { method: "PUT", body: { percent } });
+    loadPayMembers();
+  } catch (err) {
+    input.value = input.dataset.was;
+    flash(esc(err.message));
+  }
+});
 
 $("pay-members-body").addEventListener("click", async e => {
   const btn = e.target.closest("[data-act=pay-manual], [data-act=pay-manual-license]");

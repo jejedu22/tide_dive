@@ -419,7 +419,7 @@ def structure_members(structure_id: int) -> list[sqlite3.Row]:
     """Comptes de la structure, pour composer un groupe."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT u.id, u.username, u.first_name, u.last_name, u.email, mem.role AS structure_role FROM users u "
+            "SELECT u.id, u.username, u.first_name, u.last_name, u.email, mem.role AS structure_role, mem.membership_discount_pct AS discount_pct FROM users u "
             "JOIN memberships mem ON mem.user_id = u.id AND mem.structure_id = ? "
             "ORDER BY COALESCE(u.last_name, u.username) COLLATE NOCASE, u.first_name COLLATE NOCASE",
             (structure_id,),
