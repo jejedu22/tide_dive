@@ -108,6 +108,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | `API_DOCS` | `1` | `0` : ni documentation Swagger (`/api-docs.html`) ni description OpenAPI (`/api/openapi.json`) |
 | `API_TOKEN_RATE_PER_MIN` | `120` | Requêtes par minute et par jeton d'API (voir [Documentation interactive et outils tiers](#documentation-interactive-et-outils-tiers)) |
 | `SECRETS_KEY` | — | Clé de chiffrement des clés Mailjet et HelloAsso des structures (voir [Connexion Mailjet](#connexion-mailjet)) ; sans elle, ni Mailjet ni HelloAsso ne peuvent être connectés |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | *(vide)* | Connexion avec Google (voir « Connexion avec Google ») ; sans eux, aucun bouton Google |
 | `HELLOASSO_IP_CHECK` | `1` | `0` : accepte les notifications HelloAsso de n'importe quelle adresse IP (derrière un proxy dont l'IP cliente est illisible) ; le jeton secret de l'adresse reste exigé |
 | `BACKUP_KEEP` | `14` | Sauvegardes quotidiennes conservées dans `data/backups/` |
 | `ALERT_EMAIL` | — | Destinataires des alertes (séparés par des virgules) ; vide : les super administrateurs ayant une adresse e-mail |
@@ -625,6 +626,15 @@ Depuis la liste, le bouton **Mot de passe…** renvoie l'invitation, envoie un l
 **Mot de passe oublié** : lien dans la fenêtre de connexion. L'utilisateur saisit son identifiant ou son adresse e-mail et reçoit un **mot de passe provisoire** valable `RESET_TOKEN_MINUTES` (60 min). Il s'ajoute au mot de passe actuel sans le remplacer (une demande faite par quelqu'un d'autre ne bloque pas le compte) ; à la première connexion avec lui, il devient le mot de passe du compte et l'utilisateur doit immédiatement en choisir un nouveau. Se connecter avec l'ancien mot de passe annule le provisoire. La réponse est la même que le compte existe ou non, la recherche et l'envoi ont lieu après la réponse, et un compte ne reçoit pas plus d'un envoi toutes les 2 minutes. Un administrateur peut aussi déclencher cet envoi depuis la liste des comptes.
 
 Les liens pointent vers `/mot-de-passe.html#token=…` : le jeton est dans le fragment, donc jamais envoyé au serveur dans l'URL (absent des logs du reverse proxy et de l'en-tête Referer). Seule son empreinte SHA-256 est stockée ; il est invalidé dès que le mot de passe change. Choisir un mot de passe par ce lien ferme toutes les sessions du compte et connecte le navigateur.
+
+### Connexion avec Google
+
+Un compte Calendive peut se connecter avec un compte Google (Gmail ou Google Workspace) : bouton **Se connecter avec Google** sur la fenêtre de connexion. Facultatif, désactivé tant que les variables ne sont pas renseignées (aucun bouton n'est alors affiché).
+
+- **Mise en place** (une fois par installation) : console Google Cloud → API et services → Identifiants → *ID client OAuth*, type **Application Web**. Adresse de redirection autorisée : `<APP_BASE_URL>/api/auth/google/callback` (en https). Renseigner `GOOGLE_CLIENT_ID` et `GOOGLE_CLIENT_SECRET` (`.env`). Écran de consentement : portées `openid` et `email` seulement.
+- **Pas d'inscription libre** : Google ne crée jamais de compte. Il faut d'abord **lier** son compte Google, connecté avec son mot de passe : **Mon compte → lier mon compte Google**. Ensuite « Se connecter avec Google » ouvre la session ; **Délier** (même fenêtre) retire le lien, le mot de passe reste valable. Le lien porte sur l'identifiant stable de Google (`sub`) et **jamais sur l'adresse e-mail**, qui n'est pas vérifiée dans Calendive : un compte ne peut donc pas en recevoir un autre en saisissant son adresse.
+- **Sûretés** : flux « code d'autorisation » avec PKCE, entièrement côté serveur (aucun script de Google dans les pages) ; état à usage unique, lié au navigateur par un cookie, et nonce ; le jeton d'identité reçu de Google est contrôlé (émetteur, audience, expiration, nonce, adresse vérifiée). Un compte **suspendu** ou protégé par la **double authentification** de Calendive ne se connecte pas par Google (mot de passe et code, comme avant).
+- Routes : `GET /api/auth/google/start?mode=login|link`, `GET /api/auth/google/callback`, `GET` et `DELETE /api/me/google`. La liaison (`mode=link`) refuse un jeton d'API. Tables `user_identities` et `oauth_states` (migration 32).
 
 ### Double authentification, suspension et données des comptes
 

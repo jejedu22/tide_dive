@@ -646,7 +646,9 @@ def me(user: Annotated[sqlite3.Row | None, Depends(optional_user)]):
 @router.get("/auth/config")
 def auth_config():
     """Ce que le frontend doit savoir avant connexion : politique, mot de passe oublié."""
+    from . import google_login           # import tardif : google_login dépend de ce module
     return {
+        "google": google_login.enabled(),
         "password_reset": mailer.enabled(),
         "password_reset_minutes": int(accounts.RESET_TTL.total_seconds() // 60),
         "password_policy": passwords.policy(),

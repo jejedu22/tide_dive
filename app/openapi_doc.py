@@ -106,6 +106,10 @@ def tag_for(path: str) -> str:
 # Routes sans libellé du journal ni description
 SUMMARIES = {
     ("POST", "/api/auth/login"): "Connexion (pose le cookie de session)",
+    ("GET", "/api/auth/google/start"): "Connexion avec Google : envoi vers la page de Google",
+    ("GET", "/api/auth/google/callback"): "Connexion avec Google : retour de Google",
+    ("GET", "/api/me/google"): "Compte Google lié au compte connecté",
+    ("DELETE", "/api/me/google"): "Délier le compte Google",
     ("GET", "/api/auth/me"): "Compte connecté : profil, structure, rôle, droits",
     ("POST", "/api/auth/forgot-password"): "Mot de passe oublié : envoi d'un lien",
     ("POST", "/api/auth/token-info"): "Validité d'un lien d'invitation ou de réinitialisation",

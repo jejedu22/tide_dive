@@ -23,6 +23,7 @@ const Session = (() => {
   const listeners = [];
   // complété par /api/auth/config au démarrage
   let config = {
+    google: false,
     password_reset: false,
     password_reset_minutes: 60,
     password_policy: { min_length: 12, max_length: 128, classes: [] },
@@ -334,6 +335,7 @@ const Session = (() => {
     ]);
     if (cfg) config = cfg;
     setUser(me.user);
+    showGoogleResult();
     return user;
   }
 
@@ -536,7 +538,9 @@ const Session = (() => {
         { name: "username", label: "Identifiant ou adresse e-mail", autocomplete: "username", value: prefill },
         { name: "password", label: "Mot de passe", type: "password", autocomplete: "current-password" },
       ],
-      extra: `<p class="dialog-links"><button type="button" class="link-btn" data-forgot>Mot de passe oublié ?</button></p>` +
+      extra: (config.google
+        ? `<p class="dialog-links"><a class="btn-secondary google-btn" href="/api/auth/google/start?mode=login">Se connecter avec Google</a></p>` : "") +
+        `<p class="dialog-links"><button type="button" class="link-btn" data-forgot>Mot de passe oublié ?</button></p>` +
         `<p class="dialog-links">Votre club n'a pas encore de compte ? <a href="demande-structure.html">Demander la création d'une structure</a></p>`,
       onSubmit: v => login(v.username.trim(), v.password),
       setup: form => form.querySelector("[data-forgot]")?.addEventListener("click", () => {
@@ -628,7 +632,8 @@ const Session = (() => {
       ],
       extra: `<label class="check" data-newsletters hidden><input type="checkbox" name="newsletters">
                  Recevoir les newsletters de ma structure</label>
-               <p class="dialog-links"><button type="button" class="link-btn" data-change-password>Changer de mot de passe</button></p>`,
+               <p class="dialog-links"><button type="button" class="link-btn" data-change-password>Changer de mot de passe</button></p>
+               ${config.google ? `<p class="dialog-hint" data-google></p>` : ""}`,
       onSubmit: async (v, f) => {
         const body = { first_name: v.first_name, last_name: v.last_name, email: v.email, phone: v.phone };
         if (v.current_password) body.current_password = v.current_password;
@@ -652,10 +657,49 @@ const Session = (() => {
         f.email.addEventListener("input", sync);
         sync();
         f.querySelector("[data-change-password]").addEventListener("click", () => openPasswordChange());
+        if (config.google) showGoogleLink(f.querySelector("[data-google]"));
       },
     });
     if (!u.profile_complete) form.querySelector(".dialog-hint").insertAdjacentHTML(
       "afterend", `<p class="dialog-notice">Complétez votre profil : prénom, nom et adresse e-mail.</p>`);
+  }
+
+  // Compte Google lié au compte : état, lier (la connexion passe par Google puis revient ici), délier
+  async function showGoogleLink(el) {
+    if (!el) return;
+    let g;
+    try { g = await api("/api/me/google"); } catch { return; }
+    if (!el.isConnected) return;
+    el.innerHTML = g.linked
+      ? `Compte Google lié${g.email ? ` : <strong>${esc(g.email)}</strong>` : ""} — vous pouvez vous connecter avec Google.
+         <button type="button" class="link-btn" data-google-unlink>Délier</button>`
+      : `Connexion avec Google : <a href="/api/auth/google/start?mode=link">lier mon compte Google</a>
+         (ensuite, « Se connecter avec Google » suffira).`;
+    el.querySelector("[data-google-unlink]")?.addEventListener("click", async () => {
+      try { await api("/api/me/google", { method: "DELETE" }); } catch (e) { el.textContent = e.message; return; }
+      showGoogleLink(el);
+    });
+  }
+
+  // Retour de Google (?google=…) : message, puis l'adresse est nettoyée
+  const GOOGLE_RESULTS = {
+    linked: "Votre compte Google est lié : vous pouvez maintenant vous connecter avec Google.",
+    unknown: "Aucun compte Calendive n'est lié à ce compte Google. Connectez-vous avec votre identifiant et votre mot de passe, puis liez votre compte Google depuis « Mon compte ».",
+    taken: "Ce compte Google est déjà lié à un autre compte Calendive.",
+    suspended: "Ce compte est suspendu : contactez l'administrateur du site.",
+    totp: "Ce compte est protégé par la double authentification : connectez-vous avec votre mot de passe.",
+    denied: "Connexion avec Google annulée.",
+    expired: "La demande de connexion avec Google a expiré : recommencez.",
+    error: "La connexion avec Google a échoué : réessayez, ou utilisez votre mot de passe.",
+  };
+
+  function showGoogleResult() {
+    const url = new URL(location.href);
+    const result = url.searchParams.get("google");
+    if (!result) return;
+    url.searchParams.delete("google");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (GOOGLE_RESULTS[result]) openMessage("Connexion avec Google", `<p>${esc(GOOGLE_RESULTS[result])}</p>`);
   }
 
   // ---- Fiche plongeur : niveaux, licence (QR code), certificat médical (CACI) ----

@@ -31,6 +31,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_structure_profile.py fiche de la structure, logo, lien et demandes d'adhésion
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
   db_api_tokens.py  jetons d'API des comptes (outils tiers)
+  db_identities.py  comptes externes liés (connexion Google), étapes de connexion en cours
 Les évolutions nouvelles du schéma : migrations.py.
 """
 
@@ -286,6 +287,15 @@ from .db_water import (  # noqa: F401
     delete_threshold,
     create_water_selection,
     water_selections_between,
+)
+from .db_identities import (  # noqa: F401
+    create_oauth_state,
+    pop_oauth_state,
+    get_identity,
+    get_user_identity,
+    link_identity,
+    unlink_identity,
+    touch_identity,
 )
 from .db_accounts import (  # noqa: F401
     _ACCOUNT_COLUMNS,
