@@ -52,20 +52,31 @@ def slot_price_cents(price_cents: int | None, free_for_instructors: bool, user) 
     return 0 if free_for_instructors and is_instructor(user) else int(price_cents)
 
 
-def membership_state(settings: sqlite3.Row | None, structure_id: int, user_id: int, on: date) -> dict:
-    """{valid, valid_until, method} de la cotisation du membre le jour `on` (la plus longue des cotisations payées)."""
+def membership_state(settings: sqlite3.Row | None, structure_id: int, user_id: int, on: date, *,
+                     license: bool = False) -> dict:
+    """{valid, valid_until, method} de la cotisation du membre le jour `on` (la plus longue des cotisations payées).
+    license=True : même chose pour la licence FFESSM (payée avec la cotisation ou seule)."""
     best = None
     for p in db.membership_payments(structure_id, user_id):
-        if p["valid_from"] and p["valid_until"] and p["valid_from"] <= on.isoformat() <= p["valid_until"]:
+        part = p["license_cents"] if license else p["amount_cents"] - p["license_cents"]
+        if part > 0 and p["valid_from"] and p["valid_until"] and p["valid_from"] <= on.isoformat() <= p["valid_until"]:
             if best is None or p["valid_until"] > best["valid_until"]:
                 best = p
     return {"valid": best is not None, "valid_until": best["valid_until"] if best else None,
             "method": best["method"] if best else None}
 
 
-def membership_label(settings: sqlite3.Row, on: date) -> str:
+def license_enabled(settings: sqlite3.Row | None) -> bool:
+    return bool(settings is not None and settings["use_membership"] and settings["membership_amount_cents"]
+                and settings["license_amount_cents"])
+
+
+def payment_label(settings: sqlite3.Row, on: date, *, membership: bool = True, license: bool = False) -> str:
     start, end = season_bounds(settings["membership_season_start"], on)
-    return f"Cotisation {start.year}-{end.year}" if start.year != end.year else f"Cotisation {start.year}"
+    season = f"{start.year}-{end.year}" if start.year != end.year else str(start.year)
+    what = {(True, False): "Cotisation", (True, True): "Cotisation et licence FFESSM",
+            (False, True): "Licence FFESSM"}[(membership, license)]
+    return f"{what} {season}"
 
 
 def member_config(structure_id: int | None, user_id: int, today: date) -> dict | None:
@@ -81,6 +92,9 @@ def member_config(structure_id: int | None, user_id: int, today: date) -> dict |
         membership = {"amount_cents": s["membership_amount_cents"], "required": bool(s["membership_required"]),
                       "season_start": start.isoformat(), "season_end": end.isoformat(),
                       **membership_state(s, structure_id, user_id, today)}
+        if license_enabled(s):
+            lic = membership_state(s, structure_id, user_id, today, license=True)
+            membership["license"] = {"amount_cents": s["license_amount_cents"], **lic}
     return {"slots": bool(s["use_slots"]), "membership": membership, "sandbox": bool(s["sandbox"])}
 
 

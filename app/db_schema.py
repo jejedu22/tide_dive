@@ -556,6 +556,7 @@ CREATE TABLE IF NOT EXISTS helloasso_settings (
     membership_amount_cents INTEGER,
     membership_season_start TEXT NOT NULL DEFAULT '09-01',   -- MM-JJ : début de la saison
     membership_required INTEGER NOT NULL DEFAULT 0,          -- 1 : pas d'inscription sans cotisation à jour
+    license_amount_cents INTEGER,                -- licence FFESSM proposée avec la cotisation (NULL : non proposée)
     notify_token TEXT NOT NULL UNIQUE,           -- secret de l'adresse de notification donnée à HelloAsso
     checked_at TEXT,
     check_ok INTEGER,
@@ -573,6 +574,7 @@ CREATE TABLE IF NOT EXISTS payments (
     selection_id INTEGER REFERENCES slot_selections(id) ON DELETE SET NULL,   -- sortie payée
     label TEXT NOT NULL,                         -- libellé recopié (créneau, saison) : survit à leur suppression
     amount_cents INTEGER NOT NULL,
+    license_cents INTEGER NOT NULL DEFAULT 0,    -- cotisation : part du montant qui est la licence FFESSM
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed', 'refunded')),
     method TEXT NOT NULL DEFAULT 'helloasso' CHECK (method IN ('helloasso', 'manual')),
     checkout_intent_id TEXT,

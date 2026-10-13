@@ -27,7 +27,7 @@ def get_helloasso_by_token(token: str) -> sqlite3.Row | None:
 
 _HELLO_FIELDS = ("org_slug", "client_id_enc", "client_secret_enc", "client_id_hint", "sandbox", "use_slots",
                  "use_membership", "membership_amount_cents", "membership_season_start", "membership_required",
-                 "notify_token", "updated_at", "updated_by")
+                 "license_amount_cents", "notify_token", "updated_at", "updated_by")
 
 
 def save_helloasso(structure_id: int, **fields) -> None:
@@ -77,13 +77,14 @@ _PAYMENT_SELECT = """
 def create_payment(structure_id: int, user_id: int, kind: str, label: str, amount_cents: int, now: str, *,
                    selection_id: int | None = None, status: str = "pending", method: str = "helloasso",
                    valid_from: str | None = None, valid_until: str | None = None, paid_at: str | None = None,
-                   recorded_by: str | None = None) -> int:
+                   recorded_by: str | None = None, license_cents: int = 0) -> int:
     with get_conn() as conn:
         return conn.execute(
             "INSERT INTO payments (structure_id, user_id, kind, selection_id, label, amount_cents, status, method, "
-            "valid_from, valid_until, created_at, paid_at, recorded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "valid_from, valid_until, created_at, paid_at, recorded_by, license_cents) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (structure_id, user_id, kind, selection_id, label, amount_cents, status, method, valid_from, valid_until,
-             now, paid_at, recorded_by)).lastrowid
+             now, paid_at, recorded_by, license_cents)).lastrowid
 
 
 def get_payment(payment_id: int) -> sqlite3.Row | None:
