@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Inscription à une plongée — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+<style>
+  main.request-main { max-width: 40rem; }
+  .request-main .panel { margin-bottom: 1.25rem; }
+  .request-main p { font-size: 0.92rem; line-height: 1.55; }
+  .request-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; }
+  .request-form .span-all { grid-column: 1 / -1; }
+  .request-form input, .request-form textarea {
+    font: inherit; padding: 0.55rem 0.65rem; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--input-bg); color: var(--text);
+  }
+  .request-form textarea { min-height: 8rem; resize: vertical; }
+  .request-form .check { align-items: flex-start; padding-bottom: 0; }
+  .request-form .check input { margin-top: 0.2rem; }
+  .request-form .optional { font-weight: 400; color: var(--muted); }
+  /* champ piège pour les robots : hors écran, ignoré des lecteurs d'écran */
+  .request-form .trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+  .request-done { border-left: 4px solid var(--teal, #06d6a0); padding-left: 1rem; }
+  .join-card { display: flex; gap: 1rem; align-items: center; }
+  .join-card img { width: 72px; height: 72px; object-fit: contain; border-radius: 12px; background: #fff; }
+  .guest-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; }
+  .guest-slot { border: 1px solid var(--line-strong); border-left: 5px solid var(--type-color, var(--teal)); border-radius: 10px; padding: 0.75rem 0.9rem; }
+  .guest-slot h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+  .guest-slot p { margin: 0.15rem 0; }
+  .guest-slot .places { font-weight: 600; }
+  .guest-slot .full { color: var(--danger, #c0392b); }
+  @media (max-width: 560px) { .request-form { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Inscription à une plongée</h1>
+        <p class="subtitle">Pour les personnes extérieures à la structure</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="request-main">
+    <section class="panel" id="guest-invalid" hidden>
+      <h2>Lien non valable</h2>
+      <p id="guest-invalid-text"></p>
+    </section>
+
+    <section class="panel" id="guest-cancel" hidden>
+      <h2>Annuler mon inscription</h2>
+      <p>Vous ne pouvez plus venir ? Annulez votre inscription : votre place reviendra à la personne suivante.</p>
+      <p><button type="button" id="guest-cancel-btn" class="btn-primary">Annuler mon inscription</button></p>
+      <p id="guest-cancel-status" class="form-status" role="status"></p>
+    </section>
+
+    <section class="panel" id="guest-view" hidden>
+      <div class="join-card">
+        <img id="guest-logo" alt="" hidden>
+        <div>
+          <h2 id="guest-name"></h2>
+          <p id="guest-details" class="muted"></p>
+        </div>
+      </div>
+      <p>Cette structure accepte des plongeurs extérieurs. Choisissez une plongée, puis indiquez vos coordonnées :
+        elles ne servent qu'à l'organisation de la sortie.</p>
+      <ul id="guest-list" class="guest-list"></ul>
+      <p id="guest-empty" class="muted" hidden>Aucune plongée ouverte pour le moment.</p>
+    </section>
+
+    <section class="panel" id="guest-form-panel" hidden>
+      <h2>Mes coordonnées</h2>
+      <p id="guest-chosen"></p>
+      <form id="guest-form" class="request-form" novalidate>
+        <div class="field">
+          <label for="first_name">Prénom</label>
+          <input id="first_name" name="first_name" required maxlength="60" autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label for="last_name">Nom</label>
+          <input id="last_name" name="last_name" required maxlength="60" autocomplete="family-name">
+        </div>
+        <div class="field">
+          <label for="email">Adresse e-mail</label>
+          <input id="email" name="email" type="email" required maxlength="254" autocomplete="email">
+        </div>
+        <div class="field">
+          <label for="phone">Téléphone</label>
+          <input id="phone" name="phone" type="tel" required maxlength="30" autocomplete="tel">
+        </div>
+        <div class="trap" aria-hidden="true">
+          <label for="website">Ne pas remplir</label>
+          <input id="website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+        <label class="check span-all">
+          <input type="checkbox" name="consent" required>
+          <span>J'accepte que ces informations soient transmises à la structure pour organiser cette plongée et me
+            contacter ; elles sont effacées un an après (voir les
+            <a href="mentions-legales.html#donnees-personnelles">mentions légales</a>).</span>
+        </label>
+        <div class="span-all">
+          <button type="submit" class="btn-primary">M'inscrire</button>
+          <button type="button" id="guest-back" class="btn-quiet">Choisir une autre plongée</button>
+          <p id="guest-status" class="form-status" role="status"></p>
+        </div>
+      </form>
+      <div id="guest-done" class="request-done" hidden></div>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="./">Accueil</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="sortie.js"></script>
+</body>
+</html>

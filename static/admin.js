@@ -788,6 +788,10 @@ function renderFiche() {
     : `<span class="muted">Lien désactivé.</span>`;
   $("fiche-join-create").textContent = url ? "Remplacer le lien" : "Activer le lien";
   $("fiche-join-copy").hidden = $("fiche-join-delete").hidden = !url;
+  const guestUrl = fiche.guest_url ? new URL(fiche.guest_url, location.origin).href : null;
+  $("fiche-guests").checked = !!guestUrl;
+  $("fiche-guest-link").innerHTML = guestUrl ? `<a href="${esc(guestUrl)}" target="_blank" rel="noopener">${esc(guestUrl)}</a>` : "";
+  $("fiche-guest-copy").hidden = !guestUrl;
 }
 
 async function loadFiche() {
@@ -874,6 +878,32 @@ $("fiche-join-delete").addEventListener("click", async () => {
 // Jetons d'API du compte connecté (pas pour un super administrateur : son accès exige la double authentification)
 $("fiche-api-tokens").addEventListener("click", () => Session.openApiTokens());
 Session.onChange(u => { $("fiche-api-tokens").hidden = !u || u.is_admin; });
+
+$("fiche-guests").addEventListener("change", async e => {
+  const on = e.target.checked;
+  if (!on && !confirm("Ne plus accepter les personnes extérieures ? Le lien cessera de fonctionner (les personnes déjà inscrites restent).")) {
+    e.target.checked = true;
+    return;
+  }
+  try {
+    fiche = await Session.api(`/api/admin/structures/${ficheId()}/guest-link`, { method: on ? "POST" : "DELETE" });
+    renderFiche();
+    $("fiche-guest-status").textContent = on ? "Inscription des personnes extérieures autorisée." : "Lien désactivé.";
+  } catch (err) {
+    e.target.checked = !on;
+    $("fiche-guest-status").textContent = err.message;
+  }
+});
+
+$("fiche-guest-copy").addEventListener("click", async () => {
+  const url = new URL(fiche.guest_url, location.origin).href;
+  try {
+    await navigator.clipboard.writeText(url);
+    $("fiche-guest-status").textContent = "Lien copié.";
+  } catch {
+    $("fiche-guest-status").textContent = url;
+  }
+});
 
 $("fiche-join-copy").addEventListener("click", async () => {
   const url = new URL(fiche.join_url, location.origin).href;

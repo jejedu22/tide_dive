@@ -335,7 +335,10 @@ function renderPop() {
     const car = r.carpool === "offer" ? ` <span class="carpool-tag" title="Propose ${r.carpool_seats} place(s) en voiture">🚗 ${r.carpool_seats}</span>`
       : r.carpool === "need" ? ` <span class="carpool-tag" title="Cherche une place en voiture">🚗 ?</span>` : "";
     const comment = r.comment ? `<span class="reg-comment">${esc(r.comment)}</span>` : "";
-    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username)}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${paidMark(r)}${att}${car}${by}${comment}</span>${remove}</li>`;
+    // personne extérieure (sans compte) : marquée, avec ses coordonnées pour l'administration
+    const guest = r.guest ? ` <span class="guest-tag" title="Personne extérieure à la structure, inscrite par le lien public">extérieur</span>` : "";
+    const contact = r.contact ? `<span class="reg-comment"><a href="mailto:${esc(r.contact.email)}">${esc(r.contact.email)}</a> · <a href="tel:${esc(r.contact.phone.replace(/\s/g, ""))}">${esc(r.contact.phone)}</a></span>` : "";
+    return `<li${mine ? ` class="me"` : ""} title="${esc(r.username || "personne extérieure")}"><span>${rank}${esc(r.display_name)}${mine ? " (vous)" : ""}${guest}${paidMark(r)}${att}${car}${by}${comment}${contact}</span>${remove}</li>`;
   };
   const confirmed = p.registrations.filter(r => !r.waiting);
   const waiting = p.registrations.filter(r => r.waiting);

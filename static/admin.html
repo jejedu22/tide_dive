@@ -484,6 +484,14 @@
           <p id="fiche-join-status" class="form-status" role="status"></p>
         </div>
         <div class="panel">
+          <h2>Personnes extérieures</h2>
+          <label class="check"><input type="checkbox" id="fiche-guests"> Autoriser l'inscription aux plongées de personnes extérieures (sans compte)</label>
+          <p class="hint">Diffusez le lien ci-dessous : il liste vos prochaines plongées ouvertes, et chacun s'y inscrit avec son prénom, son nom, son adresse e-mail et son téléphone. Les personnes extérieures comptent dans les places et la file d'attente ; elles apparaissent marquées « extérieur » dans la liste des inscrits, avec leurs coordonnées pour l'administration. Décocher la case désactive le lien (les inscrits restent).</p>
+          <p id="fiche-guest-link" class="join-link"></p>
+          <p class="form-actions"><button type="button" id="fiche-guest-copy" class="btn-quiet">Copier le lien</button></p>
+          <p id="fiche-guest-status" class="form-status" role="status"></p>
+        </div>
+        <div class="panel">
           <h2>API et outils tiers</h2>
           <p class="hint">Calendive a une API : un outil (tableur, automate, site du club…) peut lire les créneaux et les
             inscriptions, ou en créer, avec les droits d'un compte. Chaque outil reçoit son <strong>jeton d'API</strong>,

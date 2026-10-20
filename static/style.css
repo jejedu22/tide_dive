@@ -2207,3 +2207,5 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 :root[data-theme="dark"] .pay-tag.paid { background: #1b4332; color: #d8f3dc; }
 
 .google-btn { display: block; text-align: center; text-decoration: none; }
+
+.guest-tag { font-size: 0.72rem; padding: 0 0.35rem; border-radius: 6px; background: var(--surface-2, #eef4f7); color: var(--blue-deep); border: 1px solid var(--line-strong, #c9d6de); }

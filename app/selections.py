@@ -336,9 +336,13 @@ def _clean_capacity(value: int | None) -> int | None:
 
 def _registrations_by_selection(structure_id: int, selection_id: int | None = None) -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {}
-    for r in db.list_registrations(structure_id, selection_id):
+    # membres et personnes extérieures (identifiant négatif, guest=True), par ordre d'inscription
+    for r in db.list_all_registrations(structure_id, selection_id):
         out.setdefault(r["selection_id"], []).append(
             {"user_id": r["user_id"], "username": r["username"], "display_name": r["display_name"],
+             "guest": r["guest"],
+             # coordonnées d'une personne extérieure : visibles de l'administration et du profil Inscriptions seulement
+             "contact": {"email": r["guest_email"], "phone": r["guest_phone"]} if r["guest"] else None,
              "created_at": r["created_at"],
              "registered_by": r["registered_by_name"],   # inscrit par un tiers, sinon None
              "attendance": r["attendance"],               # present, absent, excused ; None : pas pointé
@@ -358,7 +362,8 @@ def _selection_out(
     registrations = registrations or []
     locks = locks or {}
     if not show_payments:
-        registrations = [{**r, "pay_status": r.get("pay_status") if r["user_id"] == me_id else None} for r in registrations]
+        registrations = [{**r, "pay_status": r.get("pay_status") if r["user_id"] == me_id else None, "contact": None}
+                         for r in registrations]
     capacity = row["max_registrations"]
     confirmed, waiting = split_registrations(registrations, capacity)
     # file d'attente : rang (1 = prochain à être confirmé) ; les confirmés n'en ont pas
@@ -778,7 +783,7 @@ def _status(structure_id: int, selection_id: int) -> tuple[list[int], list[int]]
     row = db.get_selection(structure_id, selection_id)
     if row is None:
         return [], []
-    ids = [r["user_id"] for r in db.list_registrations(structure_id, selection_id)]
+    ids = [r["user_id"] for r in db.list_all_registrations(structure_id, selection_id)]   # extérieurs : < 0
     confirmed, waiting = split_registrations(ids, row["max_registrations"])
     return confirmed, waiting
 
@@ -792,6 +797,11 @@ def _notify_promotions(background: BackgroundTasks, structure_id: int, selection
         return   # créneau passé (retrait ou places changées après coup) : il n'y a plus de place à annoncer
     confirmed_now, _ = _status(structure_id, selection_id)
     promoted = [uid for uid in waiting_before if uid in confirmed_now]
+    guests = [db.get_guest_registration(-uid) for uid in promoted if uid < 0]
+    promoted = [uid for uid in promoted if uid > 0]
+    if guests and mailer.enabled():
+        from .guests import promoted_guest_message
+        background.add_task(notify, [promoted_guest_message(g, row) for g in guests if g is not None])
     if promoted:
         background.add_task(push.send_to_users, promoted, "Une place s'est libérée",
                             f"Vous êtes inscrit(e) : {when(row)}, {place(row)}.", _slot_url(row), f"slot-{row['id']}")
@@ -1146,7 +1156,13 @@ def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar
     if db.get_selection(sid, selection_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Créneau choisi introuvable")
     _, waiting_before = _status(sid, selection_id)
-    db.delete_registration(selection_id, user_id)
+    if user_id < 0:          # personne extérieure (identifiant négatif)
+        g = db.get_guest_registration(-user_id)
+        if g is None or g["selection_id"] != selection_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Inscription introuvable")
+        db.delete_guest_registration(g["id"])
+    else:
+        db.delete_registration(selection_id, user_id)
     _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, actor["id"])
 
@@ -1178,10 +1194,13 @@ def set_attendance(selection_id: int, body: AttendanceIn, actor: CurrentRegistra
         raise HTTPException(status.HTTP_409_CONFLICT, "Ce créneau est annulé : il n'y a pas de présence à pointer")
     if row["local_date"] > _today():
         raise HTTPException(status.HTTP_409_CONFLICT, "Les présences se pointent à partir du jour du créneau")
-    registered = {r["user_id"] for r in db.list_registrations(sid, selection_id)}
+    registered = {r["user_id"] for r in db.list_all_registrations(sid, selection_id)}
     if any(e.user_id not in registered for e in body.entries):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ce membre n'est pas inscrit sur ce créneau")
-    db.set_attendance(selection_id, {e.user_id: e.attendance for e in body.entries}, _now_iso())
+    db.set_attendance(selection_id, {e.user_id: e.attendance for e in body.entries if e.user_id > 0}, _now_iso())
+    for e in body.entries:
+        if e.user_id < 0:    # personne extérieure
+            db.set_guest_attendance(selection_id, -e.user_id, e.attendance, _now_iso())
     return _one_out(sid, selection_id, actor["id"])
 
 
