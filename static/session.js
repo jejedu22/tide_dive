@@ -18,8 +18,28 @@ function applyTheme(theme) {
 applyTheme(currentTheme());
 if (systemDark) systemDark.addEventListener("change", () => applyTheme(currentTheme()));
 
+// Couleurs de la structure (app/theme.py) : couleur principale (en-tête, titres de tableaux) et d'accent (boutons).
+// Celles de la structure active du membre connecté, ou de la structure d'une page publique ; gardées sur l'appareil
+// pour être appliquées dès le chargement de la page suivante (pas d'éclair aux couleurs de Calendive).
+const DEFAULT_COLORS = { primary: "#073b4c", accent: "#06d6a0" };
+function applyColors(colors) {
+  const c = colors && /^#[0-9a-f]{6}$/.test(colors.primary || "") && /^#[0-9a-f]{6}$/.test(colors.accent || "") ? colors : null;
+  const root = document.documentElement.style;
+  if (c) { root.setProperty("--brand", c.primary); root.setProperty("--teal", c.accent); }
+  else { root.removeProperty("--brand"); root.removeProperty("--teal"); }
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.content = (c || DEFAULT_COLORS).primary;
+}
+function rememberColors(colors) {
+  try {
+    if (colors) localStorage.setItem("structure-colors", JSON.stringify(colors));
+    else localStorage.removeItem("structure-colors");
+  } catch { /* stockage indisponible : les couleurs arrivent avec le compte */ }
+}
+try { applyColors(JSON.parse(localStorage.getItem("structure-colors") || "null")); } catch { /* rien */ }
+
 const Session = (() => {
   let user = null;
+  let colorsFromPage = false;   // page publique d'une structure : ses couleurs, même sans compte
   const listeners = [];
   // complété par /api/auth/config au démarrage
   let config = {
@@ -103,6 +123,12 @@ const Session = (() => {
       return;
     }
     user = u;
+    // couleurs de la structure active (aucune : celles de Calendive) ; page publique sans compte : laissées à la page
+    if (u || !colorsFromPage) {
+      const colors = u?.structure?.theme || null;
+      applyColors(colors);
+      rememberColors(colors);
+    }
     renderPreviewBanner(u);
     renderSuperBanner(u);
     loadAnnouncements(u);
@@ -1639,6 +1665,10 @@ const Session = (() => {
     get config() { return config; },
     onChange: fn => listeners.push(fn),
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
+    // page publique d'une structure (adhésion, inscription extérieure) : ses couleurs, pour cette page seulement
+    useStructureColors(colors) { colorsFromPage = true; applyColors(colors || null); },
+    // couleurs de la structure active modifiées (administration) : appliquées et gardées sur l'appareil
+    refreshColors() { const c = user?.structure?.theme || null; applyColors(c); rememberColors(c); },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     openDiver, caciText, qrSvg, caciBlocks, loadQr, openSecurity, openTotpSetup,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,

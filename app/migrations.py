@@ -686,6 +686,13 @@ def _m033_guest_registrations(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_guest_registrations_selection ON guest_registrations(selection_id)")
 
 
+def _m034_structure_theme(conn: sqlite3.Connection) -> None:
+    """Couleurs personnalisées des structures (theme.py)."""
+    for col in ("theme_primary", "theme_accent"):
+        if col not in _columns(conn, "structures"):
+            conn.execute(f"ALTER TABLE structures ADD COLUMN {col} TEXT")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -720,6 +727,7 @@ MIGRATIONS: list[Migration] = [
     Migration(31, "réduction sur la cotisation d'un adhérent", _m031_membership_discount),
     Migration(32, "connexion avec un compte Google", _m032_identities),
     Migration(33, "inscription de personnes extérieures aux plongées", _m033_guest_registrations),
+    Migration(34, "couleurs personnalisées des structures", _m034_structure_theme),
 ]
 
 

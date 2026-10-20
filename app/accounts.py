@@ -18,6 +18,7 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 
 from . import db, diver, mailer, passwords
+from .theme import theme_out
 
 INVITE_TTL = timedelta(days=int(os.environ.get("INVITE_DAYS", "7")))
 RESET_TTL = timedelta(minutes=int(os.environ.get("RESET_TOKEN_MINUTES", "60")))
@@ -274,7 +275,10 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
              "caci_check": bool(row["structure_caci_check"]),
              "caci_validity_months": row["structure_caci_validity_months"],
              "features": structure_features(row),
-             "archived": structure_archived(row)}
+             "archived": structure_archived(row),
+             # couleurs personnalisées de la structure (theme.py) ; None : celles de Calendive
+             "theme": theme_out(row["structure_theme_primary"], row["structure_theme_accent"])
+                      if "structure_theme_primary" in row.keys() else None}
             if row["structure_id"] is not None else None
         ),
         # paiement HelloAsso proposé par la structure (payments_core) : None = rien à afficher

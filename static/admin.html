@@ -455,6 +455,14 @@
             <label for="fiche-website">Site web <span class="optional">facultatif</span></label>
             <input id="fiche-website" name="website" maxlength="200" placeholder="ex. monclub.fr">
           </div>
+          <fieldset class="span-all theme-fields">
+            <legend>Couleurs de la structure</legend>
+            <p class="hint">Utilisées pour vos membres connectés et sur vos pages publiques (lien d'adhésion, inscription des personnes extérieures). La couleur principale colore l'en-tête et doit rester foncée (texte blanc) ; l'accent colore les boutons. Un contraste insuffisant est refusé.</p>
+            <label class="theme-field"><input type="color" id="fiche-theme-primary" name="theme_primary" value="#073b4c"> Couleur principale</label>
+            <label class="theme-field"><input type="color" id="fiche-theme-accent" name="theme_accent" value="#06d6a0"> Couleur d'accent</label>
+            <button type="button" id="fiche-theme-reset" class="btn-quiet btn-small">Couleurs de Calendive</button>
+            <span id="fiche-theme-state" class="muted"></span>
+          </fieldset>
           <div class="form-actions span-all">
             <button type="submit" class="btn-primary">Enregistrer</button>
           </div>

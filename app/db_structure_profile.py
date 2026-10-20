@@ -10,7 +10,7 @@ import sqlite3
 
 from .db_core import get_conn
 
-PROFILE_COLUMNS = ("name", "contact_email", "contact_phone", "website", "address")
+PROFILE_COLUMNS = ("name", "contact_email", "contact_phone", "website", "address", "theme_primary", "theme_accent")
 
 
 def update_structure_profile(structure_id: int, **fields) -> None:

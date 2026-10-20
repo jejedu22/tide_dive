@@ -552,6 +552,14 @@ API : `GET /api/admin/structure-dashboard`, `GET /api/admin/structure-stats?mont
 - **Lien d'adhésion** : jeton aléatoire, à activer, remplacer ou désactiver. La page publique `/rejoindre.html#<jeton>` (jeton dans le fragment) montre la fiche et un formulaire (prénom, nom, e-mail, téléphone, message, consentement). La demande est enregistrée (table `join_requests`) et signalée par e-mail aux administrateurs ; **aucun compte n'est créé d'office**, aucun e-mail n'est envoyé à l'adresse saisie. Anti-abus : champ piège, 3 demandes par adresse et 30 par structure sur 24 h, limitation par adresse IP.
 - **Utilisateurs → Demandes d'adhésion** : **Créer le compte** (formulaire prérempli), **Inviter son compte** (compte existant dans une autre structure), **Classer sans suite**, **Remettre en attente**, **Supprimer**. Une demande est classée dès que le compte est créé ou l'invitation envoyée ; les demandes traitées sont supprimées au bout d'un an.
 
+### Couleurs et logo de la structure
+
+**Administration → Ma structure → Couleurs de la structure** : une **couleur principale** (en-tête des pages, titres de tableaux, texte des boutons principaux) et une **couleur d'accent** (boutons principaux, onglet actif, mises en avant). Elles s'appliquent à tous les **membres connectés** à la structure (structure active) et à ses **pages publiques** (lien d'adhésion `/rejoindre.html`, inscription des personnes extérieures `/sortie.html`), qui affichent aussi le **logo du club** dans l'en-tête. « Couleurs de Calendive » revient aux couleurs d'origine.
+
+- **Lisibilité garantie** (`app/theme.py`) : texte blanc sur la couleur principale et couleur principale sur l'accent doivent atteindre un contraste de 4,5:1 (WCAG AA) ; sinon l'enregistrement est refusé avec le contraste obtenu.
+- Le mode sombre garde ses propres fonds et textes ; seules la couleur principale et l'accent changent. Les couleurs sont gardées sur l'appareil pour s'appliquer dès l'ouverture de la page suivante.
+- API : `theme_primary` / `theme_accent` (`#RRGGBB`, vide pour les couleurs de Calendive) dans `PATCH /api/admin/structures/{id}/profile` ; `theme` (`{primary, accent}` ou `null`) dans la fiche publique et dans `structure` de `GET /api/auth/me`. Migration 34.
+
 ### Inscription de personnes extérieures aux plongées
 
 Une structure peut accepter des plongeurs **sans compte** (club voisin, vacanciers, essais) : **Administration → Ma structure → Personnes extérieures**, case *Autoriser l'inscription aux plongées de personnes extérieures*. Elle reçoit alors un lien public `/sortie.html#<jeton>` à diffuser ; décocher la case désactive le lien (les personnes déjà inscrites restent), la recocher en crée un nouveau.
