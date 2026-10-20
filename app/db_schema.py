@@ -247,7 +247,9 @@ CREATE TABLE IF NOT EXISTS structures (
     website TEXT,
     address TEXT,
     -- lien d'adhésion public (/rejoindre.html#<jeton>) ; NULL : désactivé
-    join_token TEXT
+    join_token TEXT,
+    -- inscription des personnes extérieures aux plongées (/sortie.html#<jeton>, guests.py) ; NULL : non autorisée
+    guest_token TEXT
 );
 
 -- E-mails de service envoyés par le serveur (mailer.send_many : invitations, mots de passe, alertes, e-mails
@@ -862,6 +864,23 @@ INDEXES_AFTER_MIGRATION = """
 -- Retirer le créneau ou supprimer le compte retire l'inscription (CASCADE).
 -- registered_by : qui a inscrit le membre, quand ce n'est pas lui-même
 -- (administration ou profil « inscriptions ») ; NULL s'il s'est inscrit seul.
+-- Inscriptions de personnes extérieures (sans compte) aux créneaux, par le lien public de la structure (guests.py).
+-- Elles comptent dans les places et la file d'attente comme les inscriptions des membres (ordre d'inscription).
+CREATE TABLE IF NOT EXISTS guest_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    selection_id INTEGER NOT NULL REFERENCES slot_selections(id) ON DELETE CASCADE,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    cancel_token_hash TEXT UNIQUE,               -- lien d'annulation envoyé par e-mail (empreinte)
+    attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
+    attendance_at TEXT,
+    UNIQUE (selection_id, email)
+);
+CREATE INDEX IF NOT EXISTS idx_guest_registrations_selection ON guest_registrations(selection_id);
+
 CREATE TABLE IF NOT EXISTS slot_registrations (
     selection_id INTEGER NOT NULL REFERENCES slot_selections(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

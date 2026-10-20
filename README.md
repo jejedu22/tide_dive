@@ -552,6 +552,17 @@ API : `GET /api/admin/structure-dashboard`, `GET /api/admin/structure-stats?mont
 - **Lien d'adhésion** : jeton aléatoire, à activer, remplacer ou désactiver. La page publique `/rejoindre.html#<jeton>` (jeton dans le fragment) montre la fiche et un formulaire (prénom, nom, e-mail, téléphone, message, consentement). La demande est enregistrée (table `join_requests`) et signalée par e-mail aux administrateurs ; **aucun compte n'est créé d'office**, aucun e-mail n'est envoyé à l'adresse saisie. Anti-abus : champ piège, 3 demandes par adresse et 30 par structure sur 24 h, limitation par adresse IP.
 - **Utilisateurs → Demandes d'adhésion** : **Créer le compte** (formulaire prérempli), **Inviter son compte** (compte existant dans une autre structure), **Classer sans suite**, **Remettre en attente**, **Supprimer**. Une demande est classée dès que le compte est créé ou l'invitation envoyée ; les demandes traitées sont supprimées au bout d'un an.
 
+### Inscription de personnes extérieures aux plongées
+
+Une structure peut accepter des plongeurs **sans compte** (club voisin, vacanciers, essais) : **Administration → Ma structure → Personnes extérieures**, case *Autoriser l'inscription aux plongées de personnes extérieures*. Elle reçoit alors un lien public `/sortie.html#<jeton>` à diffuser ; décocher la case désactive le lien (les personnes déjà inscrites restent), la recocher en crée un nouveau.
+
+- **Page publique** : la fiche de la structure et ses prochaines plongées ouvertes (4 mois ; ni passées, ni annulées, inscriptions pas encore closes par le délai de la structure), avec les places restantes mais **sans le nom des inscrits**. Formulaire : **prénom, nom, adresse e-mail et téléphone** (tous obligatoires) et accord pour leur traitement. Anti-abus : champ piège, 10 inscriptions par heure et par adresse IP, une seule inscription par adresse e-mail et par plongée.
+- **Places et file d'attente** : une personne extérieure compte comme un membre, dans l'ordre d'inscription. Complet : elle est en file d'attente et prévenue par e-mail quand une place se libère.
+- **Côté club** : dans la liste des inscrits, elle apparaît marquée **« extérieur »** ; l'administration et le profil *Inscriptions* voient aussi son e-mail et son téléphone, peuvent la retirer et pointer sa présence. Les autres membres ne voient que son nom.
+- **E-mail de confirmation** (si l'envoi d'e-mails est configuré) avec un lien d'annulation `/sortie.html#annuler=<jeton>` (seule son empreinte est en base), valable jusqu'au délai de désinscription de la structure, toujours pour une place en file d'attente. La place libérée profite au suivant, qui est prévenu.
+- **Données personnelles** : effacées un an après la plongée. Aucun compte n'est créé ; l'adhésion et la cotisation ne concernent que les membres.
+- Routes : `POST` / `DELETE /api/admin/structures/{id}/guest-link` ; publiques : `GET /api/guest/{jeton}`, `POST /api/guest/{jeton}/selections/{id}`, `POST /api/guest/cancel`. Dans les inscrits d'un créneau, une personne extérieure a un `user_id` **négatif** (`guest: true`, `contact` pour l'administration) : il sert à la retirer (`DELETE /api/selections/{id}/registrations/{user_id}`) ou à pointer sa présence. Table `guest_registrations` (migration 33).
+
 Migration de schéma n° 16.
 
 ### Liste des comptes : filtres, export, actions groupées

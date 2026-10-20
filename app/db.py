@@ -32,6 +32,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_newsletters.py Mailjet, newsletters, groupes d'envoi
   db_api_tokens.py  jetons d'API des comptes (outils tiers)
   db_identities.py  comptes externes liés (connexion Google), étapes de connexion en cours
+  db_guests.py      inscriptions de personnes extérieures aux créneaux (lien public)
 Les évolutions nouvelles du schéma : migrations.py.
 """
 
@@ -287,6 +288,19 @@ from .db_water import (  # noqa: F401
     delete_threshold,
     create_water_selection,
     water_selections_between,
+)
+from .db_guests import (  # noqa: F401
+    set_guest_token,
+    structure_by_guest_token,
+    add_guest_registration,
+    get_guest_registration,
+    guest_by_cancel_token,
+    selection_structure,
+    delete_guest_registration,
+    set_guest_attendance,
+    purge_guest_registrations,
+    list_guest_registrations,
+    list_all_registrations,
 )
 from .db_identities import (  # noqa: F401
     create_oauth_state,

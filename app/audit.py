@@ -41,6 +41,8 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/helloasso/test"): "Connexion HelloAsso testée",
     ("DELETE", "/api/admin/helloasso"): "Connexion HelloAsso retirée",
     ("DELETE", "/api/me/google"): "Compte Google délié",
+    ("POST", "/api/admin/structures/{structure_id}/guest-link"): "Inscription des personnes extérieures autorisée",
+    ("DELETE", "/api/admin/structures/{structure_id}/guest-link"): "Inscription des personnes extérieures retirée",
     ("PUT", "/api/admin/helloasso/members/{user_id}/discount"): "Réduction sur la cotisation modifiée",
     ("POST", "/api/admin/helloasso/members/{user_id}/membership"): "Cotisation enregistrée à la main",
     ("POST", "/api/admin/payments/{payment_id}/refunded"): "Paiement marqué remboursé",

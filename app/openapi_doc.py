@@ -90,6 +90,8 @@ TAGS: list[tuple[str, str, tuple[str, ...]]] = [
       r"^/api/admin/announcements", r"^/api/admin/broadcast")),
     ("Structures", "Fiche publique d'une structure, adhésion par lien, demandes de création.",
      (r"^/api/structures/", r"^/api/join/", r"^/api/structure-requests")),
+    ("Inscriptions extérieures", "Inscription aux plongées de personnes sans compte, par le lien public de la structure.",
+     (r"^/api/guest/",)),
     ("Administration de la structure", "Comptes, types de créneaux, indisponibilités, seuils de hauteur "
      "d'eau, tableau de bord, statistiques, journal d'activité, fiche et réglages de la structure "
      "(administrateurs de structure).",
@@ -109,6 +111,7 @@ SUMMARIES = {
     ("GET", "/api/auth/google/start"): "Connexion avec Google : envoi vers la page de Google",
     ("GET", "/api/auth/google/callback"): "Connexion avec Google : retour de Google",
     ("GET", "/api/me/google"): "Compte Google lié au compte connecté",
+    ("GET", "/api/guest/{token}"): "Plongées ouvertes aux personnes extérieures (lien public)",
     ("DELETE", "/api/me/google"): "Délier le compte Google",
     ("GET", "/api/auth/me"): "Compte connecté : profil, structure, rôle, droits",
     ("POST", "/api/auth/forgot-password"): "Mot de passe oublié : envoi d'un lien",

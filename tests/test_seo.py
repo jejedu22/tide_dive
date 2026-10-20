@@ -16,7 +16,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 BASE = "https://calendive.test"
 OFFSET = 6.0
 PRIVATE_PAGES = ("admin", "mes-creneaux", "newsletters", "plongeurs", "rejoindre", "desinscription", "mot-de-passe",
-                 "hors-ligne")
+                 "hors-ligne", "sortie")
 
 
 @pytest.fixture(autouse=True)
@@ -175,7 +175,8 @@ def test_index_des_ports(client, port):
     html = client.get("/marees").text
     assert "<h1>Horaires de marée par port</h1>" in html and 'href="marees/binic"' in html
     assert f'<link rel="canonical" href="{BASE}/marees">' in html
-    assert re.search(r"Aujourd'hui : PM \d\d:\d\d", html)
+    # première étale du jour : pleine ou basse mer selon le jour
+    assert re.search(r"Aujourd'hui : [PB]M \d\d:\d\d", html)
 
 
 def test_port_inconnu(client, port):

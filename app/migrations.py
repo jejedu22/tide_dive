@@ -666,6 +666,26 @@ def _m032_identities(conn: sqlite3.Connection) -> None:
     )""")
 
 
+def _m033_guest_registrations(conn: sqlite3.Connection) -> None:
+    """Inscription de personnes extérieures aux plongées, par le lien public de la structure (guests.py)."""
+    if "guest_token" not in _columns(conn, "structures"):
+        conn.execute("ALTER TABLE structures ADD COLUMN guest_token TEXT")
+    conn.execute("""CREATE TABLE IF NOT EXISTS guest_registrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        selection_id INTEGER NOT NULL REFERENCES slot_selections(id) ON DELETE CASCADE,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        cancel_token_hash TEXT UNIQUE,
+        attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
+        attendance_at TEXT,
+        UNIQUE (selection_id, email)
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_guest_registrations_selection ON guest_registrations(selection_id)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -699,6 +719,7 @@ MIGRATIONS: list[Migration] = [
     Migration(30, "site de plongée d'un créneau choisi", _m030_selection_site),
     Migration(31, "réduction sur la cotisation d'un adhérent", _m031_membership_discount),
     Migration(32, "connexion avec un compte Google", _m032_identities),
+    Migration(33, "inscription de personnes extérieures aux plongées", _m033_guest_registrations),
 ]
 
 

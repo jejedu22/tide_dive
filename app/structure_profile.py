@@ -66,7 +66,10 @@ def card(st: sqlite3.Row) -> dict:
 def _profile_out(st: sqlite3.Row) -> dict:
     return {**card(st), "join_token": st["join_token"],
             "join_url": mailer.link(f"rejoindre.html#{st['join_token']}") if st["join_token"] and mailer.BASE_URL
-            else (f"/rejoindre.html#{st['join_token']}" if st["join_token"] else None)}
+            else (f"/rejoindre.html#{st['join_token']}" if st["join_token"] else None),
+            # inscription des personnes extérieures aux plongées (guests.py) : None si non autorisée
+            "guest_url": (mailer.link(f"sortie.html#{st['guest_token']}") if mailer.BASE_URL
+                          else f"/sortie.html#{st['guest_token']}") if st["guest_token"] else None}
 
 
 # ---------------------------------------------------------------------------
