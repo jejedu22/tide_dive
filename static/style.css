@@ -2218,3 +2218,4 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .theme-fields .hint { flex-basis: 100%; margin: 0; }
 .theme-field { display: inline-flex; align-items: center; gap: 0.5rem; }
 .theme-field input[type=color] { width: 2.6rem; height: 2rem; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: none; }
+@media (max-width: 560px) { .club-header-logo { height: 38px; max-width: 96px; border-radius: 8px; } }
