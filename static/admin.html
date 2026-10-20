@@ -462,6 +462,18 @@
             <label class="theme-field"><input type="color" id="fiche-theme-accent" name="theme_accent" value="#06d6a0"> Couleur d'accent</label>
             <button type="button" id="fiche-theme-reset" class="btn-quiet btn-small">Couleurs de Calendive</button>
             <span id="fiche-theme-state" class="muted"></span>
+            <div class="theme-preview" id="fiche-theme-preview" aria-hidden="true">
+              <span class="tp-head">En-tête</span><span class="tp-btn">Bouton</span>
+            </div>
+            <div class="theme-suggest span-all">
+              <p class="theme-suggest-title" id="fiche-theme-logo-title" hidden>D'après votre logo</p>
+              <div class="theme-swatches" id="fiche-theme-logo"></div>
+              <p class="theme-suggest-title" id="fiche-theme-base-title" hidden>D'après la couleur principale choisie</p>
+              <div class="theme-swatches" id="fiche-theme-base"></div>
+              <p class="theme-suggest-title">Palettes prêtes à l'emploi</p>
+              <div class="theme-swatches" id="fiche-theme-presets"></div>
+              <p class="hint">Toutes ces propositions sont lisibles. Cliquez sur l'une d'elles pour l'essayer, puis enregistrez.</p>
+            </div>
           </fieldset>
           <div class="form-actions span-all">
             <button type="submit" class="btn-primary">Enregistrer</button>

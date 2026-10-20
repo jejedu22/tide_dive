@@ -150,6 +150,17 @@ def update_profile(structure_id: int, body: StructureProfileIn, actor: CurrentMa
     return _profile_out(db.get_structure(structure_id))
 
 
+@router.get("/admin/theme-suggestions")
+def theme_suggestions(actor: CurrentManager, base: str | None = None):
+    """Jeux de couleurs lisibles à proposer : palettes prêtes à l'emploi, et (base=#RRGGBB) jeux construits sur une
+    couleur, celle du logo ou la couleur principale choisie."""
+    try:
+        color = theme.clean(base)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Couleur invalide (format #RRGGBB)")
+    return {"presets": theme.presets(), "suggestions": theme.suggest(color) if color else []}
+
+
 def logo_type(data: bytes) -> str | None:
     """Type d'image reconnu à son contenu : PNG, JPEG ou WebP ; None sinon."""
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
