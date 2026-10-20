@@ -792,6 +792,11 @@ $("fiche-theme-reset").addEventListener("click", () => {
 });
 
 function renderFiche() {
+  // logo de sa propre structure changé : l'en-tête suit tout de suite
+  if (Session.user?.structure && Session.user.structure.id === fiche.id) {
+    Session.user.structure.logo_url = fiche.logo_url;
+    Session.showClubLogo(Session.user.structure);
+  }
   for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) ficheForm[k].value = fiche[k] ?? "";
   ficheForm.theme_primary.value = fiche.theme?.primary || "#073b4c";
   ficheForm.theme_accent.value = fiche.theme?.accent || "#06d6a0";

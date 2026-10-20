@@ -278,7 +278,10 @@ def _public_user_fields(row: sqlite3.Row) -> dict:
              "archived": structure_archived(row),
              # couleurs personnalisées de la structure (theme.py) ; None : celles de Calendive
              "theme": theme_out(row["structure_theme_primary"], row["structure_theme_accent"])
-                      if "structure_theme_primary" in row.keys() else None}
+                      if "structure_theme_primary" in row.keys() else None,
+             # logo de la structure (en-tête des pages) ; None sans logo
+             "logo_url": f"/api/structures/{row['structure_id']}/logo?v={row['structure_logo_version']}"
+                         if "structure_logo_version" in row.keys() and row["structure_logo_version"] else None}
             if row["structure_id"] is not None else None
         ),
         # paiement HelloAsso proposé par la structure (payments_core) : None = rien à afficher

@@ -29,6 +29,22 @@ function applyColors(colors) {
   else { root.removeProperty("--brand"); root.removeProperty("--teal"); }
   for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.content = (c || DEFAULT_COLORS).primary;
 }
+// Logo du club à côté de celui de Calendive, dans l'en-tête (membres connectés, pages publiques de la structure)
+function showClubLogo(structure) {
+  const brandLogo = document.querySelector("header .brand > .logo");
+  if (!brandLogo) return;
+  let img = document.getElementById("club-header-logo");
+  if (!img) {
+    img = document.createElement("img");
+    img.id = "club-header-logo";
+    img.className = "club-header-logo";
+    img.hidden = true;
+    brandLogo.after(img);
+  }
+  img.hidden = !structure?.logo_url;
+  if (structure?.logo_url) { img.src = structure.logo_url; img.alt = `Logo de ${structure.name}`; }
+  else img.removeAttribute("src");
+}
 function rememberColors(colors) {
   try {
     if (colors) localStorage.setItem("structure-colors", JSON.stringify(colors));
@@ -128,6 +144,7 @@ const Session = (() => {
       const colors = u?.structure?.theme || null;
       applyColors(colors);
       rememberColors(colors);
+      showClubLogo(u?.structure);
     }
     renderPreviewBanner(u);
     renderSuperBanner(u);
@@ -1667,8 +1684,9 @@ const Session = (() => {
     set redirectAfterLogin(fn) { redirectAfterLogin = fn; },
     // page publique d'une structure (adhésion, inscription extérieure) : ses couleurs, pour cette page seulement
     useStructureColors(colors) { colorsFromPage = true; applyColors(colors || null); },
+    showClubLogo,
     // couleurs de la structure active modifiées (administration) : appliquées et gardées sur l'appareil
-    refreshColors() { const c = user?.structure?.theme || null; applyColors(c); rememberColors(c); },
+    refreshColors() { const c = user?.structure?.theme || null; applyColors(c); rememberColors(c); showClubLogo(user?.structure); },
     init, login, logout, api, esc, openForm, openLogin, openForgot, openProfile, openPasswordChange, openMessage,
     openDiver, caciText, qrSvg, caciBlocks, loadQr, openSecurity, openTotpSetup,
     mountAccount, passwordChecklist, generatePassword, setUser, setStructures,

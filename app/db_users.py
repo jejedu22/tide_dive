@@ -40,6 +40,7 @@ def _user_query(ctx: str, *, joins: str = "", where: str = "", admin: str = "u.i
            st.caci_check AS structure_caci_check, st.caci_validity_months AS structure_caci_validity_months,
            st.disabled_features AS structure_disabled_features, st.archived_at AS structure_archived_at,
            st.theme_primary AS structure_theme_primary, st.theme_accent AS structure_theme_accent,
+           (SELECT lg.updated_at FROM structure_logos lg WHERE lg.structure_id = st.id) AS structure_logo_version,
            u.first_name, u.last_name, u.email, u.phone,
            u.diver_level, u.instructor_level, u.qualifications, u.licence_number, u.licence_url,
            u.caci_date, u.caci_validated_at, u.caci_validated_by,
@@ -259,7 +260,7 @@ _STRUCTURE_FIELDS = ("structure_id", "structure_role", "structure_name", "struct
                      "structure_default_port_id", "structure_default_max_registrations", "structure_search_modes",
                      "structure_use_api_maree", "structure_use_calibration", "structure_caci_check",
                      "structure_caci_validity_months", "structure_disabled_features", "structure_archived_at",
-                     "structure_theme_primary", "structure_theme_accent", "profiles")
+                     "structure_theme_primary", "structure_theme_accent", "structure_logo_version", "profiles")
 
 
 def _previewed(row: sqlite3.Row, role: str, profiles: str | None) -> dict:

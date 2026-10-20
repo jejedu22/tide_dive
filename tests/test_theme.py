@@ -68,3 +68,14 @@ def test_reserve_aux_administrateurs_de_la_structure(club, new_client):
     assert _client(new_client, "eve").patch(url, json={"theme_primary": "#1b2a6b"}).status_code == 404
     assert _client(new_client, "m1").patch(url, json={"theme_primary": "#1b2a6b"}).status_code in (401, 403)
     assert db.get_structure(club["sid"])["theme_primary"] is None
+
+
+def test_logo_du_club_pour_les_membres_connectes(club, new_client):
+    alice, m1 = _client(new_client, "alice"), _client(new_client, "m1")
+    assert m1.get("/api/auth/me").json()["user"]["structure"]["logo_url"] is None
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    r = alice.put(f"/api/admin/structures/{club['sid']}/logo", content=png, headers={"Content-Type": "image/png"})
+    assert r.status_code == 200, r.text
+    url = m1.get("/api/auth/me").json()["user"]["structure"]["logo_url"]
+    assert url.startswith(f"/api/structures/{club['sid']}/logo?v=") and url == r.json()["logo_url"]
+    assert _client(new_client, "eve").get("/api/auth/me").json()["user"]["structure"]["logo_url"] is None
