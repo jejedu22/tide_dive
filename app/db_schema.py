@@ -249,7 +249,10 @@ CREATE TABLE IF NOT EXISTS structures (
     -- lien d'adhésion public (/rejoindre.html#<jeton>) ; NULL : désactivé
     join_token TEXT,
     -- inscription des personnes extérieures aux plongées (/sortie.html#<jeton>, guests.py) ; NULL : non autorisée
-    guest_token TEXT
+    guest_token TEXT,
+    -- couleurs personnalisées (#rrggbb, theme.py) ; NULL : celles de Calendive
+    theme_primary TEXT,
+    theme_accent TEXT
 );
 
 -- E-mails de service envoyés par le serveur (mailer.send_many : invitations, mots de passe, alertes, e-mails

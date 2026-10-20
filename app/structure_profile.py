@@ -27,7 +27,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import accounts, db, mailer, security
+from . import accounts, db, mailer, security, theme
 from .auth import CurrentManager, CurrentMember, can_manage_structure, scope_structure
 from .contact import _clean_text, _required
 
@@ -60,6 +60,7 @@ def card(st: sqlite3.Row) -> dict:
         "id": st["id"], "name": st["name"], "address": st["address"], "contact_email": st["contact_email"],
         "contact_phone": st["contact_phone"], "website": st["website"],
         "logo_url": f"/api/structures/{st['id']}/logo?v={version}" if version else None,
+        "theme": theme.theme_out(st["theme_primary"], st["theme_accent"]),
     }
 
 
@@ -82,6 +83,14 @@ class StructureProfileIn(BaseModel):
     contact_email: str | None = Field(None, max_length=accounts.EMAIL_MAX)
     contact_phone: str | None = Field(None, max_length=30)
     website: str | None = Field(None, max_length=200)
+    # couleurs personnalisées (#RRGGBB) ; vide ou null : celles de Calendive
+    theme_primary: str | None = Field(None, max_length=7)
+    theme_accent: str | None = Field(None, max_length=7)
+
+    @field_validator("theme_primary", "theme_accent")
+    @classmethod
+    def _color(cls, v: str | None) -> str | None:
+        return theme.clean(v)
 
     @field_validator("name")
     @classmethod
@@ -129,6 +138,11 @@ def update_profile(structure_id: int, body: StructureProfileIn, actor: CurrentMa
     fields = body.model_dump(exclude_unset=True)
     if fields.get("name", "") is None:
         del fields["name"]
+    if {"theme_primary", "theme_accent"} & fields.keys():
+        st = db.get_structure(structure_id)
+        issue = theme.problem(fields.get("theme_primary", st["theme_primary"]), fields.get("theme_accent", st["theme_accent"]))
+        if issue:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, issue)
     try:
         db.update_structure_profile(structure_id, **fields)
     except sqlite3.IntegrityError:

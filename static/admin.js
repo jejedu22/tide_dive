@@ -777,8 +777,26 @@ $("fiche-structure").addEventListener("change", e => {
   loadFiche();
 });
 
+let ficheTheme = null;          // couleurs choisies dans le formulaire (null : celles de Calendive)
+for (const name of ["theme_primary", "theme_accent"]) {
+  ficheForm[name].addEventListener("input", () => {
+    ficheTheme = { primary: ficheForm.theme_primary.value, accent: ficheForm.theme_accent.value };
+    $("fiche-theme-state").textContent = "Pensez à enregistrer.";
+  });
+}
+$("fiche-theme-reset").addEventListener("click", () => {
+  ficheTheme = null;
+  ficheForm.theme_primary.value = "#073b4c";
+  ficheForm.theme_accent.value = "#06d6a0";
+  $("fiche-theme-state").textContent = "Couleurs de Calendive (pensez à enregistrer).";
+});
+
 function renderFiche() {
   for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) ficheForm[k].value = fiche[k] ?? "";
+  ficheForm.theme_primary.value = fiche.theme?.primary || "#073b4c";
+  ficheForm.theme_accent.value = fiche.theme?.accent || "#06d6a0";
+  ficheTheme = fiche.theme ? { ...fiche.theme } : null;
+  $("fiche-theme-state").textContent = fiche.theme ? "" : "Couleurs de Calendive.";
   $("fiche-logo").hidden = !fiche.logo_url;
   if (fiche.logo_url) $("fiche-logo").src = fiche.logo_url;
   $("fiche-no-logo").hidden = !!fiche.logo_url;
@@ -811,13 +829,20 @@ ficheForm.addEventListener("submit", async e => {
   e.preventDefault();
   const body = {};
   for (const k of ["name", "address", "contact_email", "contact_phone", "website"]) body[k] = ficheForm[k].value.trim() || null;
+  // couleurs : celles du formulaire si elles ont été choisies, sinon celles de Calendive (null)
+  body.theme_primary = ficheTheme ? ficheForm.theme_primary.value : null;
+  body.theme_accent = ficheTheme ? ficheForm.theme_accent.value : null;
   try {
     fiche = await Session.api(`/api/admin/structures/${ficheId()}/profile`, { method: "PATCH", body });
     renderFiche();
     $("fiche-status").textContent = "Fiche enregistrée.";
     const st = structures.find(x => x.id === fiche.id);
     if (st && st.name !== fiche.name) loadStructures();    // nom changé : listes et en-tête
-    if (Session.user?.structure?.id === fiche.id) Session.user.structure.name = fiche.name;
+    if (Session.user?.structure?.id === fiche.id) {
+      Session.user.structure.name = fiche.name;
+      Session.user.structure.theme = fiche.theme;
+      Session.refreshColors();                              // couleurs appliquées tout de suite
+    }
   } catch (err) {
     $("fiche-status").textContent = err.message;
   }

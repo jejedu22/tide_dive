@@ -26,7 +26,11 @@ async function load() {
   if (st.logo_url) {
     $("join-logo").src = st.logo_url;
     $("join-logo").hidden = false;
+    $("club-header-logo").src = st.logo_url;
+    $("club-header-logo").alt = `Logo de ${st.name}`;
+    $("club-header-logo").hidden = false;
   }
+  Session.useStructureColors(st.theme);
   $("join-view").hidden = false;
 }
 

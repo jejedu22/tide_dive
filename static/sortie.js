@@ -54,7 +54,14 @@ async function load() {
   document.title = `Plongées de ${st.name} — Calendive`;
   $("guest-name").textContent = st.name;
   $("guest-details").textContent = [st.address, st.contact_phone, st.contact_email].filter(Boolean).join(" · ");
-  if (st.logo_url) { $("guest-logo").src = st.logo_url; $("guest-logo").hidden = false; }
+  if (st.logo_url) {
+    $("guest-logo").src = st.logo_url;
+    $("guest-logo").hidden = false;
+    $("club-header-logo").src = st.logo_url;
+    $("club-header-logo").alt = `Logo de ${st.name}`;
+    $("club-header-logo").hidden = false;
+  }
+  Session.useStructureColors(st.theme);
   slots = data.selections;
   $("guest-list").innerHTML = slots.map(slotHtml).join("");
   $("guest-empty").hidden = slots.length > 0;
