@@ -79,3 +79,30 @@ def test_logo_du_club_pour_les_membres_connectes(club, new_client):
     url = m1.get("/api/auth/me").json()["user"]["structure"]["logo_url"]
     assert url.startswith(f"/api/structures/{club['sid']}/logo?v=") and url == r.json()["logo_url"]
     assert _client(new_client, "eve").get("/api/auth/me").json()["user"]["structure"]["logo_url"] is None
+
+
+def test_palettes_proposees_toutes_lisibles():
+    for p in theme.presets():
+        assert theme.problem(p["primary"], p["accent"]) is None, p["name"]
+    bases = ["#e63946", "#ffcc00", "#2a9d8f", "#808080", "#ffffff", "#000000", "#073b4c", "#ff00ff", "#00ff00",
+             "#1e90ff", "#f4a261", "#6a4c93", "#c0c0c0", "#8b0000"]
+    for base in bases:
+        found = theme.suggest(base)
+        assert len(found) >= 3, base                       # toujours plusieurs propositions
+        for s in found:
+            assert theme.problem(s["primary"], s["accent"]) is None, (base, s)
+            assert theme.HEX.match(s["primary"]) and theme.HEX.match(s["accent"])
+        assert len({s["accent"] for s in found}) == len(found)
+
+
+def test_propositions_pour_l_administration(club, new_client):
+    alice = _client(new_client, "alice")
+    r = alice.get("/api/admin/theme-suggestions")
+    assert r.status_code == 200 and r.json()["suggestions"] == [] and len(r.json()["presets"]) >= 8
+    r = alice.get("/api/admin/theme-suggestions", params={"base": "#E63946"})
+    first = r.json()["suggestions"][0]
+    # une proposition s'enregistre telle quelle
+    assert alice.patch(f"/api/admin/structures/{club['sid']}/profile",
+                       json={"theme_primary": first["primary"], "theme_accent": first["accent"]}).status_code == 200
+    assert alice.get("/api/admin/theme-suggestions", params={"base": "rouge"}).status_code == 422
+    assert _client(new_client, "m1").get("/api/admin/theme-suggestions").status_code in (401, 403)

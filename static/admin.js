@@ -789,6 +789,101 @@ $("fiche-theme-reset").addEventListener("click", () => {
   ficheForm.theme_primary.value = "#073b4c";
   ficheForm.theme_accent.value = "#06d6a0";
   $("fiche-theme-state").textContent = "Couleurs de Calendive (pensez à enregistrer).";
+  themePreview();
+});
+
+// ---- Propositions de jeux de couleurs (toutes lisibles, voir app/theme.py) ----
+
+function themePreview() {
+  const el = $("fiche-theme-preview");
+  el.style.setProperty("--tp-primary", ficheForm.theme_primary.value);
+  el.style.setProperty("--tp-accent", ficheForm.theme_accent.value);
+}
+
+const swatch = p => `<button type="button" class="theme-swatch" data-primary="${esc(p.primary)}" data-accent="${esc(p.accent)}"
+  title="${esc(p.name)} : ${esc(p.primary)} et ${esc(p.accent)}" style="--sw-primary:${esc(p.primary)};--sw-accent:${esc(p.accent)}">
+  <span class="sw-colors"><span></span><span></span></span><span class="sw-name">${esc(p.name)}</span></button>`;
+
+function showSwatches(id, list, titleId) {
+  $(id).innerHTML = list.map(swatch).join("");
+  if (titleId) $(titleId).hidden = !list.length;
+}
+
+async function loadThemeSuggestions(base, target, titleId) {
+  try {
+    const r = await Session.api(`/api/admin/theme-suggestions${base ? `?base=${encodeURIComponent(base)}` : ""}`);
+    if (!base) showSwatches("fiche-theme-presets", r.presets);
+    else showSwatches(target, r.suggestions, titleId);
+  } catch { /* propositions facultatives */ }
+}
+
+// Couleur dominante du logo : la teinte la plus présente parmi les pixels colorés (ni blancs, ni noirs, ni gris)
+function logoColor(url) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const size = 48, c = document.createElement("canvas");
+        c.width = c.height = size;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        const buckets = Array.from({ length: 12 }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+        let grey = { w: 0, r: 0, g: 0, b: 0 };
+        for (let i = 0; i < data.length; i += 4) {
+          const [r, g, b, a] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+          if (a < 128) continue;
+          const max = Math.max(r, g, b), min = Math.min(r, g, b), sat = max ? (max - min) / max : 0;
+          if (max > 245 && min > 235) continue;                       // fond blanc
+          const target = sat < 0.2 ? grey : buckets[Math.floor(hueOf(r, g, b) / 30) % 12];
+          const w = sat < 0.2 ? 1 : sat;
+          target.w += w; target.r += r * w; target.g += g * w; target.b += b * w;
+        }
+        const best = buckets.reduce((x, y) => (y.w > x.w ? y : x));
+        const pick = best.w > 0 ? best : grey;
+        if (!pick.w) return resolve(null);
+        const hex = v => Math.round(v / pick.w).toString(16).padStart(2, "0");
+        resolve(`#${hex(pick.r)}${hex(pick.g)}${hex(pick.b)}`);
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function hueOf(r, g, b) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (!d) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+async function refreshThemeSuggestions() {
+  loadThemeSuggestions(null);
+  showSwatches("fiche-theme-logo", [], "fiche-theme-logo-title");
+  showSwatches("fiche-theme-base", [], "fiche-theme-base-title");
+  if (fiche?.logo_url) {
+    const color = await logoColor(fiche.logo_url);
+    if (color) loadThemeSuggestions(color, "fiche-theme-logo", "fiche-theme-logo-title");
+  }
+}
+
+let baseTimer = null;
+ficheForm.theme_primary.addEventListener("input", () => {
+  clearTimeout(baseTimer);
+  baseTimer = setTimeout(() => loadThemeSuggestions(ficheForm.theme_primary.value, "fiche-theme-base", "fiche-theme-base-title"), 300);
+});
+ficheForm.theme_accent.addEventListener("input", themePreview);
+ficheForm.theme_primary.addEventListener("input", themePreview);
+
+document.querySelector(".theme-suggest").addEventListener("click", e => {
+  const b = e.target.closest(".theme-swatch");
+  if (!b) return;
+  ficheForm.theme_primary.value = b.dataset.primary;
+  ficheForm.theme_accent.value = b.dataset.accent;
+  ficheTheme = { primary: b.dataset.primary, accent: b.dataset.accent };
+  $("fiche-theme-state").textContent = `« ${b.querySelector(".sw-name").textContent} » choisi : pensez à enregistrer.`;
+  themePreview();
 });
 
 function renderFiche() {
@@ -802,6 +897,8 @@ function renderFiche() {
   ficheForm.theme_accent.value = fiche.theme?.accent || "#06d6a0";
   ficheTheme = fiche.theme ? { ...fiche.theme } : null;
   $("fiche-theme-state").textContent = fiche.theme ? "" : "Couleurs de Calendive.";
+  themePreview();
+  refreshThemeSuggestions();
   $("fiche-logo").hidden = !fiche.logo_url;
   if (fiche.logo_url) $("fiche-logo").src = fiche.logo_url;
   $("fiche-no-logo").hidden = !!fiche.logo_url;

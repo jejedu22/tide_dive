@@ -2219,3 +2219,17 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .theme-field { display: inline-flex; align-items: center; gap: 0.5rem; }
 .theme-field input[type=color] { width: 2.6rem; height: 2rem; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: none; }
 @media (max-width: 560px) { .club-header-logo { height: 38px; max-width: 96px; border-radius: 8px; } }
+
+/* Propositions de couleurs (administration → Ma structure) */
+.theme-preview { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.5rem; border-radius: 8px; background: var(--tp-primary, #073b4c); }
+.theme-preview .tp-head { color: #fff; font-weight: 600; font-size: 0.85rem; padding: 0 0.3rem; }
+.theme-preview .tp-btn { background: var(--tp-accent, #06d6a0); color: var(--tp-primary, #073b4c); font-weight: 700; font-size: 0.8rem; border-radius: 6px; padding: 0.2rem 0.6rem; }
+.theme-suggest { flex-basis: 100%; }
+.theme-suggest-title { margin: 0.6rem 0 0.3rem; font-weight: 600; font-size: 0.85rem; }
+.theme-swatches { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.theme-swatch { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.55rem 0.25rem 0.3rem; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 0.8rem; cursor: pointer; }
+.theme-swatch:hover, .theme-swatch:focus-visible { border-color: var(--blue); }
+.theme-swatch .sw-colors { display: inline-flex; border-radius: 999px; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.15); }
+.theme-swatch .sw-colors span { width: 1rem; height: 1.2rem; }
+.theme-swatch .sw-colors span:first-child { background: var(--sw-primary); }
+.theme-swatch .sw-colors span:last-child { background: var(--sw-accent); }
