@@ -1161,8 +1161,8 @@ def remove_registration(selection_id: int, user_id: int, actor: CurrentRegistrar
         if g is None or g["selection_id"] != selection_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Inscription introuvable")
         db.delete_guest_registration(g["id"])
-    else:
-        db.delete_registration(selection_id, user_id)
+    elif not db.delete_registration(selection_id, user_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Inscription introuvable")
     _notify_promotions(background, sid, selection_id, waiting_before)
     return _one_out(sid, selection_id, actor["id"])
 

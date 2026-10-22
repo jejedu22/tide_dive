@@ -28,7 +28,8 @@ def _require(user: sqlite3.Row, permission: str, message: str) -> None:
 
 def _member_or_404(user_id: int, structure_id: int) -> sqlite3.Row:
     row = db.get_user(user_id, structure_id)
-    if row is None or row["structure_id"] != structure_id:
+    # un super administrateur « voit » toutes les structures : il n'en est pas membre pour autant
+    if row is None or row["structure_id"] != structure_id or db.get_membership(user_id, structure_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Membre inconnu dans votre structure")
     return row
 

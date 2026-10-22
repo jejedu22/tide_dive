@@ -13,7 +13,7 @@ aucun script de Google n'est chargé dans les pages).
   en TLS puis contrôlé (émetteur, audience, expiration, nonce, adresse vérifiée). Un compte suspendu, ou protégé par la
   double authentification de Calendive, ne se connecte pas par Google (mot de passe et code, comme avant).
 
-Routes : GET /api/auth/google/start, GET /api/auth/google/callback (retour de Google, redirige vers « / » avec
+Routes : GET /api/auth/google/start (connexion), POST /api/me/google/link (liaison, mot de passe demandé), GET /api/auth/google/callback (retour de Google, redirige vers « / » avec
 ?google=<résultat> pour qu'un message s'affiche), GET / DELETE /api/me/google (état du lien, délier).
 """
 
@@ -30,7 +30,8 @@ import urllib.parse
 import urllib.request
 from datetime import timedelta
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse
 
 from . import auth, db, mailer, security
@@ -118,25 +119,43 @@ def _back(result: str, page: str = "/") -> RedirectResponse:
     return resp
 
 
+def _begin(response, mode: str, user_id: int | None) -> str:
+    """Prépare une demande chez Google (état, nonce, PKCE) ; renvoie l'adresse de la page de Google."""
+    state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
+    stamp = now()
+    db.create_oauth_state(token_hash(state), verifier, nonce, mode, user_id, iso(stamp + STATE_TTL), iso(stamp))
+    # l'état est aussi gardé dans le navigateur qui a lancé la demande : un lien de retour forgé ne passe pas
+    response.set_cookie(STATE_COOKIE, state, max_age=int(STATE_TTL.total_seconds()), httponly=True,
+                        secure=auth.COOKIE_SECURE, samesite="lax", path="/")
+    return authorize_url(state, nonce, verifier)
+
+
 @router.get("/auth/google/start")
-def start(request: Request, mode: str = "login", user=Depends(auth.optional_user)):
-    """Envoie vers la page de connexion de Google. mode=login : se connecter ; mode=link : lier le compte connecté."""
+def start(request: Request):
+    """Envoie vers la page de connexion de Google (connexion). La liaison passe par POST /api/me/google/link."""
     security.limiter.hit(f"google:start:{security.client_ip(request)}", 30, 60)
     if not enabled():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La connexion avec Google n'est pas activée")
-    if mode not in ("login", "link"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Mode inconnu")
-    if mode == "link" and (user is None or auth.via_api_token(user)):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connectez-vous d'abord avec votre mot de passe")
-    state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
-    stamp = now()
-    db.create_oauth_state(token_hash(state), verifier, nonce, mode, user["id"] if mode == "link" else None,
-                          iso(stamp + STATE_TTL), iso(stamp))
-    resp = RedirectResponse(authorize_url(state, nonce, verifier), status_code=status.HTTP_303_SEE_OTHER)
-    # l'état est aussi gardé dans le navigateur qui a lancé la demande : un lien de retour forgé ne passe pas
-    resp.set_cookie(STATE_COOKIE, state, max_age=int(STATE_TTL.total_seconds()), httponly=True,
-                    secure=auth.COOKIE_SECURE, samesite="lax", path="/")
+    resp = RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+    resp.headers["location"] = _begin(resp, "login", None)
     return resp
+
+
+class LinkIn(BaseModel):
+    password: str = Field(max_length=256)
+
+
+@router.post("/me/google/link")
+def link_google(body: LinkIn, request: Request, response: Response, user: auth.CurrentUser):
+    """Lier son compte Google : le mot de passe actuel est demandé (une session laissée ouverte ne suffit pas à
+    ajouter un accès qui survivrait à un changement de mot de passe). Renvoie l'adresse de la page de Google."""
+    security.limiter.hit(f"google:link:{user['id']}", 10, 15 * 60, "Trop d'essais : réessayez dans quelques minutes.")
+    if not enabled():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "La connexion avec Google n'est pas activée")
+    row = db.get_user_credentials_by_id(user["id"])
+    if row is None or not auth.verify_password(body.password, row["password_hash"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Mot de passe incorrect")
+    return {"url": _begin(response, "link", user["id"])}
 
 
 @router.get("/auth/google/callback")

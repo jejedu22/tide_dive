@@ -8,6 +8,8 @@ from datetime import date, timedelta
 import pytest
 
 from app import db
+from unittest.mock import ANY
+
 from tests.conftest import login
 
 SOON = (date.today() + timedelta(days=10)).isoformat()
@@ -49,6 +51,14 @@ def _earlier(slot_id):
     with db.get_conn() as conn:
         conn.execute("UPDATE slot_registrations SET created_at = '2000-01-01T00:00:00+00:00' WHERE selection_id = ?", (slot_id,))
         conn.execute("UPDATE guest_registrations SET created_at = '2000-01-01T00:00:01+00:00' WHERE selection_id = ?", (slot_id,))
+
+
+def _confirm(client, outbox, email):
+    """Clique sur le lien de confirmation du dernier e-mail reçu à cette adresse."""
+    body = next(m[2] for m in reversed(outbox) if m[0] == email)
+    r = client.post("/api/guest/confirm", json={"token": re.search(r"confirmer=([\w-]+)", body).group(1)})
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 def _slot_view(client, slot_id):
@@ -95,18 +105,24 @@ def test_inscription_comptee_dans_les_places(club, new_client, client, mail_outb
     slot = _slot(alice, club, max_registrations=2)
     m1.post(f"/api/selections/{slot}/registration")
     r = client.post(f"/api/guest/{token}/selections/{slot}", json=GUEST)
-    assert r.status_code == 201 and r.json()["status"] == "confirmed"
+    assert r.status_code == 201 and r.json() == {"status": "pending", "position": None, "email_sent": True}
+    # en attente de confirmation : aucune place prise
+    assert _slot_view(alice, slot)["confirmed_count"] == 1
+    # l'e-mail : liens de confirmation et d'annulation, sans le nom saisi (formulaire public)
+    to, subject, body = mail_outbox[0]
+    assert to == "gael@exemple.fr" and "sortie.html#confirmer=" in body and "sortie.html#annuler=" in body
+    assert "Gaël" not in body
+    assert _confirm(client, mail_outbox, "gael@exemple.fr")["status"] == "confirmed"
     _earlier(slot)
     # complet : le membre suivant passe en file d'attente, derrière l'extérieur
     assert m2.post(f"/api/selections/{slot}/registration").json()["my_status"] == "waiting"
     other = {**GUEST, "email": "autre@exemple.fr", "first_name": "Zoé"}
-    r = client.post(f"/api/guest/{token}/selections/{slot}", json=other)
-    assert r.json() == {"status": "waiting", "position": 2, "email_sent": True}
-    # même adresse deux fois : refusé
+    client.post(f"/api/guest/{token}/selections/{slot}", json=other)
+    assert _confirm(client, mail_outbox, "autre@exemple.fr") == {
+        "status": "waiting", "position": 2, "selection": ANY}
+    # même adresse deux fois : refusé ; lien de confirmation déjà utilisé : refusé
     assert client.post(f"/api/guest/{token}/selections/{slot}", json=GUEST).status_code == 409
-    # confirmation par e-mail, avec lien d'annulation
-    to, subject, body = mail_outbox[0]
-    assert to == "gael@exemple.fr" and "sortie.html#annuler=" in body
+    assert client.post("/api/guest/confirm", json={"token": "deja-utilise-0123456789"}).status_code == 404
 
     # vu d'un membre : le nom, marqué extérieur, sans coordonnées
     regs = _slot_view(m1, slot)["registrations"]
@@ -129,7 +145,9 @@ def test_annulation_par_lien_et_place_liberee(club, new_client, client, mail_out
     token = _enable(alice, club)
     slot = _slot(alice, club, max_registrations=1)
     client.post(f"/api/guest/{token}/selections/{slot}", json=GUEST)
+    _confirm(client, mail_outbox, "gael@exemple.fr")
     client.post(f"/api/guest/{token}/selections/{slot}", json={**GUEST, "email": "zoe@exemple.fr", "first_name": "Zoé"})
+    _confirm(client, mail_outbox, "zoe@exemple.fr")
     cancel = re.search(r"annuler=([\w-]+)", mail_outbox[0][2]).group(1)
     mail_outbox.clear()
     r = client.post("/api/guest/cancel", json={"token": cancel})
@@ -168,3 +186,19 @@ def test_controles_du_formulaire(club, new_client, client):
     db.cancel_selection(club["sid"], slot, by=None, reason_id=None, reason="météo", note=None, at="2026-01-01T00:00:00")
     assert client.post(f"/api/guest/{token}/selections/{slot}", json=GUEST).status_code == 409
     assert client.post(f"/api/guest/{token}/selections/99999", json=GUEST).status_code == 404
+
+
+def test_demande_non_confirmee_ne_prend_pas_de_place(club, new_client, client, mail_outbox):
+    """Sans confirmation de l'adresse, rien ne compte ; au bout de 24 h la demande est effacée."""
+    alice = _client(new_client, "alice")
+    token = _enable(alice, club)
+    slot = _slot(alice, club, max_registrations=1)
+    for i in range(3):     # trois fausses adresses : la plongée reste ouverte
+        client.post(f"/api/guest/{token}/selections/{slot}", json={**GUEST, "email": f"faux{i}@exemple.fr"})
+    view = _slot_view(alice, slot)
+    assert view["confirmed_count"] == 0 and view["waiting_count"] == 0 and not view["full"]
+    with db.get_conn() as conn:
+        conn.execute("UPDATE guest_registrations SET created_at = '2000-01-01T00:00:00+00:00'")
+    client.post(f"/api/guest/{token}/selections/{slot}", json=GUEST)        # déclenche l'effacement
+    with db.get_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM guest_registrations").fetchone()[0] == 1

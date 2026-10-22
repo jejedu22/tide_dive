@@ -179,6 +179,9 @@ def update_user(user_id: int, *, password_hash: str | None = None, is_admin: boo
             # et invalide les liens d'invitation / de réinitialisation en cours
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             conn.execute("DELETE FROM user_tokens WHERE user_id = ?", (user_id,))
+            # ... et retire les accès qui survivraient à la session : jetons d'API, compte Google lié
+            conn.execute("DELETE FROM api_tokens WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_identities WHERE user_id = ?", (user_id,))
             conn.execute(_CLEAR_TEMP, (user_id,))
         if must_change_password is not None:
             conn.execute(

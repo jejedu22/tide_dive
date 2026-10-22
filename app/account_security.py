@@ -287,8 +287,14 @@ def merge_accounts(body: Merge, admin: CurrentSuperAdmin):
 
 @router.get("/admin/users/{user_id}/export")
 def export_account_data(user_id: int, actor: CurrentManager):
-    """Données d'un compte (demande d'accès RGPD) : super administrateur, ou administrateur de sa structure."""
+    """Données d'un compte (demande d'accès RGPD) : super administrateur, ou administrateur de sa structure.
+    L'export contient les données du compte dans TOUTES ses structures : un compte membre de plusieurs structures
+    ne s'exporte que par son titulaire (Mon compte) ou par un super administrateur."""
     target_or_404(actor, user_id)
+    if not actor["is_admin"] and db.count_memberships(user_id) > 1:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Ce compte appartient à plusieurs structures : son export contiendrait leurs données. "
+                            "Son titulaire peut l'obtenir depuis « Mon compte », ou un super administrateur.")
     return _export_response(user_id)
 
 

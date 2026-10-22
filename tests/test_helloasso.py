@@ -297,7 +297,7 @@ def test_notification_declenche_la_relecture(club, new_client, fake, monkeypatch
 
 def test_issue_du_paiement():
     assert helloasso.outcome({"id": 1}) == ("pending", None, None)
-    assert helloasso.outcome({"order": {"id": 5, "payments": [{"state": "Authorized", "paymentReceiptUrl": "u"}]}}) == ("paid", "5", "u")
+    assert helloasso.outcome({"order": {"id": 5, "payments": [{"state": "Authorized", "paymentReceiptUrl": "https://r/u"}]}}) == ("paid", "5", "https://r/u")
     assert helloasso.outcome({"order": {"id": 5}})[0] == "paid"
     assert helloasso.outcome({"order": {"id": 5, "payments": [{"state": "Refunded"}]}})[0] == "refunded"
     assert helloasso.outcome({"order": {"id": 5, "payments": [{"state": "Refused"}]}})[0] == "failed"

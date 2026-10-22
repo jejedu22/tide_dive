@@ -9,7 +9,7 @@ import urllib.parse
 import pytest
 
 from app import db, google_login, mailer
-from tests.conftest import login
+from tests.conftest import PASSWORD, login
 
 
 def _jwt(claims: dict) -> str:
@@ -40,9 +40,15 @@ def google(monkeypatch, make_structure, make_user):
 
 
 def _start(client, google, mode="login"):
-    r = client.get(f"/api/auth/google/start?mode={mode}", follow_redirects=False)
-    assert r.status_code == 303, r.text
-    query = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)
+    if mode == "link":          # liaison : depuis « Mon compte », avec le mot de passe actuel
+        r = client.post("/api/me/google/link", json={"password": PASSWORD})
+        assert r.status_code == 200, r.text
+        url = r.json()["url"]
+    else:
+        r = client.get("/api/auth/google/start", follow_redirects=False)
+        assert r.status_code == 303, r.text
+        url = r.headers["location"]
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
     google["nonce"] = query["nonce"][0]
     assert query["code_challenge_method"] == ["S256"] and query["redirect_uri"] == ["https://exemple.org/api/auth/google/callback"]
     return query["state"][0]
@@ -95,10 +101,20 @@ def test_jamais_de_rapprochement_par_adresse_e_mail(google, new_client):
     assert db.get_user_credentials("alice@gmail.com") is None
 
 
-def test_lier_exige_d_etre_connecte(google, new_client):
+def test_lier_exige_d_etre_connecte_et_le_mot_de_passe(google, new_client):
     anon = new_client()
-    assert anon.get("/api/auth/google/start?mode=link", follow_redirects=False).status_code == 401
-    assert anon.get("/api/auth/google/start?mode=autre", follow_redirects=False).status_code == 422
+    assert anon.post("/api/me/google/link", json={"password": PASSWORD}).status_code == 401
+    c = new_client()
+    login(c, "alice")
+    assert c.post("/api/me/google/link", json={"password": "pas le bon"}).status_code == 403
+
+
+def test_changer_de_mot_de_passe_retire_le_lien_google(google, new_client):
+    _link(new_client, google)
+    uid = db.get_user_credentials("alice")["id"]
+    assert db.get_user_identity("google", uid) is not None
+    db.update_user(uid, password_hash="scrypt$x", now="2026-01-01T00:00:00+00:00")
+    assert db.get_user_identity("google", uid) is None
 
 
 def test_etat_a_usage_unique_et_lie_au_navigateur(google, new_client):

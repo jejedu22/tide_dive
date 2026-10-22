@@ -70,6 +70,7 @@ COOKIE_NAME = "maree_session"
 # peuvent partager une IP, par exemple un club : la limite par IP est plus large)
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_FAILS_PER_USER = 8
+TOTP_MAX_FAILS_PER_USER = 10      # codes de double authentification faux, par compte et par fenêtre
 LOGIN_MAX_FAILS_PER_IP = 30
 SESSION_TTL = timedelta(days=int(os.environ.get("SESSION_DAYS", "30")))
 LOGIN_CHALLENGE_TTL = timedelta(minutes=5)
@@ -239,7 +240,8 @@ def via_api_token(user: sqlite3.Row | dict | None) -> bool:
 
 def _check_api_token(request: Request, user: dict) -> None:
     path, write = request.url.path, request.method not in _READ_METHODS
-    if path.startswith(_TOKEN_FORBIDDEN) or (write and path.startswith(_TOKEN_READ_ONLY)):
+    if (path.startswith(_TOKEN_FORBIDDEN) or (write and path.startswith(_TOKEN_READ_ONLY))
+            or (path.startswith("/api/admin/users/") and path.endswith("/export"))):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "Action impossible avec un jeton d'API : connectez-vous à l'application")
     if write and user["api_token_scope"] != "write":
@@ -564,7 +566,9 @@ def login(creds: Credentials, response: Response, request: Request):
     if wait:
         raise security.too_many(wait, "Trop de tentatives de connexion : réessayez dans quelques minutes.")
     row = db.get_user_credentials(creds.username.strip())
-    ok = verify_password(creds.password, row["password_hash"] if row else _DUMMY_HASH)
+    # même temps de calcul pour un compte inconnu ou invité (sans mot de passe) : ni l'un ni l'autre ne se devine
+    usable = row is not None and str(row["password_hash"]).startswith("scrypt$")
+    ok = verify_password(creds.password, row["password_hash"] if usable else _DUMMY_HASH) and usable
     if row is not None and ok:
         if row["temp_password_hash"]:
             db.clear_temp_password(row["id"])   # mot de passe retrouvé : le provisoire ne sert plus
@@ -607,6 +611,11 @@ def login_totp(body: TotpLogin, response: Response, request: Request):
     ch = db.get_login_challenge(ch_hash, _iso(_now()))
     if ch is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion expirée : saisissez de nouveau votre mot de passe")
+    # échecs comptés aussi par compte : changer d'adresse IP ou redemander un défi ne donne pas d'essais en plus
+    user_key = f"totp:user:{ch['user_id']}"
+    wait = security.limiter.retry_after(user_key, TOTP_MAX_FAILS_PER_USER, LOGIN_WINDOW)
+    if wait:
+        raise security.too_many(wait, "Trop de codes incorrects : réessayez dans quelques minutes.")
     row = db.get_totp(ch["user_id"])
     ok = False
     if row and row["totp_enabled_at"] and row["totp_secret"]:
@@ -620,6 +629,7 @@ def login_totp(body: TotpLogin, response: Response, request: Request):
                 ok = True
     if not ok:
         security.limiter.add(ip_key, LOGIN_WINDOW)
+        security.limiter.add(user_key, LOGIN_WINDOW)
         db.fail_login_challenge(ch_hash, LOGIN_CHALLENGE_MAX_ATTEMPTS)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Code incorrect")
     db.delete_login_challenge(ch_hash)
@@ -979,6 +989,13 @@ def admin_update_user(user_id: int, body: UserUpdate, actor: CurrentManager):
             status.HTTP_403_FORBIDDEN,
             "Ce compte appartient à plusieurs structures : seul son titulaire ou un super administrateur peut modifier son profil ou son mot de passe",
         )
+    # Son propre e-mail et son propre mot de passe se changent dans « Mon compte », qui demande le mot de passe
+    # actuel : sinon une session laissée ouverte, ou un jeton d'API d'administrateur, suffirait à prendre le compte.
+    if (is_self and not actor["is_admin"]
+            and (body.password or ("email" in profile and profile["email"] != target["email"]))):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Pour votre propre compte, changez votre adresse e-mail ou votre mot de passe depuis "
+                            "« Mon compte » (votre mot de passe actuel est demandé)")
     if "email" in profile and profile["email"] != target["email"]:
         db.delete_user_tokens(user_id)   # liens déjà envoyés à l'ancienne adresse
 
