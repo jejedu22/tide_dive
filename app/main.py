@@ -48,6 +48,7 @@ security.install(app)   # en-têtes de sécurité (CSP…) et contrôle de l'ori
 # Compression des réponses (JSON, JS, CSS) : la liste des créneaux d'une structure active pèse des centaines de Ko,
 # une dizaine une fois compressée ; zlib travaille hors du verrou de Python
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(security.BodySizeLimit)   # en dernier : la première protection traversée
 
 
 @app.middleware("http")

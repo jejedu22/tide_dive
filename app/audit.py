@@ -41,6 +41,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/helloasso/test"): "Connexion HelloAsso testée",
     ("DELETE", "/api/admin/helloasso"): "Connexion HelloAsso retirée",
     ("DELETE", "/api/me/google"): "Compte Google délié",
+    ("POST", "/api/me/google/link"): "Liaison d'un compte Google demandée",
     ("POST", "/api/admin/structures/{structure_id}/guest-link"): "Inscription des personnes extérieures autorisée",
     ("DELETE", "/api/admin/structures/{structure_id}/guest-link"): "Inscription des personnes extérieures retirée",
     ("PUT", "/api/admin/helloasso/members/{user_id}/discount"): "Réduction sur la cotisation modifiée",
@@ -290,9 +291,13 @@ def install(app: FastAPI) -> None:
         if route == "/api/admin/users/{user_id}" and request.method == "DELETE" \
                 and db.get_user(int(request.path_params["user_id"])) is None:
             target = "compte supprimé"   # effacement : son nom ne reste pas dans le journal
+        # ?structure_id= : retenu seulement pour une structure de l'auteur (sinon chacun pourrait écrire dans le
+        # journal d'une autre structure)
         query_sid = request.query_params.get("structure_id")
-        structure_id = (int(query_sid) if query_sid and query_sid.isdigit() else None) or target_structure \
-            or actor["structure_id"]
+        asked = int(query_sid) if query_sid and query_sid.isdigit() else None
+        if asked is not None and not (actor["is_admin"] or db.get_membership(actor["id"], asked)):
+            asked = None
+        structure_id = asked or target_structure or actor["structure_id"]
         action = LABELS.get((request.method, route), f"{request.method} {route}")
         if "api_token_id" in actor.keys():
             action += f" (jeton d'API n° {actor['api_token_id']})"

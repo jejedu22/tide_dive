@@ -42,7 +42,8 @@ router = APIRouter(prefix="/api")
 
 HORIZON_DAYS = 120          # créneaux proposés : jusqu'à 4 mois
 MAX_LISTED = 100
-RETENTION_DAYS = 365        # effacement des personnes extérieures un an après la plongée
+RETENTION_DAYS = 365
+CONFIRM_HOURS = 24          # une inscription non confirmée par e-mail est effacée au bout de ce délai        # effacement des personnes extérieures un an après la plongée
 PER_IP_PER_HOUR = 10
 
 
@@ -162,23 +163,27 @@ def _cancel_link(token: str) -> str:
     return mailer.link(f"sortie.html#annuler={token}")
 
 
-def _confirmation(st: sqlite3.Row, row: sqlite3.Row, body: GuestIn, waiting: int | None, token: str) -> tuple[str, str, str]:
+def _confirmation(st: sqlite3.Row, row: sqlite3.Row, email: str, confirm: str, cancel: str) -> tuple[str, str, str]:
+    """Demande de confirmation de l'adresse. Volontairement sans le nom saisi : le formulaire est public, et
+    quelqu'un pourrait y mettre l'adresse d'un tiers avec un texte de son choix."""
     app = mailer.APP_NAME
-    state = (f"Vous êtes en file d'attente (position {waiting}) : vous serez prévenu(e) par e-mail si une place se libère."
-             if waiting else "Votre place est réservée.")
     contact = " / ".join(x for x in (st["contact_email"], st["contact_phone"]) if x)
-    text = f"""Bonjour {body.first_name},
+    text = f"""Bonjour,
 
-Votre inscription à la plongée de {st['name']} est enregistrée : {when(row)}, {place(row)}.
-{state}
+Une inscription à la plongée de {st['name']} a été demandée avec cette adresse : {when(row)}, {place(row)}.
 
-Si vous ne pouvez plus venir, annulez votre inscription pour laisser la place à quelqu'un d'autre :
-{_cancel_link(token)}
+Pour la confirmer (votre place n'est réservée qu'après confirmation, dans les {CONFIRM_HOURS} heures) :
+{mailer.link(f"sortie.html#confirmer={confirm}")}
+
+Si vous ne pouvez plus venir après avoir confirmé, annulez pour laisser la place à quelqu'un d'autre :
+{_cancel_link(cancel)}
+
+Vous n'êtes pas à l'origine de cette demande ? Ignorez ce message : rien ne sera enregistré.
 {f"{chr(10)}Contact de la structure : {contact}{chr(10)}" if contact else ""}
 --
 {app}
 """
-    return body.email, f"{app} : inscription à la plongée du {_fr_date(date.fromisoformat(row['local_date']))}", text
+    return email, f"{app} : confirmez votre inscription à la plongée du {_fr_date(date.fromisoformat(row['local_date']))}", text
 
 
 def promoted_guest_message(g: sqlite3.Row, row: sqlite3.Row) -> tuple[str, str, str]:
@@ -213,25 +218,52 @@ def guest_register(token: str, selection_id: int, body: GuestIn, request: Reques
             or _today() > open_until(row["local_date"], locks["register_lock_days"]):
         raise HTTPException(status.HTTP_409_CONFLICT, "Les inscriptions à cette plongée sont closes")
     db.purge_guest_registrations((date.fromisoformat(_today()) - timedelta(days=RETENTION_DAYS)).isoformat())
+    db.purge_unconfirmed_guests((datetime.now(timezone.utc) - timedelta(hours=CONFIRM_HOURS)).isoformat(timespec="seconds"))
     cancel = secrets.token_urlsafe(24)
+    # Envoi d'e-mails configuré : la place n'est prise qu'une fois l'adresse confirmée (sinon n'importe qui
+    # remplirait les plongées avec des adresses inventées, ou ferait écrire le club à un tiers)
+    confirm = secrets.token_urlsafe(24) if mailer.enabled() else None
     try:
         gid = db.add_guest_registration(selection_id, body.first_name, body.last_name, body.email, body.phone,
-                                        _now(), token_hash(cancel))
+                                        _now(), token_hash(cancel), token_hash(confirm) if confirm else None)
     except sqlite3.IntegrityError:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Vous êtes déjà inscrit(e) à cette plongée avec cette adresse e-mail")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cette adresse e-mail est déjà inscrite à cette plongée (ou en "
+                                                      "attente de confirmation : voyez l'e-mail reçu)")
+    if confirm:
+        background.add_task(notify, [_confirmation(st, row, body.email, confirm, cancel)])
+        return {"status": "pending", "position": None, "email_sent": True}
     _, waiting = _status(st["id"], selection_id)
     position = waiting.index(-gid) + 1 if -gid in waiting else None
-    if mailer.enabled():
-        background.add_task(notify, [_confirmation(st, row, body, position, cancel)])
-    return {"status": "waiting" if position else "confirmed", "position": position, "email_sent": mailer.enabled()}
+    return {"status": "waiting" if position else "confirmed", "position": position, "email_sent": False}
 
 
-class CancelIn(BaseModel):
+class TokenIn(BaseModel):
     token: str = Field(min_length=10, max_length=100)
 
 
+@router.post("/guest/confirm", openapi_extra=PUBLIC)
+def guest_confirm(body: TokenIn, request: Request):
+    """Confirmation de l'adresse (lien reçu par e-mail) : la place compte à partir de maintenant."""
+    security.limiter.hit(f"guest:confirm:{security.client_ip(request)}", 20, 3600)
+    g = db.confirm_guest_registration(token_hash(body.token), _now())
+    if g is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ce lien de confirmation n'est plus valable (déjà utilisé, ou "
+                                                       f"plus de {CONFIRM_HOURS} heures) : inscrivez-vous de nouveau.")
+    sid = db.selection_structure(g["selection_id"])
+    row = db.get_selection(sid, g["selection_id"])
+    locks = db.get_lock_days(sid)
+    if (row["end_date"] or row["local_date"]) < _today() or row["cancelled_at"] \
+            or _today() > open_until(row["local_date"], locks["register_lock_days"]):
+        db.delete_guest_registration(g["id"])
+        raise HTTPException(status.HTTP_409_CONFLICT, "Les inscriptions à cette plongée sont closes")
+    _, waiting = _status(sid, row["id"])
+    position = waiting.index(-g["id"]) + 1 if -g["id"] in waiting else None
+    return {"status": "waiting" if position else "confirmed", "position": position,
+            "selection": {"when": when(row), "place": place(row)}}
+
+
 @router.post("/guest/cancel", openapi_extra=PUBLIC)
-def guest_cancel(body: CancelIn, request: Request, background: BackgroundTasks):
+def guest_cancel(body: TokenIn, request: Request, background: BackgroundTasks):
     """Annulation par la personne extérieure elle-même (lien reçu par e-mail)."""
     security.limiter.hit(f"guest:cancel:{security.client_ip(request)}", 20, 3600)
     g = db.guest_by_cancel_token(token_hash(body.token))

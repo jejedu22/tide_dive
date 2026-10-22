@@ -295,6 +295,8 @@ from .db_guests import (  # noqa: F401
     add_guest_registration,
     get_guest_registration,
     guest_by_cancel_token,
+    confirm_guest_registration,
+    purge_unconfirmed_guests,
     selection_structure,
     delete_guest_registration,
     set_guest_attendance,

@@ -880,6 +880,9 @@ CREATE TABLE IF NOT EXISTS guest_registrations (
     cancel_token_hash TEXT UNIQUE,               -- lien d'annulation envoyé par e-mail (empreinte)
     attendance TEXT CHECK (attendance IN ('present', 'absent', 'excused')),
     attendance_at TEXT,
+    -- confirmation par e-mail (envoi d'e-mails configuré) : la place ne compte qu'une fois l'adresse confirmée
+    confirmed_at TEXT,
+    confirm_token_hash TEXT UNIQUE,
     UNIQUE (selection_id, email)
 );
 CREATE INDEX IF NOT EXISTS idx_guest_registrations_selection ON guest_registrations(selection_id);

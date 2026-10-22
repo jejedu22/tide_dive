@@ -716,8 +716,20 @@ const Session = (() => {
     el.innerHTML = g.linked
       ? `Compte Google lié${g.email ? ` : <strong>${esc(g.email)}</strong>` : ""} — vous pouvez vous connecter avec Google.
          <button type="button" class="link-btn" data-google-unlink>Délier</button>`
-      : `Connexion avec Google : <a href="/api/auth/google/start?mode=link">lier mon compte Google</a>
+      : `Connexion avec Google : <button type="button" class="link-btn" data-google-link>lier mon compte Google</button>
          (ensuite, « Se connecter avec Google » suffira).`;
+    // lier : le mot de passe actuel est demandé, puis la page de Google s'ouvre
+    el.querySelector("[data-google-link]")?.addEventListener("click", () => openForm({
+      title: "Lier mon compte Google",
+      intro: `<p class="dialog-hint">Par sécurité, confirmez avec votre mot de passe actuel. Vous choisirez ensuite votre compte Google.</p>`,
+      fields: [{ name: "password", label: "Mot de passe actuel", type: "password", autocomplete: "current-password" }],
+      submitLabel: "Continuer vers Google",
+      onSubmit: async v => {
+        const r = await api("/api/me/google/link", { method: "POST", body: { password: v.password } });
+        location.assign(r.url);
+        return true;            // la fenêtre reste ouverte pendant le départ vers Google
+      },
+    }));
     el.querySelector("[data-google-unlink]")?.addEventListener("click", async () => {
       try { await api("/api/me/google", { method: "DELETE" }); } catch (e) { el.textContent = e.message; return; }
       showGoogleLink(el);

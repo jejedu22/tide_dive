@@ -111,6 +111,7 @@ SUMMARIES = {
     ("GET", "/api/auth/google/start"): "Connexion avec Google : envoi vers la page de Google",
     ("GET", "/api/auth/google/callback"): "Connexion avec Google : retour de Google",
     ("GET", "/api/me/google"): "Compte Google lié au compte connecté",
+    ("POST", "/api/me/google/link"): "Lier son compte Google (mot de passe demandé)",
     ("GET", "/api/guest/{token}"): "Plongées ouvertes aux personnes extérieures (lien public)",
     ("DELETE", "/api/me/google"): "Délier le compte Google",
     ("GET", "/api/auth/me"): "Compte connecté : profil, structure, rôle, droits",

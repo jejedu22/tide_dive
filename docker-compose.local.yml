@@ -7,3 +7,4 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       COOKIE_SECURE: "0"   # cookie de session sur http
+      TRUSTED_PROXY_HOPS: "0"   # pas de proxy devant : X-Forwarded-For (falsifiable) est ignoré

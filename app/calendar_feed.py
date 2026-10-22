@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 from . import db, ical, mailer
 from .accounts import iso, now, token_hash
-from .auth import CurrentMember, CurrentUser, in_preview
+from .auth import CurrentMember, CurrentUser, in_preview, via_api_token
 from .selections import _registrations_by_selection, _selection_out, _today
 
 router = APIRouter(prefix="/api")
@@ -63,6 +63,12 @@ def _structures_of(user) -> list[sqlite3.Row | dict]:
 def _check_structure(user, structure_id: int) -> None:
     if all(s["structure_id"] != structure_id for s in _structures_of(user)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Vous n'êtes pas membre de cette structure")
+    # un jeton d'API n'agit que dans la structure où il a été créé
+    if via_api_token(user) and structure_id != user["structure_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Ce jeton d'API n'agit pas dans cette structure")
+    st = db.get_structure(structure_id)
+    if st is None or (st["archived_at"] and not user["is_admin"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cette structure est archivée")
 
 
 def _out_selections(user_id: int, structure_id: int, rows: list[sqlite3.Row]) -> list[dict]:
@@ -167,7 +173,10 @@ def subscribed_calendar(token: str, request: Request):
     if feed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien d'abonnement inconnu ou désactivé")
     user = db.get_user(feed["user_id"])
-    if user is None or not (user["is_admin"] or db.get_membership(feed["user_id"], feed["structure_id"])):
+    st = db.get_structure(feed["structure_id"])
+    # compte suspendu, structure archivée, ou plus membre : le lien ne marche plus
+    if (user is None or user["suspended_at"] or st is None or st["archived_at"]
+            or not (user["is_admin"] or db.get_membership(feed["user_id"], feed["structure_id"]))):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien d'abonnement inconnu ou désactivé")
     db.touch_calendar_feed(feed["id"], iso(now()))
     return _calendar(request, feed["user_id"], feed["structure_id"], bool(feed["mine"]), feed["type_id"])

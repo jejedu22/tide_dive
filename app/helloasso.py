@@ -157,7 +157,9 @@ def outcome(checkout: dict) -> tuple[str, str | None, str | None]:
     order_id = str(order.get("id")) if order.get("id") is not None else None
     payments = [p for p in (order.get("payments") or []) if isinstance(p, dict)]
     states = {str(p.get("state")) for p in payments}
-    receipt = next((p.get("paymentReceiptUrl") for p in payments if p.get("paymentReceiptUrl")), None)
+    # reçu : une adresse https seulement (elle devient un lien dans l'administration)
+    receipt = next((p["paymentReceiptUrl"] for p in payments
+                    if isinstance(p.get("paymentReceiptUrl"), str) and p["paymentReceiptUrl"].startswith("https://")), None)
     if not payments or "Authorized" in states or "Registered" in states:
         return "paid", order_id, receipt
     if states <= {"Refunded", "Refunding"}:

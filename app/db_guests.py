@@ -29,13 +29,33 @@ def structure_by_guest_token(token: str) -> sqlite3.Row | None:
 
 
 def add_guest_registration(selection_id: int, first_name: str, last_name: str, email: str, phone: str,
-                           now: str, cancel_token_hash: str | None) -> int:
-    """Lève sqlite3.IntegrityError si cette adresse est déjà inscrite sur ce créneau."""
+                           now: str, cancel_token_hash: str | None, confirm_token_hash: str | None = None) -> int:
+    """confirm_token_hash : inscription en attente de confirmation par e-mail (ne compte pas encore) ; None :
+    confirmée tout de suite. Lève sqlite3.IntegrityError si cette adresse est déjà inscrite sur ce créneau."""
     with get_conn() as conn:
         return conn.execute(
             "INSERT INTO guest_registrations (selection_id, first_name, last_name, email, phone, created_at, "
-            "cancel_token_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (selection_id, first_name, last_name, email, phone, now, cancel_token_hash)).lastrowid
+            "cancel_token_hash, confirm_token_hash, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (selection_id, first_name, last_name, email, phone, now, cancel_token_hash, confirm_token_hash,
+             None if confirm_token_hash else now)).lastrowid
+
+
+def confirm_guest_registration(token_hash: str, now: str) -> sqlite3.Row | None:
+    """Confirme l'inscription (sa place compte à partir de maintenant) ; None si le lien est inconnu."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM guest_registrations WHERE confirm_token_hash = ?", (token_hash,)).fetchone()
+        if row is None:
+            return None
+        conn.execute("UPDATE guest_registrations SET confirmed_at = ?, created_at = ?, confirm_token_hash = NULL "
+                     "WHERE id = ?", (now, now, row["id"]))
+        return conn.execute("SELECT * FROM guest_registrations WHERE id = ?", (row["id"],)).fetchone()
+
+
+def purge_unconfirmed_guests(before: str) -> int:
+    """Efface les inscriptions jamais confirmées, demandées avant cet instant."""
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM guest_registrations WHERE confirmed_at IS NULL AND created_at < ?",
+                            (before,)).rowcount
 
 
 def get_guest_registration(guest_id: int) -> sqlite3.Row | None:
@@ -75,8 +95,9 @@ def purge_guest_registrations(before_day: str) -> int:
 
 
 def list_guest_registrations(structure_id: int, selection_id: int | None = None) -> list[dict]:
+    # seulement les inscriptions confirmées : une demande en attente ne prend aucune place
     sql = ("SELECT g.* FROM guest_registrations g JOIN slot_selections s ON s.id = g.selection_id "
-           "WHERE s.structure_id = ?")
+           "WHERE s.structure_id = ? AND g.confirmed_at IS NOT NULL")
     params: list = [structure_id]
     if selection_id is not None:
         sql += " AND g.selection_id = ?"

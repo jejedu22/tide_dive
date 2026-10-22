@@ -43,6 +43,18 @@ async function load() {
     $("guest-cancel").hidden = false;
     return;
   }
+  if (hash.startsWith("confirmer=")) {
+    $("guest-confirm").hidden = false;
+    try {
+      const r = await Session.api("/api/guest/confirm", { method: "POST", body: { token: hash.slice("confirmer=".length) } });
+      $("guest-confirm-status").textContent = r.status === "waiting"
+        ? `Adresse confirmée : vous êtes en file d'attente (position ${r.position}) pour la plongée ${r.selection.when}, ${r.selection.place}. Vous serez prévenu(e) par e-mail si une place se libère.`
+        : `Inscription confirmée : votre place est réservée pour la plongée ${r.selection.when}, ${r.selection.place}. À bientôt sous l'eau !`;
+    } catch (err) {
+      $("guest-confirm-status").textContent = err.message;
+    }
+    return;
+  }
   token = hash;
   let data;
   try {
@@ -104,7 +116,9 @@ form.addEventListener("submit", async e => {
     });
     form.hidden = true;
     $("guest-done").hidden = false;
-    $("guest-done").innerHTML = (r.status === "waiting"
+    $("guest-done").innerHTML = r.status === "pending"
+      ? `<p><strong>Presque fini : confirmez votre adresse.</strong> Un e-mail vient de vous être envoyé : cliquez sur le lien qu'il contient dans les 24 heures. Votre place n'est réservée qu'après cette confirmation.</p>`
+      : (r.status === "waiting"
       ? `<p><strong>Vous êtes inscrit(e) en file d'attente (position ${r.position}).</strong> Vous serez prévenu(e) par e-mail si une place se libère.</p>`
       : `<p><strong>Votre inscription est enregistrée.</strong> À bientôt sous l'eau !</p>`)
       + (r.email_sent ? `<p>Un e-mail de confirmation vous a été envoyé, avec un lien pour annuler si besoin.</p>`

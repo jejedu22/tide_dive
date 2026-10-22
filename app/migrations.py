@@ -693,6 +693,18 @@ def _m034_structure_theme(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE structures ADD COLUMN {col} TEXT")
 
 
+def _m035_guest_confirmation(conn: sqlite3.Connection) -> None:
+    """Inscriptions extérieures confirmées par e-mail : les existantes sont tenues pour confirmées."""
+    cols = _columns(conn, "guest_registrations")
+    if "confirmed_at" not in cols:
+        conn.execute("ALTER TABLE guest_registrations ADD COLUMN confirmed_at TEXT")
+        conn.execute("UPDATE guest_registrations SET confirmed_at = created_at")
+    if "confirm_token_hash" not in cols:
+        conn.execute("ALTER TABLE guest_registrations ADD COLUMN confirm_token_hash TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_guest_confirm ON guest_registrations(confirm_token_hash) "
+                     "WHERE confirm_token_hash IS NOT NULL")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -728,6 +740,7 @@ MIGRATIONS: list[Migration] = [
     Migration(32, "connexion avec un compte Google", _m032_identities),
     Migration(33, "inscription de personnes extérieures aux plongées", _m033_guest_registrations),
     Migration(34, "couleurs personnalisées des structures", _m034_structure_theme),
+    Migration(35, "inscriptions extérieures confirmées par e-mail", _m035_guest_confirmation),
 ]
 
 

@@ -32,6 +32,60 @@ TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 
 
+# Taille maximale du corps d'une requête : sans elle, le serveur lit tout en mémoire avant même de vérifier les
+# champs, et quelques envois énormes suffiraient à le faire tomber. Plus large pour les fichiers (pièces jointes
+# des newsletters, import de comptes, logo).
+MAX_BODY = int(os.environ.get("MAX_BODY_BYTES", str(1024 * 1024)))
+MAX_UPLOAD_BODY = 16 * 1024 * 1024
+_UPLOAD_PATHS = ("/attachments", "/import", "/logo")
+
+
+def body_limit(path: str) -> int:
+    return MAX_UPLOAD_BODY if any(p in path for p in _UPLOAD_PATHS) else MAX_BODY
+
+
+class BodySizeLimit:
+    """Refuse (413) un corps de requête trop gros : d'après Content-Length, et en comptant les octets reçus
+    (envoi sans Content-Length, ou en-tête mensonger)."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit = body_limit(scope.get("path", ""))
+        declared = dict(scope.get("headers") or []).get(b"content-length")
+        if declared is not None and declared.isdigit() and int(declared) > limit:
+            return await self._too_large(send)
+        received = 0
+
+        async def counted():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise _TooLarge()
+            return message
+
+        try:
+            await self.app(scope, counted, send)
+        except _TooLarge:
+            await self._too_large(send)
+
+    @staticmethod
+    async def _too_large(send) -> None:
+        body = b'{"detail":"Requ\xc3\xaate trop volumineuse"}'
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+class _TooLarge(Exception):
+    pass
+
+
 def client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     hops = [h.strip() for h in forwarded.split(",") if h.strip()]
