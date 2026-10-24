@@ -7,6 +7,6 @@ scipy>=1.10
 python-dateutil>=2.8
 pytz>=2024.1
 h5py>=3.10
-dask[array]>=2024.1
+dask[array]>=2026.8.0
 cryptography>=42
 py7zr>=0.21
