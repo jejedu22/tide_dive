@@ -58,6 +58,7 @@
             <button type="button" role="tab" data-tab="types" aria-selected="false">Créneaux</button>
             <button type="button" role="tab" data-tab="sites" aria-selected="false">Sites de plongée</button>
             <button type="button" role="tab" data-tab="utilisateurs" aria-selected="false">Utilisateurs</button>
+            <button type="button" role="tab" data-tab="encadrement" aria-selected="false">Pilotes et DP</button>
             <button type="button" role="tab" data-tab="mailjet" aria-selected="false">Mailjet</button>
             <button type="button" role="tab" data-tab="paiements" aria-selected="false">Paiements</button>
             <button type="button" role="tab" data-tab="journal" aria-selected="false">Journal</button>
@@ -768,6 +769,47 @@
       </section>
 
       <!-- ============ Paiements HelloAsso ============ -->
+      <section id="tab-encadrement" class="tab-panel" role="tabpanel" hidden>
+        <p class="scope-bar">
+          <label for="duty-structure">Structure</label>
+          <select id="duty-structure"></select>
+          <strong id="duty-structure-name"></strong>
+        </p>
+        <div class="panel">
+          <h2>Pilotes et directeurs de plongée</h2>
+          <p class="hint">Cochez qui peut piloter le bateau et qui peut être directeur de plongée (DP). La dernière case autorise une même personne à être pilote <em>et</em> DP sur le même créneau (sinon il faut deux personnes).</p>
+          <div class="table-wrap"><table class="users">
+            <thead><tr><th scope="col">Membre</th><th scope="col">Pilote</th><th scope="col">DP</th><th scope="col">Pilote et DP sur le même créneau</th></tr></thead>
+            <tbody id="duty-members"></tbody>
+          </table></div>
+          <p id="duty-members-status" class="form-status" role="status"></p>
+        </div>
+        <div class="panel">
+          <h2>Planning automatique</h2>
+          <p class="hint">Propose un pilote et un DP pour chaque créneau de la période, en répartissant les tours au plus juste : chacun est de service au moins une fois avant que quiconque le soit deux fois (s'il y a assez de créneaux). À égalité, un membre inscrit au créneau est préféré ; personne n'encadre deux créneaux le même jour si on peut l'éviter. Vous pouvez corriger la proposition avant de l'enregistrer.</p>
+          <form id="duty-form" class="duty-form">
+            <label>Du <input type="date" name="start" required></label>
+            <label>Au <input type="date" name="end" required></label>
+            <fieldset class="duty-types"><legend>Types de créneaux concernés</legend><span id="duty-types"></span></fieldset>
+            <label class="check"><input type="checkbox" name="keep_existing" checked> Garder les affectations déjà enregistrées</label>
+            <button type="submit" class="btn-primary">Proposer un planning</button>
+          </form>
+          <p id="duty-summary" class="duty-summary" role="status"></p>
+          <div id="duty-plan" hidden>
+            <div class="table-wrap"><table class="users duty-table">
+              <thead><tr><th scope="col">Créneau</th><th scope="col">Pilote</th><th scope="col">DP</th></tr></thead>
+              <tbody id="duty-plan-body"></tbody>
+            </table></div>
+            <h3>Tours par personne</h3>
+            <p id="duty-counts" class="duty-counts"></p>
+            <p class="form-actions">
+              <button type="button" id="duty-save" class="btn-primary">Enregistrer le planning</button>
+              <span id="duty-save-status" class="form-status" role="status"></span>
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section id="tab-paiements" class="tab-panel" role="tabpanel" hidden>
         <p class="scope-bar">
           <label for="pay-structure">Structure</label>

@@ -33,6 +33,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_api_tokens.py  jetons d'API des comptes (outils tiers)
   db_identities.py  comptes externes liés (connexion Google), étapes de connexion en cours
   db_guests.py      inscriptions de personnes extérieures aux créneaux (lien public)
+  db_duties.py      pilotes et directeurs de plongée : rôles des membres, affectations sur les créneaux
 Les évolutions nouvelles du schéma : migrations.py.
 """
 
@@ -288,6 +289,14 @@ from .db_water import (  # noqa: F401
     delete_threshold,
     create_water_selection,
     water_selections_between,
+)
+from .db_duties import (  # noqa: F401
+    _NAME,
+    duty_members,
+    set_duty_roles,
+    duty_selections,
+    selection_registrants,
+    set_duties,
 )
 from .db_guests import (  # noqa: F401
     set_guest_token,

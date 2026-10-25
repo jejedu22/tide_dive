@@ -705,6 +705,18 @@ def _m035_guest_confirmation(conn: sqlite3.Connection) -> None:
                      "WHERE confirm_token_hash IS NOT NULL")
 
 
+def _m036_duties(conn: sqlite3.Connection) -> None:
+    """Pilotes et directeurs de plongée : rôles des membres, affectation sur les créneaux (duties.py)."""
+    existing = _columns(conn, "memberships")
+    for col in ("is_pilot", "is_dp", "can_combine"):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE memberships ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+    existing = _columns(conn, "slot_selections")
+    for col in ("pilot_user_id", "dp_user_id"):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE slot_selections ADD COLUMN {col} INTEGER REFERENCES users(id) ON DELETE SET NULL")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -741,6 +753,7 @@ MIGRATIONS: list[Migration] = [
     Migration(33, "inscription de personnes extérieures aux plongées", _m033_guest_registrations),
     Migration(34, "couleurs personnalisées des structures", _m034_structure_theme),
     Migration(35, "inscriptions extérieures confirmées par e-mail", _m035_guest_confirmation),
+    Migration(36, "pilotes et directeurs de plongée", _m036_duties),
 ]
 
 

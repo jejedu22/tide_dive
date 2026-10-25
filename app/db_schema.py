@@ -55,6 +55,8 @@ SLOT_SELECTIONS_COLUMNS = """(
     coefficient REAL,
     note TEXT,                              -- intitulé (facultatif) : distingue les créneaux d'une même étale
     site_id INTEGER REFERENCES dive_sites(id) ON DELETE SET NULL,   -- site de plongée choisi (facultatif)
+    pilot_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- pilote du bateau (planning, duties.py)
+    dp_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,     -- directeur de plongée
     created_at TEXT NOT NULL,
     -- créneau de hauteur d'eau : plage où l'eau est au-dessus (ou au-dessous) d'une hauteur du port ; ts_utc,
     -- kind, local_time et height_m sont alors NULL (pas d'étale). Le seuil est recopié : il peut être supprimé.
@@ -433,6 +435,10 @@ CREATE TABLE IF NOT EXISTS memberships (
     digest_types TEXT,
     -- réduction (en %) sur la cotisation du club, accordée par un administrateur (payments.py) ; 100 : offerte
     membership_discount_pct INTEGER NOT NULL DEFAULT 0 CHECK (membership_discount_pct BETWEEN 0 AND 100),
+    -- encadrement des sorties (duties.py) : pilote du bateau, directeur de plongée (DP), et les deux sur le même créneau
+    is_pilot INTEGER NOT NULL DEFAULT 0,
+    is_dp INTEGER NOT NULL DEFAULT 0,
+    can_combine INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, structure_id)
 );
 CREATE INDEX IF NOT EXISTS idx_memberships_structure ON memberships(structure_id, role);
