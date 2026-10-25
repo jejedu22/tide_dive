@@ -270,6 +270,7 @@ function slotCard(p) {
       ${p.cancelled ? `<p>${cancelledLine(p)}</p>` : ""}
       ${p.note ? `<p>${noteLine(p)}</p>` : ""}
       ${p.site ? `<p>${siteLine(p)}</p>` : ""}
+      ${p.pilot || p.dp ? `<p class="slot-duty">${[p.pilot && `Pilote : <strong>${esc(p.pilot.name)}</strong>`, p.dp && `DP : <strong>${esc(p.dp.name)}</strong>`].filter(Boolean).join(" · ")}</p>` : ""}
       ${p.end_date ? `<p>${spanLine(p)}</p>` : ""}
       ${p.water ? `<p class="slot-water">${esc(p.water.label)}</p>` : ""}
       ${weatherLine(p) ? `<p class="slot-weather-line">${weatherLine(p)}</p>` : ""}
@@ -1493,6 +1494,8 @@ const EXPORT_COLUMNS = [
   { header: "Coefficient", type: "int", width: 11, value: p => (p.coefficient != null ? Math.round(p.coefficient) : null) },
   { header: "Type", width: 16, value: p => p.type.label },
   { header: "Intitulé", width: 24, value: p => p.note || "" },
+  { header: "Pilote", width: 20, value: p => p.pilot?.name || "" },
+  { header: "DP", width: 20, value: p => p.dp?.name || "" },
   { header: "Places", type: "int", width: 8, value: p => p.max_registrations },
   { header: "Nb inscrits", type: "int", width: 11, value: p => p.confirmed_count },
   { header: "Inscrits", width: 40, value: p => p.registrations.filter(r => !r.waiting).map(r =>

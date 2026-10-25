@@ -82,6 +82,10 @@ _SELECTION_SQL = """
     SELECT s.*, COALESCE(p.name, s.location) AS port_name,  -- lieu affiché : port, ou lieu libre
            t.label AS type_label, t.color AS type_color, t.active AS type_active, t.min_level AS type_min_level,
            (SELECT d.name FROM dive_sites d WHERE d.id = s.site_id) AS site_name,
+           (SELECT COALESCE(NULLIF(TRIM(COALESCE(pu.first_name, '') || ' ' || COALESCE(pu.last_name, '')), ''), pu.username)
+              FROM users pu WHERE pu.id = s.pilot_user_id) AS pilot_name,
+           (SELECT COALESCE(NULLIF(TRIM(COALESCE(du.first_name, '') || ' ' || COALESCE(du.last_name, '')), ''), du.username)
+              FROM users du WHERE du.id = s.dp_user_id) AS dp_name,
            t.price_cents AS type_price_cents, t.free_for_instructors AS type_free_for_instructors,
            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.username)
                AS picked_by_name

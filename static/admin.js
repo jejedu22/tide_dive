@@ -79,7 +79,7 @@ function openDialog({ title, body, submitLabel = "Enregistrer", onSubmit }) {
 // Onglets
 // ---------------------------------------------------------------------------
 
-const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "communication", "exploitation", "fiche", "types", "sites", "utilisateurs", "mailjet", "paiements", "journal"];
+const ALL_TABS = ["dashboard", "activite", "structures", "ports", "donnees", "communication", "exploitation", "fiche", "types", "sites", "utilisateurs", "encadrement", "mailjet", "paiements", "journal"];
 const SUPER_TABS = ["dashboard", "structures", "ports", "donnees", "communication", "exploitation"];
 let TABS = ALL_TABS;       // onglets accessibles au compte connecté
 let activeTab = null;
@@ -106,6 +106,7 @@ function showTab(name) {
   if (name === "utilisateurs") loadUsers();
   if (name === "mailjet") loadMailjet();
   if (name === "paiements") loadPayments();
+  if (name === "encadrement") loadDuties();
 }
 
 document.querySelector(".tab-groups").addEventListener("click", e => {
@@ -1418,6 +1419,10 @@ function renderStructureSelects() {
   const mjSel = $("mailjet-structure");
   mjSel.innerHTML = opts(mailjetScope ?? keepTypes);
   mailjetScope = mjSel.value ? Number(mjSel.value) : null;
+
+  const dutySel = $("duty-structure");
+  dutySel.innerHTML = opts(dutyScope ?? keepTypes);
+  dutyScope = dutySel.value ? Number(dutySel.value) : null;
 
   const paySel = $("pay-structure");
   paySel.innerHTML = opts(payScope ?? keepTypes);
@@ -3772,6 +3777,143 @@ $("import-confirm").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Pilotes et directeurs de plongée : rôles des membres, planning automatique (voir app/duties.py)
+// ---------------------------------------------------------------------------
+
+let dutyScope = null;     // structure choisie (super administrateur)
+let dutyPeople = [];      // membres pilotes / DP (planning en cours)
+let dutyPlan = null;
+const dutyForm = $("duty-form");
+const dutyQS = () => (isSuper() && dutyScope ? `?structure_id=${dutyScope}` : "");
+
+$("duty-structure").addEventListener("change", e => {
+  dutyScope = Number(e.target.value) || null;
+  $("duty-plan").hidden = true;
+  $("duty-summary").textContent = "";
+  loadDuties();
+});
+
+async function loadDuties() {
+  if (isSuper() && !dutyScope) { $("duty-members").innerHTML = ""; return; }
+  if (!dutyForm.start.value) {
+    const today = new Date();
+    const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    dutyForm.start.value = iso(today);
+    dutyForm.end.value = iso(new Date(today.getTime() + 91 * 86400e3));
+  }
+  let members, types;
+  try {
+    [members, types] = await Promise.all([Session.api(`/api/admin/duty-roles${dutyQS()}`), Session.api(`/api/admin/slot-types${dutyQS()}`)]);
+  } catch (e) {
+    $("duty-members").innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  const box = (m, key, label) => `<td data-label="${label}"><input type="checkbox" data-duty="${key}" aria-label="${esc(label)} : ${esc(m.name)}"${m[key] ? " checked" : ""}${key === "can_combine" && !(m.is_pilot && m.is_dp) ? " disabled" : ""}></td>`;
+  $("duty-members").innerHTML = members.map(m => `<tr data-id="${m.id}"><th scope="row">${esc(m.name)}</th>
+      ${box(m, "is_pilot", "Pilote")}${box(m, "is_dp", "DP")}${box(m, "can_combine", "Pilote et DP sur le même créneau")}</tr>`).join("")
+    || `<tr><td colspan="4" class="empty">Aucun membre.</td></tr>`;
+  $("duty-types").innerHTML = types.filter(t => t.active).map(t =>
+    `<label class="check"><input type="checkbox" name="type" value="${t.id}" checked> <span class="type-dot" style="--type-color:${esc(t.color)}"></span>${esc(t.label)}</label>`).join("");
+}
+
+$("duty-members").addEventListener("change", async e => {
+  const input = e.target.closest("[data-duty]");
+  if (!input) return;
+  const row = input.closest("tr");
+  const get = key => row.querySelector(`[data-duty=${key}]`).checked;
+  const both = get("is_pilot") && get("is_dp");
+  const combine = row.querySelector("[data-duty=can_combine]");
+  combine.disabled = !both;
+  if (!both) combine.checked = false;
+  try {
+    await Session.api(`/api/admin/duty-roles/${row.dataset.id}${dutyQS()}`,
+      { method: "PUT", body: { is_pilot: get("is_pilot"), is_dp: get("is_dp"), can_combine: both && combine.checked } });
+    $("duty-members-status").textContent = "Enregistré.";
+  } catch (err) {
+    $("duty-members-status").textContent = err.message;
+    loadDuties();
+  }
+});
+
+const dutyName = id => dutyPeople.find(p => p.id === id)?.name ?? "";
+
+function dutySelect(s, role) {
+  const eligible = dutyPeople.filter(p => (role === "pilot" ? p.is_pilot : p.is_dp));
+  const current = role === "pilot" ? s.pilot_id : s.dp_id;
+  return `<select data-slot="${s.id}" data-role="${role}" aria-label="${role === "pilot" ? "Pilote" : "DP"} du créneau du ${esc(dayLabel(s.date))}">
+    <option value="">— personne —</option>${eligible.map(p => `<option value="${p.id}"${p.id === current ? " selected" : ""}>${esc(p.name)}${s.registered_ids.includes(p.id) ? " (inscrit)" : ""}</option>`).join("")}</select>`;
+}
+
+function renderDutyPlan() {
+  const rows = dutyPlan.selections;
+  $("duty-plan").hidden = !rows.length;
+  $("duty-plan-body").innerHTML = rows.map(s => `<tr${s.pilot_id && s.pilot_id === s.dp_id ? ` class="duty-combined"` : ""}>
+      <th scope="row"><span class="type-dot" style="--type-color:${esc(s.type.color)}"></span>${esc(dayLabel(s.date))} · ${esc(s.rdv_time)}
+        <span class="muted">${esc(s.type.label)} · ${esc(s.place || "")}${s.note ? ` · ${esc(s.note)}` : ""}</span></th>
+      <td data-label="Pilote">${dutySelect(s, "pilot")}</td><td data-label="DP">${dutySelect(s, "dp")}</td></tr>`).join("");
+  renderDutyCounts();
+}
+
+function renderDutyCounts() {
+  const count = new Map(dutyPeople.map(p => [p.id, { pilot: 0, dp: 0 }]));
+  for (const s of dutyPlan.selections) {
+    if (count.has(s.pilot_id)) count.get(s.pilot_id).pilot++;
+    if (count.has(s.dp_id)) count.get(s.dp_id).dp++;
+  }
+  const missing = dutyPlan.selections.reduce((n, s) => n + !s.pilot_id + !s.dp_id, 0);
+  const none = dutyPeople.filter(p => !count.get(p.id).pilot && !count.get(p.id).dp).map(p => p.name);
+  $("duty-counts").innerHTML = dutyPeople.map(p => {
+    const c = count.get(p.id);
+    const parts = [p.is_pilot && `${c.pilot} pilote`, p.is_dp && `${c.dp} DP`].filter(Boolean).join(", ");
+    return `<span class="duty-count${c.pilot + c.dp ? "" : " zero"}">${esc(p.name)} : ${parts}</span>`;
+  }).join("") || `<span class="muted">Aucun pilote ni DP : cochez-les ci-dessus.</span>`;
+  $("duty-summary").textContent = `${dutyPlan.selections.length} créneau(x) du ${dayLabel(dutyPlan.start)} au ${dayLabel(dutyPlan.end)} —`
+    + (missing ? ` ${missing} rôle(s) sans personne.` : " tous les rôles sont pourvus.")
+    + (none.length ? ` Sans tour : ${none.join(", ")} (pas assez de créneaux).` : dutyPeople.length ? " Chacun a au moins un tour." : "");
+}
+
+dutyForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const types = [...dutyForm.querySelectorAll("[name=type]")];
+  const body = {
+    start: dutyForm.start.value, end: dutyForm.end.value, keep_existing: dutyForm.keep_existing.checked,
+    type_ids: types.every(t => t.checked) ? null : types.filter(t => t.checked).map(t => Number(t.value)),
+  };
+  try {
+    dutyPlan = await Session.api(`/api/admin/duty-planning/proposal${dutyQS()}`, { method: "POST", body });
+  } catch (err) {
+    $("duty-summary").textContent = err.message;
+    return;
+  }
+  dutyPeople = dutyPlan.people;
+  $("duty-save-status").textContent = "";
+  renderDutyPlan();
+  if (!dutyPlan.selections.length) $("duty-summary").textContent = "Aucun créneau sur cette période (pour ces types).";
+});
+
+$("duty-plan-body").addEventListener("change", e => {
+  const sel = e.target.closest("select[data-slot]");
+  if (!sel) return;
+  const s = dutyPlan.selections.find(x => x.id === Number(sel.dataset.slot));
+  s[sel.dataset.role === "pilot" ? "pilot_id" : "dp_id"] = sel.value ? Number(sel.value) : null;
+  sel.closest("tr").classList.toggle("duty-combined", !!s.pilot_id && s.pilot_id === s.dp_id);
+  renderDutyCounts();
+  $("duty-save-status").textContent = "Modifié : pensez à enregistrer.";
+});
+
+$("duty-save").addEventListener("click", async () => {
+  try {
+    const r = await Session.api(`/api/admin/duty-planning${dutyQS()}`, {
+      method: "PUT",
+      body: { assignments: dutyPlan.selections.map(s => ({ selection_id: s.id, pilot_id: s.pilot_id, dp_id: s.dp_id })) },
+    });
+    $("duty-save-status").textContent = `Planning enregistré (${r.saved} créneau(x)) : il apparaît sur les créneaux.`;
+  } catch (err) {
+    $("duty-save-status").textContent = err.message;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Paiements HelloAsso : compte de la structure, cotisations, paiements reçus
 // ---------------------------------------------------------------------------
 
@@ -4229,6 +4371,11 @@ async function onSessionChange(user) {
   $("mailjet-structure").previousElementSibling.hidden = !sup;
   $("mailjet-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
   $("mailjet-structure-name").hidden = sup;
+
+  $("duty-structure").hidden = !sup;
+  $("duty-structure").previousElementSibling.hidden = !sup;
+  $("duty-structure-name").textContent = sup ? "" : user.structure?.name ?? "";
+  $("duty-structure-name").hidden = sup;
 
   $("pay-structure").hidden = !sup;
   $("pay-structure").previousElementSibling.hidden = !sup;

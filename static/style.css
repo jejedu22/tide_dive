@@ -2233,3 +2233,16 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .theme-swatch .sw-colors span { width: 1rem; height: 1.2rem; }
 .theme-swatch .sw-colors span:first-child { background: var(--sw-primary); }
 .theme-swatch .sw-colors span:last-child { background: var(--sw-accent); }
+
+/* Pilotes et DP (administration) */
+.duty-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem 1rem; }
+.duty-types { border: 1px solid var(--line); border-radius: 8px; padding: 0.3rem 0.7rem 0.5rem; display: flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; }
+.duty-types legend { font-size: 0.85rem; font-weight: 600; }
+.type-dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--type-color, var(--teal)); margin-right: 0.35rem; vertical-align: middle; }
+.duty-summary { font-weight: 600; }
+.duty-table th .muted { display: block; font-weight: 400; font-size: 0.82rem; }
+.duty-table tr.duty-combined td { background: var(--surface-2); }
+.duty-counts { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; }
+.duty-count { font-size: 0.82rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); }
+.duty-count.zero { border-color: var(--coral); color: var(--coral); }
+.slot-duty { display: block; font-size: 0.82rem; color: var(--muted); }

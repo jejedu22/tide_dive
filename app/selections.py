@@ -386,6 +386,9 @@ def _selection_out(
         } if row["window_start_utc"] is not None else None),
         "note": row["note"],
         "site": {"id": row["site_id"], "name": row["site_name"]} if row["site_id"] is not None else None,
+        # encadrement (planning des pilotes et DP, duties.py) ; None : personne d'affecté
+        "pilot": {"id": row["pilot_user_id"], "name": row["pilot_name"]} if row["pilot_user_id"] else None,
+        "dp": {"id": row["dp_user_id"], "name": row["dp_name"]} if row["dp_user_id"] else None,
         "port_id": row["port_id"],       # None : créneau personnalisé dans un autre lieu
         "location": row["location"],     # lieu libre, sinon None
         "port": row["port_name"],        # à afficher : nom du port, ou lieu libre
