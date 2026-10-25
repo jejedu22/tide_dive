@@ -153,6 +153,15 @@ def test_planning_enregistre_et_pdf(club, new_client):
     data = alice.get("/api/admin/duty-planning").json()
     row = next(s for s in data["selections"] if s["id"] == sid)
     assert row["pilot"] and row["dp"] and row["date"] == SOON
+    assert (row["pilot_id"], row["dp_id"]) == (club["p1"], club["d1"])
+    # modification manuelle d'un seul créneau : le DP retiré, le pilote gardé
+    assert alice.put("/api/admin/duty-planning", json={"assignments": [
+        {"selection_id": sid, "pilot_id": club["p1"], "dp_id": None}]}).status_code == 200
+    changed = next(s for s in alice.get("/api/admin/duty-planning").json()["selections"] if s["id"] == sid)
+    assert changed["dp"] is None and changed["pilot_id"] == club["p1"]
+    alice.put("/api/admin/duty-planning", json={"assignments": [
+        {"selection_id": sid, "pilot_id": club["p1"], "dp_id": club["d1"]}]})
+    row = next(s for s in alice.get("/api/admin/duty-planning").json()["selections"] if s["id"] == sid)
     assert {t["name"] for t in data["turns"]} == {row["pilot"], row["dp"]}
     r = alice.get("/api/admin/duty-planning.pdf")
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"

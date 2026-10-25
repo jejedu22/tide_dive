@@ -255,6 +255,7 @@ def _saved(sid: int, start: date | None, end: date | None, type_ids: list[int] |
         rows.append({"id": r["id"], "date": r["local_date"], "end_date": r["end_date"], "rdv_time": r["rdv_time"],
                      "type": {"id": r["type_id"], "label": r["type_label"], "color": r["type_color"]},
                      "place": r["place"], "note": r["note"],
+                     "pilot_id": r["pilot_user_id"], "dp_id": r["dp_user_id"],
                      "pilot": names.get(r["pilot_user_id"]) if r["pilot_user_id"] else None,
                      "dp": names.get(r["dp_user_id"]) if r["dp_user_id"] else None})
     return start, end, rows
