@@ -22,10 +22,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from . import db
+from . import db, pdf_table
 from .auth import CurrentManager, scope_structure
 from .selections import _today
 
@@ -224,3 +225,86 @@ def save_planning(body: PlanningIn, actor: CurrentManager, structure_id: int | N
                                 f"{members[a.pilot_id]['name']} ne peut pas être pilote et DP sur le même créneau")
         rows.append((a.selection_id, a.pilot_id, a.dp_id))
     return {"saved": db.set_duties(sid, rows)}
+
+
+# ---------------------------------------------------------------------------
+# Planning enregistré : tableau récapitulatif et export PDF
+# ---------------------------------------------------------------------------
+
+_DAYS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+_MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
+           "novembre", "décembre")
+
+
+def _fr(day: str) -> str:
+    d = date.fromisoformat(day)
+    return f"{_DAYS[d.weekday()]} {d.day} {_MONTHS[d.month - 1]} {d.year}"
+
+
+def _saved(sid: int, start: date | None, end: date | None, type_ids: list[int] | None) -> tuple[date, date, list[dict]]:
+    start = start or date.fromisoformat(_today())
+    end = end or start + timedelta(days=91)
+    if end < start or (end - start).days > MAX_DAYS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"Période invalide (fin après le début, {MAX_DAYS} jours au plus)")
+    names = {m["id"]: m["name"] for m in db.duty_members(sid)}
+    rows = []
+    for r in db.duty_selections(sid, start.isoformat(), end.isoformat()):
+        if type_ids and r["type_id"] not in type_ids:
+            continue
+        rows.append({"id": r["id"], "date": r["local_date"], "end_date": r["end_date"], "rdv_time": r["rdv_time"],
+                     "type": {"id": r["type_id"], "label": r["type_label"], "color": r["type_color"]},
+                     "place": r["place"], "note": r["note"],
+                     "pilot": names.get(r["pilot_user_id"]) if r["pilot_user_id"] else None,
+                     "dp": names.get(r["dp_user_id"]) if r["dp_user_id"] else None})
+    return start, end, rows
+
+
+def _turns(rows: list[dict]) -> list[tuple[str, int, int]]:
+    """[(nom, tours de pilote, tours de DP)], par nom."""
+    count: dict[str, list[int]] = {}
+    for r in rows:
+        if r["pilot"]:
+            count.setdefault(r["pilot"], [0, 0])[0] += 1
+        if r["dp"]:
+            count.setdefault(r["dp"], [0, 0])[1] += 1
+    return sorted(((n, c[0], c[1]) for n, c in count.items()), key=lambda x: x[0].lower())
+
+
+@router.get("/duty-planning")
+def saved_planning(actor: CurrentManager, structure_id: int | None = None, start: date | None = None,
+                   end: date | None = None, type_ids: list[int] | None = Query(None)):
+    """Planning enregistré, par date : pilote et DP de chaque créneau de la période, et tours par personne."""
+    sid = _scope(actor, structure_id)
+    start, end, rows = _saved(sid, start, end, type_ids)
+    return {"start": start.isoformat(), "end": end.isoformat(), "selections": rows,
+            "turns": [{"name": n, "pilot": p, "dp": d} for n, p, d in _turns(rows)]}
+
+
+@router.get("/duty-planning.pdf")
+def saved_planning_pdf(actor: CurrentManager, structure_id: int | None = None, start: date | None = None,
+                       end: date | None = None, type_ids: list[int] | None = Query(None)):
+    """Le même tableau en PDF (A4), à imprimer ou à diffuser."""
+    sid = _scope(actor, structure_id)
+    start, end, rows = _saved(sid, start, end, type_ids)
+    st = db.get_structure(sid)
+    table = [[_fr(r["date"]) + (f" au {_fr(r['end_date'])}" if r["end_date"] else ""), r["rdv_time"] or "",
+              r["type"]["label"] + (f" - {r['note']}" if r["note"] else ""), r["place"] or "",
+              r["pilot"] or "-", r["dp"] or "-"] for r in rows]
+    turns = _turns(rows)
+    footer = []
+    if turns:
+        footer.append("Tours par personne : " + " ; ".join(
+            f"{n} ({', '.join(x for x in (p and f'{p} pilote', d and f'{d} DP') if x)})" for n, p, d in turns))
+    missing = sum((r["pilot"] is None) + (r["dp"] is None) for r in rows)
+    if missing:
+        footer.append(f"{missing} rôle(s) encore sans personne.")
+    pdf = pdf_table.table_pdf(
+        f"Planning des pilotes et DP - {st['name']}",
+        f"Du {_fr(start.isoformat())} au {_fr(end.isoformat())} - {len(rows)} créneau(x). "
+        f"Édité le {_fr(_today())}.",
+        [("Date", 3.2), ("RDV", 1), ("Créneau", 2.6), ("Lieu", 2.2), ("Pilote", 2.2), ("DP", 2.2)],
+        table, footer)
+    filename = f"planning-pilotes-dp-{start.isoformat()}.pdf"
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})

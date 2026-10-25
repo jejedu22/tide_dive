@@ -141,3 +141,31 @@ def test_planning_par_l_api(club, new_client):
     assert eve.put("/api/admin/duty-planning", json={"assignments": [{"selection_id": boats[0]}]}).status_code == 404
     assert eve.put(f"/api/admin/duty-roles/{club['p1']}", json={"is_pilot": False}).status_code == 404
     assert member.get("/api/admin/duty-roles").status_code in (401, 403)
+
+
+def test_planning_enregistre_et_pdf(club, new_client):
+    alice, member = _client(new_client, "alice"), _client(new_client, "p1")
+    alice.put(f"/api/admin/duty-roles/{club['p1']}", json={"is_pilot": True})
+    alice.put(f"/api/admin/duty-roles/{club['d1']}", json={"is_dp": True})
+    sid = _slot(alice, club)
+    alice.put("/api/admin/duty-planning",
+              json={"assignments": [{"selection_id": sid, "pilot_id": club["p1"], "dp_id": club["d1"]}]})
+    data = alice.get("/api/admin/duty-planning").json()
+    row = next(s for s in data["selections"] if s["id"] == sid)
+    assert row["pilot"] and row["dp"] and row["date"] == SOON
+    assert {t["name"] for t in data["turns"]} == {row["pilot"], row["dp"]}
+    r = alice.get("/api/admin/duty-planning.pdf")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF-1.4") and r.content.rstrip().endswith(b"%%EOF")
+    assert row["pilot"].encode("cp1252") in r.content and b"Planning des pilotes et DP" in r.content
+    assert alice.get("/api/admin/duty-planning", params={"start": "2026-01-02", "end": "2026-01-01"}).status_code == 422
+    assert member.get("/api/admin/duty-planning.pdf").status_code in (401, 403)
+
+
+def test_pdf_plusieurs_pages_et_accents():
+    from app import pdf_table
+    rows = [[f"jeudi {i} décembre", "09:00", "Bateau - épave du Pélican très loin " * 3, "Port", "Zoé Ærø", "Œdipe"]
+            for i in range(80)]
+    pdf = pdf_table.table_pdf("Titre", "Sous-titre", [("A", 1), ("B", 1), ("C", 2), ("D", 1), ("E", 1), ("F", 1)], rows)
+    assert pdf.count(b"/Type /Page ") >= 3 and b"page 1 / " in pdf
+    assert "Œdipe".encode("cp1252") in pdf               # œ existe en WinAnsi

@@ -145,6 +145,8 @@ SUMMARIES = {
     ("GET", "/api/admin/helloasso/members"): "Cotisation des membres de la structure",
     ("GET", "/api/admin/theme-suggestions"): "Jeux de couleurs lisibles à proposer",
     ("GET", "/api/admin/duty-roles"): "Pilotes et directeurs de plongée de la structure",
+    ("GET", "/api/admin/duty-planning"): "Planning enregistré des pilotes et DP, par date",
+    ("GET", "/api/admin/duty-planning.pdf"): "Planning des pilotes et DP en PDF",
     ("GET", "/api/admin/water-thresholds"): "Seuils de hauteur d'eau de la structure",
     ("GET", "/api/admin/structure-invitations"): "Invitations envoyées par la structure",
     ("GET", "/api/admin/structure-dashboard"): "Tableau de bord de la structure",
