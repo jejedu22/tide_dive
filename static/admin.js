@@ -3783,7 +3783,10 @@ $("import-confirm").addEventListener("click", async () => {
 let dutyScope = null;     // structure choisie (super administrateur)
 let dutyPeople = [];      // membres pilotes / DP (planning en cours)
 let dutyPlan = null;
+let dutyMembers = [];     // membres et leurs rôles (modification manuelle du planning enregistré)
+let dutySaved = [];       // planning enregistré affiché
 const dutyForm = $("duty-form");
+const dutyViewForm = $("duty-view-form");
 const dutyQS = () => (isSuper() && dutyScope ? `?structure_id=${dutyScope}` : "");
 
 $("duty-structure").addEventListener("change", e => {
@@ -3798,12 +3801,15 @@ async function loadDuties() {
   if (!dutyForm.start.value) {
     const today = new Date();
     const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    dutyForm.start.value = iso(today);
-    dutyForm.end.value = iso(new Date(today.getTime() + 91 * 86400e3));
+    for (const f of [dutyForm, dutyViewForm]) {
+      f.start.value = iso(today);
+      f.end.value = iso(new Date(today.getTime() + 91 * 86400e3));
+    }
   }
   let members, types;
   try {
     [members, types] = await Promise.all([Session.api(`/api/admin/duty-roles${dutyQS()}`), Session.api(`/api/admin/slot-types${dutyQS()}`)]);
+    dutyMembers = members;
   } catch (e) {
     $("duty-members").innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
     return;
@@ -3812,6 +3818,7 @@ async function loadDuties() {
   $("duty-members").innerHTML = members.map(m => `<tr data-id="${m.id}"><th scope="row">${esc(m.name)}</th>
       ${box(m, "is_pilot", "Pilote")}${box(m, "is_dp", "DP")}${box(m, "can_combine", "Pilote et DP sur le même créneau")}</tr>`).join("")
     || `<tr><td colspan="4" class="empty">Aucun membre.</td></tr>`;
+  loadSavedDuties();
   $("duty-types").innerHTML = types.filter(t => t.active).map(t =>
     `<label class="check"><input type="checkbox" name="type" value="${t.id}" checked> <span class="type-dot" style="--type-color:${esc(t.color)}"></span>${esc(t.label)}</label>`).join("");
 }
@@ -3829,6 +3836,9 @@ $("duty-members").addEventListener("change", async e => {
     await Session.api(`/api/admin/duty-roles/${row.dataset.id}${dutyQS()}`,
       { method: "PUT", body: { is_pilot: get("is_pilot"), is_dp: get("is_dp"), can_combine: both && combine.checked } });
     $("duty-members-status").textContent = "Enregistré.";
+    const m = dutyMembers.find(x => x.id === Number(row.dataset.id));
+    if (m) Object.assign(m, { is_pilot: get("is_pilot"), is_dp: get("is_dp"), can_combine: both && combine.checked });
+    loadSavedDuties();     // listes du planning enregistré à jour
   } catch (err) {
     $("duty-members-status").textContent = err.message;
     loadDuties();
@@ -3908,9 +3918,65 @@ $("duty-save").addEventListener("click", async () => {
       body: { assignments: dutyPlan.selections.map(s => ({ selection_id: s.id, pilot_id: s.pilot_id, dp_id: s.dp_id })) },
     });
     $("duty-save-status").textContent = `Planning enregistré (${r.saved} créneau(x)) : il apparaît sur les créneaux.`;
+    loadSavedDuties();
   } catch (err) {
     $("duty-save-status").textContent = err.message;
   }
+});
+
+// Planning enregistré : tableau récapitulatif par date, export PDF (fait par le serveur)
+const dutyPeriodQS = () => {
+  const q = new URLSearchParams({ start: dutyViewForm.start.value, end: dutyViewForm.end.value });
+  if (isSuper() && dutyScope) q.set("structure_id", dutyScope);
+  return `?${q}`;
+};
+
+async function loadSavedDuties() {
+  if (!dutyViewForm.start.value) return;
+  $("duty-pdf").href = `/api/admin/duty-planning.pdf${dutyPeriodQS()}`;
+  let data;
+  try {
+    data = await Session.api(`/api/admin/duty-planning${dutyPeriodQS()}`);
+  } catch (e) {
+    $("duty-saved-body").innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  dutySaved = data.selections;
+  // pilote et DP modifiables à la main : listes des membres qui ont le rôle (enregistré à chaque changement)
+  const who = (s, role) => {
+    const current = role === "pilot" ? s.pilot_id : s.dp_id;
+    const eligible = dutyMembers.filter(m => (role === "pilot" ? m.is_pilot : m.is_dp) || m.id === current);
+    return `<select data-saved-slot="${s.id}" data-role="${role}" aria-label="${role === "pilot" ? "Pilote" : "DP"} du ${esc(dayLabel(s.date))}">
+      <option value="">— personne —</option>${eligible.map(m => `<option value="${m.id}"${m.id === current ? " selected" : ""}>${esc(m.name)}</option>`).join("")}</select>`;
+  };
+  $("duty-saved-body").innerHTML = data.selections.map(s => `<tr>
+      <th scope="row">${esc(dayLabel(s.date))}${s.end_date ? ` → ${esc(dayLabel(s.end_date))}` : ""}</th>
+      <td data-label="RDV">${esc(s.rdv_time || "")}</td>
+      <td data-label="Créneau"><span class="type-dot" style="--type-color:${esc(s.type.color)}"></span>${esc(s.type.label)}${s.note ? ` · ${esc(s.note)}` : ""}<span class="muted"> · ${esc(s.place || "")}</span></td>
+      <td data-label="Pilote">${who(s, "pilot")}</td><td data-label="DP">${who(s, "dp")}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="empty">Aucun créneau sur cette période.</td></tr>`;
+  $("duty-saved-turns").innerHTML = data.turns.map(t => `<span class="duty-count">${esc(t.name)} : ${
+    [t.pilot && `${t.pilot} pilote`, t.dp && `${t.dp} DP`].filter(Boolean).join(", ")}</span>`).join("");
+}
+
+dutyViewForm.addEventListener("submit", e => { e.preventDefault(); loadSavedDuties(); });
+
+// modification manuelle d'un créneau du planning enregistré
+$("duty-saved-body").addEventListener("change", async e => {
+  const sel = e.target.closest("select[data-saved-slot]");
+  if (!sel) return;
+  const s = dutySaved.find(x => x.id === Number(sel.dataset.savedSlot));
+  const next = { pilot_id: s.pilot_id, dp_id: s.dp_id, [sel.dataset.role === "pilot" ? "pilot_id" : "dp_id"]: sel.value ? Number(sel.value) : null };
+  try {
+    await Session.api(`/api/admin/duty-planning${dutyQS()}`, { method: "PUT", body: { assignments: [{ selection_id: s.id, ...next }] } });
+    $("duty-saved-status").textContent = `Créneau du ${dayLabel(s.date)} modifié.`;
+  } catch (err) {
+    $("duty-saved-status").textContent = err.message;
+  }
+  loadSavedDuties();      // tours par personne recalculés (et valeur d'origine remise en cas de refus)
+});
+for (const name of ["start", "end"]) dutyViewForm[name].addEventListener("change", () => {
+  $("duty-pdf").href = `/api/admin/duty-planning.pdf${dutyPeriodQS()}`;
 });
 
 // ---------------------------------------------------------------------------

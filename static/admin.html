@@ -808,6 +808,24 @@
             </p>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Planning enregistré</h2>
+          </div>
+          <p class="hint">Récapitulatif par date du planning enregistré, à exporter en PDF pour l'imprimer ou le diffuser. Changez le pilote ou le DP d'un créneau directement dans le tableau : c'est enregistré aussitôt.</p>
+          <form id="duty-view-form" class="duty-form">
+            <label>Du <input type="date" name="start" required></label>
+            <label>Au <input type="date" name="end" required></label>
+            <button type="submit" class="btn-secondary">Afficher</button>
+            <a id="duty-pdf" class="btn-primary" href="#" download>Exporter en PDF</a>
+          </form>
+          <div class="table-wrap"><table class="users duty-table">
+            <thead><tr><th scope="col">Date</th><th scope="col">RDV</th><th scope="col">Créneau</th><th scope="col">Pilote</th><th scope="col">DP</th></tr></thead>
+            <tbody id="duty-saved-body"></tbody>
+          </table></div>
+          <p id="duty-saved-status" class="form-status" role="status"></p>
+          <p id="duty-saved-turns" class="duty-counts"></p>
+        </div>
       </section>
 
       <section id="tab-paiements" class="tab-panel" role="tabpanel" hidden>
