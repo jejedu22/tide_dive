@@ -147,6 +147,7 @@ SUMMARIES = {
     ("GET", "/api/admin/duty-roles"): "Pilotes et directeurs de plongée de la structure",
     ("GET", "/api/site"): "Page vitrine de la structure (brouillon, publication, photos)",
     ("GET", "/api/site/images"): "Photos de la page vitrine",
+    ("GET", "/api/site/domains"): "Noms de domaine de la page vitrine",
     ("GET", "/api/admin/duty-planning"): "Planning enregistré des pilotes et DP, par date",
     ("GET", "/api/admin/duty-planning.pdf"): "Planning des pilotes et DP en PDF",
     ("GET", "/api/admin/water-thresholds"): "Seuils de hauteur d'eau de la structure",

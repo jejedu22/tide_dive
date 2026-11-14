@@ -740,6 +740,21 @@ def _m037_structure_sites(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_site_images_structure ON site_images(structure_id)")
 
 
+def _m038_site_domains(conn: sqlite3.Connection) -> None:
+    """Noms de domaine des structures pointés sur leur page vitrine (site_domains.py)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS site_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+        domain TEXT NOT NULL UNIQUE,
+        verify_token TEXT NOT NULL,
+        verified_at TEXT,
+        checked_at TEXT,
+        check_message TEXT,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_site_domains_structure ON site_domains(structure_id)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -778,6 +793,7 @@ MIGRATIONS: list[Migration] = [
     Migration(35, "inscriptions extérieures confirmées par e-mail", _m035_guest_confirmation),
     Migration(36, "pilotes et directeurs de plongée", _m036_duties),
     Migration(37, "page vitrine des structures", _m037_structure_sites),
+    Migration(38, "noms de domaine des pages vitrines", _m038_site_domains),
 ]
 
 

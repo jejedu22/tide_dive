@@ -117,6 +117,7 @@ function renderState() {
     : `Adresse une fois publiée : <code>${esc(site.public_url)}</code>`;
   $("vb-unpublish").hidden = !site.published;
   $("vb-slug-prefix").textContent = site.public_url.replace(/[^/]+$/, "");
+  if (domains) renderDomains();
 }
 
 // chemin « 2.photos.0.caption » → valeur dans le brouillon
@@ -253,6 +254,80 @@ $("vb-images").addEventListener("click", async e => {
   }
 });
 
+// ---- Noms de domaine (app/site_domains.py) ----
+
+let domains = null;   // réponse de GET /api/site/domains
+const domainStatus = text => { $("vb-domain-status").textContent = text; };
+
+function dnsRows(d) {
+  const apex = d.domain.split(".").length === 2;
+  const rows = [];
+  if (!apex && domains.main_host) rows.push(["CNAME", d.domain, domains.main_host]);
+  else domains.server_addresses.forEach(a => rows.push([a.includes(":") ? "AAAA" : "A", d.domain, a]));
+  rows.push(["TXT", d.txt_name, d.txt_value]);
+  return `<table class="vb-dns"><thead><tr><th>Type</th><th>Nom</th><th>Valeur</th></tr></thead><tbody>${rows.map(r =>
+    `<tr><td>${r[0]}</td><td><code>${esc(r[1])}</code></td><td><code>${esc(r[2])}</code></td></tr>`).join("")}</tbody></table>
+    ${apex && domains.main_host ? `<small class="hint">Domaine sans « www » : enregistrements A / AAAA (ou ALIAS / ANAME vers <code>${esc(domains.main_host)}</code> si votre registraire le permet).</small>` : ""}`;
+}
+
+function renderDomains() {
+  const full = domains.domains.length >= domains.max;
+  $("vb-domain-form").hidden = full;
+  $("vb-domains").innerHTML = domains.domains.map(d => `<li class="vb-domain">
+    <p><strong>${d.verified ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.domain)}</a>` : esc(d.domain)}</strong>
+      <span class="tag ${d.verified ? "job-succeeded" : "tag-warn"}">${d.verified ? (site.published ? "Actif" : "Vérifié · page non publiée") : "À vérifier"}</span></p>
+    ${d.verified ? "" : `<p class="hint">Enregistrements à créer chez votre registraire :</p>${dnsRows(d)}`}
+    ${d.message ? `<p class="hint">${esc(d.message)}</p>` : ""}
+    <p class="vb-domain-actions"><button type="button" class="btn-secondary btn-small" data-verify="${d.id}">Vérifier</button>
+      <button type="button" class="btn-quiet btn-small" data-remove="${d.id}">Retirer</button></p>
+  </li>`).join("") || `<li class="muted">Aucun nom de domaine déclaré.</li>`;
+}
+
+async function loadDomains() {
+  try {
+    domains = await Session.api("/api/site/domains");
+    renderDomains();
+  } catch (err) {
+    domainStatus(err.message);
+  }
+}
+
+$("vb-domain-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const value = $("vb-domain").value.trim();
+  if (!value) return;
+  try {
+    domains = await Session.api("/api/site/domains", { method: "POST", body: { domain: value } });
+    $("vb-domain").value = "";
+    renderDomains();
+    domainStatus("Domaine déclaré : créez les enregistrements DNS indiqués, puis cliquez sur « Vérifier ».");
+  } catch (err) {
+    domainStatus(err.message);
+  }
+});
+
+$("vb-domains").addEventListener("click", async e => {
+  const verify = e.target.closest("button[data-verify]");
+  const remove = e.target.closest("button[data-remove]");
+  try {
+    if (verify) {
+      verify.disabled = true;
+      domainStatus("Vérification en cours…");
+      domains = await Session.api(`/api/site/domains/${verify.dataset.verify}/verify`, { method: "POST" });
+      domainStatus("");
+    } else if (remove) {
+      if (!confirm("Retirer ce nom de domaine ? Il cessera d'afficher la page.")) return;
+      await Session.api(`/api/site/domains/${remove.dataset.remove}`, { method: "DELETE" });
+      domains.domains = domains.domains.filter(d => String(d.id) !== remove.dataset.remove);
+      domainStatus("Domaine retiré.");
+    } else return;
+    renderDomains();
+  } catch (err) {
+    if (verify) verify.disabled = false;
+    domainStatus(err.message);
+  }
+});
+
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 
 // ---- Démarrage ----
@@ -281,6 +356,7 @@ async function onSessionChange(user) {
   $("vb-add-type").innerHTML = Object.entries(TYPES).map(([k, t]) => `<option value="${k}">${t.label}</option>`).join("");
   $("editor").hidden = false;
   render();
+  loadDomains();
   if (!site.saved) status("Première version proposée : complétez-la, puis enregistrez.");
 }
 
