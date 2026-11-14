@@ -2286,3 +2286,12 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .vb-settings > * { min-width: 0; }
 .vb-settings input, .vb-settings textarea, .vb-settings select { min-width: 0; max-width: 100%; }
 @media (max-width: 640px) { .vb-settings { grid-template-columns: minmax(0, 1fr); } }
+.vb-common { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; padding-top: 0.6rem; border-top: 1px dashed var(--line); }
+.vb-common .vb-field { flex: 1 1 14rem; }
+.vb-link { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; flex: 1 1 16rem; min-width: 0; }
+.vb-link select, .vb-link input { flex: 1 1 12rem; min-width: 0; }
+.vb-list.vb-cards > li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.35rem; padding: 0.6rem; border: 1px solid var(--line); border-radius: 8px; }
+.vb-list.vb-cards > li > button { justify-self: start; }
+.vb-fold { all: unset; cursor: pointer; display: inline-flex; gap: 0.4rem; align-items: center; }
+.vb-fold:focus-visible { outline: 2px solid var(--accent, #118ab2); outline-offset: 2px; border-radius: 4px; }
+.vb-folded .vb-block-head { border-radius: 10px; }

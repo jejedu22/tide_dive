@@ -5,10 +5,22 @@
 body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--v-text); background: var(--v-bg); line-height: 1.55; }
 a { color: var(--v-primary); }
 .v-preview { margin: 0; padding: 0.5rem 1rem; text-align: center; background: #ffd166; color: #3a2c00; font-weight: 600; }
-.v-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.25rem; background: var(--v-primary); color: #fff; }
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+.v-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.25rem; background: var(--v-primary); color: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15); }
+.v-brand { display: flex; align-items: center; gap: 0.7rem; color: #fff; text-decoration: none; min-width: 0; }
+.v-nav { display: flex; flex-wrap: wrap; gap: 0.2rem 1.1rem; margin-left: auto; }
+.v-nav a, .v-burger nav a { color: #fff; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+.v-nav a:hover, .v-nav a:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+.v-burger { display: none; margin-left: auto; position: relative; }
+.v-burger summary { cursor: pointer; list-style: none; padding: 0.35rem 0.7rem; border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 8px; font-weight: 600; }
+.v-burger summary::-webkit-details-marker { display: none; }
+.v-burger nav { position: absolute; right: 0; top: calc(100% + 0.5rem); display: flex; flex-direction: column; min-width: 12rem; padding: 0.4rem; border-radius: 10px; background: var(--v-primary); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
+.v-burger nav a { padding: 0.55rem 0.7rem; border-radius: 6px; }
+.v-burger nav a:hover { background: rgba(255, 255, 255, 0.12); }
 .v-logo { height: 48px; width: auto; max-width: 120px; border-radius: 10px; background: #fff; padding: 3px; object-fit: contain; }
 .v-name { font-weight: 700; font-size: 1.15rem; }
-.v-login { margin-left: auto; color: #fff; font-size: 0.9rem; opacity: 0.9; }
+.v-login { margin-left: auto; color: #fff; font-size: 0.9rem; opacity: 0.9; white-space: nowrap; }
+.v-has-menu .v-login { margin-left: 1rem; }
 main { max-width: 960px; margin: 0 auto; padding: 0 1rem 2rem; }
 .v-hero { margin: 1.25rem 0; padding: 3rem 1.5rem; border-radius: 16px; background: var(--v-primary); color: #fff; text-align: center; background-size: cover; background-position: center; }
 .v-hero-image { position: relative; overflow: hidden; }
@@ -39,7 +51,58 @@ main { max-width: 960px; margin: 0 auto; padding: 0 1rem 2rem; }
 .v-contact li { padding: 0.25rem 0; }
 .v-join { text-align: center; }
 .v-footer { padding: 1.5rem 1rem; text-align: center; color: var(--v-muted); font-size: 0.85rem; }
+/* fonds des sections */
+.v-style-plain { background: transparent; box-shadow: none; padding-left: 0.25rem; padding-right: 0.25rem; }
+.v-style-tinted { background: color-mix(in srgb, var(--v-primary) 8%, #fff); box-shadow: none; }
+.v-style-primary { background: var(--v-primary); color: #fff; }
+.v-style-primary h2, .v-style-primary h3, .v-style-primary a:not(.v-button) { color: #fff; }
+.v-style-primary .v-muted, .v-style-primary .v-detail, .v-style-primary .v-time { color: rgba(255, 255, 255, 0.82); }
+/* bloc personnalisé */
+.v-custom { display: grid; gap: 1.2rem 1.8rem; align-items: center; }
+.v-custom.v-image-left, .v-custom.v-image-right { grid-template-columns: 1fr 1fr; }
+.v-custom-image img { width: 100%; border-radius: 12px; display: block; object-fit: cover; max-height: 420px; }
+.v-custom-text > :first-child { margin-top: 0; }
+.v-custom-text > :last-child { margin-bottom: 0; }
+.v-center { text-align: center; }
+.v-center .v-text ul { display: inline-block; text-align: left; }
+.v-buttons { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.v-center .v-buttons { justify-content: center; }
+.v-buttons .v-button + .v-button { background: transparent; color: inherit; border: 2px solid currentColor; padding: calc(0.7rem - 2px) calc(1.3rem - 2px); }
+.v-bgimage { position: relative; overflow: hidden; color: #fff; background-size: cover; background-position: center; padding: 3rem 2rem; }
+.v-bgimage::before { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+.v-bgimage .v-custom-text { position: relative; }
+.v-bgimage h2, .v-bgimage h3, .v-bgimage a:not(.v-button) { color: #fff; }
+/* cartes */
+.v-cards { display: grid; gap: 1rem; grid-template-columns: repeat(var(--v-cols, 3), minmax(0, 1fr)); }
+.v-cols-2 { --v-cols: 2; } .v-cols-3 { --v-cols: 3; } .v-cols-4 { --v-cols: 4; }
+.v-card { display: flex; flex-direction: column; border: 1px solid var(--v-line); border-radius: 12px; overflow: hidden; background: #fff; color: var(--v-text); }
+.v-card img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; }
+.v-card-body { padding: 0.9rem 1rem 1rem; }
+.v-card h3 { margin: 0 0 0.4rem; color: var(--v-primary); font-size: 1.1rem; }
+.v-card p { margin: 0.4rem 0; }
+.v-card-link { font-weight: 700; color: var(--v-primary); }
+.v-style-primary .v-card h3, .v-style-primary .v-card a { color: var(--v-primary); }
+/* questions fréquentes */
+.v-faq details { border-bottom: 1px solid var(--v-line); padding: 0.2rem 0; }
+.v-faq summary { cursor: pointer; padding: 0.6rem 0; font-weight: 600; }
+.v-faq .v-text { padding: 0 0 0.6rem 1rem; }
+.v-faq .v-text > :first-child { margin-top: 0; }
+/* chiffres clés */
+.v-stats { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); text-align: center; }
+.v-stats strong { display: block; font-size: 2.1rem; line-height: 1.1; color: var(--v-primary); }
+.v-stats span { color: var(--v-muted); }
+.v-style-primary .v-stats strong, .v-style-primary .v-stats span { color: #fff; }
+@media (max-width: 860px) {
+  .v-cols-3, .v-cols-4 { --v-cols: 2; }
+  .v-nav { display: none; }
+  .v-burger { display: block; }
+  .v-has-menu .v-login { display: none; }
+}
 @media (max-width: 560px) {
+  .v-custom.v-image-left, .v-custom.v-image-right { grid-template-columns: 1fr; }
+  .v-custom.v-image-right .v-custom-image { order: -1; }
+  .v-cards { --v-cols: 1 !important; }
+  .v-bgimage { padding: 2rem 1.1rem; }
   .v-hero { padding: 2rem 1rem; }
   .v-section { padding: 1.1rem; }
   .v-logo { height: 38px; }

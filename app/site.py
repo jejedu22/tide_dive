@@ -7,7 +7,9 @@ l'adresse /club/<adresse>.
   (/club/<adresse>?apercu=1).
 - Blocs (validés ici, jamais de HTML saisi) : bandeau d'accueil, texte (mise en forme simple, comme les newsletters :
   **gras**, *italique*, [lien](https://…), listes « - », titres « ## »), galerie, prochaines plongées (créneaux de la
-  structure, mis à jour tout seuls), activités et tarifs, nous rejoindre (lien d'adhésion), contact et accès.
+  structure, mis à jour tout seuls), activités et tarifs, nous rejoindre (lien d'adhésion), contact et accès, bloc
+  personnalisé (texte, photo placée au choix, boutons), cartes en colonnes, questions fréquentes, chiffres clés.
+- Menu : chaque bloc peut y figurer (libellé facultatif) ; ancres calculées par anchors(). Fond au choix par bloc.
 - Couleurs et logo : ceux de la structure (Ma structure). Photos : PNG, JPEG ou WebP, 1 Mo et 12 photos au plus,
   servies par une clé aléatoire (/api/sites/images/<clé>).
 
@@ -22,6 +24,7 @@ import json
 import re
 import secrets
 import sqlite3
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal, Union
 
@@ -62,9 +65,60 @@ def _text(v: str | None) -> str | None:
     return v or None
 
 
+ANCHOR_RE = re.compile(r"^#[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$")
+EMAIL_RE = re.compile(r"^[^@\s\"'<>]+@[^@\s\"'<>]+\.[a-z]{2,}$", re.IGNORECASE)
+
+
+def clean_link(v: str | None) -> str | None:
+    """Cible d'un bouton : « join » (lien d'adhésion), « guest » (inscription des personnes extérieures), « #ancre »
+    (une section de la page), une adresse https, « mailto:… » ou « tel:… »."""
+    v = _text(v)
+    if v is None or v in ("join", "guest") or ANCHOR_RE.match(v):
+        return v
+    low = v.lower()
+    if low.startswith("mailto:"):
+        if EMAIL_RE.match(v[7:]):
+            return "mailto:" + v[7:]
+        raise ValueError("adresse e-mail invalide")
+    if low.startswith("tel:"):
+        if re.fullmatch(r"\+?[0-9 .()-]{4,25}", v[4:]):
+            return "tel:" + re.sub(r"[^0-9+]", "", v[4:])
+        raise ValueError("numéro de téléphone invalide")
+    if EMAIL_RE.match(v):
+        return "mailto:" + v
+    if low.startswith("http://"):
+        v = "https://" + v[7:]
+    elif "://" not in v:
+        v = "https://" + v
+    if len(v) > 300 or not URL_RE.match(v):
+        raise ValueError("lien invalide : adresse https, e-mail, téléphone ou section de la page")
+    return v
+
+
 class _Block(BaseModel):
     model_config = ConfigDict(extra="forbid")
     hidden: bool = False
+    menu: str | None = Field(None, max_length=30)          # libellé dans le menu de la page (facultatif)
+    style: Literal["card", "plain", "tinted", "primary"] = "card"   # fond de la section
+
+    @field_validator("menu")
+    @classmethod
+    def _menu(cls, v: str | None) -> str | None:
+        return _text(v)
+
+
+class Button(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=40)
+    link: str = Field(max_length=300)
+
+    @field_validator("link")
+    @classmethod
+    def _link(cls, v: str) -> str:
+        v = clean_link(v)
+        if v is None:
+            raise ValueError("lien manquant")
+        return v
 
 
 class Hero(_Block):
@@ -151,7 +205,66 @@ class Contact(_Block):
     links: Links = Field(default_factory=Links)
 
 
-Block = Annotated[Union[Hero, Text, Gallery, Dives, Pricing, Join, Contact], Field(discriminator="type")]
+class Custom(_Block):
+    """Bloc personnalisé : titre, texte, photo (à gauche, à droite, au-dessus ou en fond) et jusqu'à deux boutons."""
+    type: Literal["custom"]
+    title: str | None = Field(None, max_length=80)
+    body: str | None = Field(None, max_length=5000)
+    image: str | None = Field(None, max_length=40)
+    image_position: Literal["left", "right", "top", "background"] = "right"
+    align: Literal["left", "center"] = "left"
+    buttons: list[Button] = Field(default_factory=list, max_length=2)
+
+
+class Card(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=80)
+    text: str | None = Field(None, max_length=800)
+    image: str | None = Field(None, max_length=40)
+    link_label: str | None = Field(None, max_length=40)
+    link: str | None = Field(None, max_length=300)
+
+    @field_validator("link")
+    @classmethod
+    def _link(cls, v: str | None) -> str | None:
+        return clean_link(v)
+
+
+class Cards(_Block):
+    """Cartes en colonnes : formations, activités, équipe, bateau…"""
+    type: Literal["cards"]
+    title: str | None = Field(None, max_length=80)
+    intro: str | None = Field(None, max_length=1000)
+    columns: int = Field(3, ge=2, le=4)
+    items: list[Card] = Field(min_length=1, max_length=12)
+
+
+class Question(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=200)
+    answer: str = Field(min_length=1, max_length=2000)
+
+
+class Faq(_Block):
+    type: Literal["faq"]
+    title: str | None = Field(None, max_length=80)
+    items: list[Question] = Field(min_length=1, max_length=30)
+
+
+class Figure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(min_length=1, max_length=20)
+    label: str = Field(min_length=1, max_length=60)
+
+
+class Stats(_Block):
+    type: Literal["stats"]
+    title: str | None = Field(None, max_length=80)
+    items: list[Figure] = Field(min_length=1, max_length=6)
+
+
+Block = Annotated[Union[Hero, Text, Gallery, Dives, Pricing, Join, Contact, Custom, Cards, Faq, Stats],
+                  Field(discriminator="type")]
 
 
 class SiteIn(BaseModel):
@@ -173,11 +286,34 @@ class SiteIn(BaseModel):
 def _images_in(blocks: list) -> set[str]:
     keys = set()
     for b in blocks:
-        if b.get("type") == "hero" and b.get("image"):
+        if b.get("type") in ("hero", "custom") and b.get("image"):
             keys.add(b["image"])
         if b.get("type") == "gallery":
             keys.update(p["image"] for p in b.get("photos", []))
+        if b.get("type") == "cards":
+            keys.update(c["image"] for c in b.get("items", []) if c.get("image"))
     return keys
+
+
+def anchors(blocks: list) -> list[str | None]:
+    """Ancre (id HTML) de chaque bloc : « plongees », « contact », sinon d'après son libellé de menu ; dédoublonnées
+    (même calcul dans l'éditeur, vitrine.js, pour proposer les sections comme cibles de boutons)."""
+    used: set[str] = set()
+    out: list[str | None] = []
+    for b in blocks:
+        base = {"dives": "plongees", "contact": "contact"}.get(b.get("type"))
+        if base is None and b.get("menu"):
+            text = unicodedata.normalize("NFKD", b["menu"]).encode("ascii", "ignore").decode().lower()
+            base = re.sub(r"[^a-z0-9]+", "-", text).strip("-")[:50].strip("-") or "section"
+        if base is None:
+            out.append(None)
+            continue
+        anchor, n = base, 2
+        while anchor in used:
+            anchor, n = f"{base}-{n}", n + 1
+        used.add(anchor)
+        out.append(anchor)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +540,37 @@ def _dives(st: sqlite3.Row, block: dict, base: str) -> str:
     return f'<ul class="v-dives">{"".join(items)}</ul>{link}'
 
 
-def _block_html(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
+def _target(link: str | None, info: dict) -> str | None:
+    if link == "join":
+        return info["join_url"]
+    if link == "guest":
+        return info["guest_url"]
+    return link
+
+
+def _button(label: str | None, link: str | None, info: dict, cls: str = "v-button") -> str:
+    target = _target(link, info)
+    if not target or not label:
+        return ""
+    external = ' rel="noopener"' if target.startswith("https://") else ""
+    return f'<a class="{cls}" href="{_e(target)}"{external}>{_e(label)}</a>'
+
+
+def _img(key: str, alt: str = "", cls: str = "") -> str:
+    return f'<img{f" class={cls}" if cls else ""} src="/api/sites/images/{_e(key)}" alt="{_e(alt)}" loading="lazy">'
+
+
+def _block_html(st: sqlite3.Row, b: dict, base: str, info: dict, anchor: str | None = None) -> str:
+    """Section d'un bloc, avec son ancre (menu, boutons) et son fond."""
+    inner = _block_inner(st, b, base, info)
+    if not inner:
+        return ""
+    if b["type"] != "hero":
+        inner = inner.replace('class="v-section', f'class="v-section v-style-{b.get("style") or "card"}', 1)
+    return inner.replace("<section", f'<section id="{_e(anchor)}"', 1) if anchor else inner
+
+
+def _block_inner(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
     title = f'<h2>{_e(b["title"])}</h2>' if b.get("title") else ""
     kind = b["type"]
     if kind == "hero":
@@ -423,7 +589,7 @@ def _block_html(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
                          for p in b["photos"])
         return f'<section class="v-section">{title}<div class="v-gallery">{photos}</div></section>'
     if kind == "dives":
-        return f'<section class="v-section" id="plongees">{title}{_dives(st, b, base)}</section>'
+        return f'<section class="v-section">{title}{_dives(st, b, base)}</section>'
     if kind == "pricing":
         items = "".join(f'<li><span class="v-label">{_e(i["label"])}</span>'
                         f'{f"<span class=v-price>{_e(i.get("price"))}</span>" if i.get("price") else ""}'
@@ -456,8 +622,40 @@ def _block_html(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
                         f'#map=14/{p["latitude"]:.5f}/{p["longitude"]:.5f}" rel="noopener">Voir le port d\'attache '
                         f'({_e(p["name"])}) sur la carte</a></p>')
         text = f'<p>{_e(b.get("text"))}</p>' if b.get("text") else ""
-        return (f'<section class="v-section" id="contact">{title}{text}<ul class="v-contact">{"".join(lines)}</ul>'
+        return (f'<section class="v-section">{title}{text}<ul class="v-contact">{"".join(lines)}</ul>'
                 f'{f"<p class=v-social>{social_html}</p>" if social_html else ""}{map_link}</section>')
+    if kind == "custom":
+        buttons = "".join(_button(x["label"], x["link"], info) for x in b.get("buttons") or [])
+        text = (f'{title}{rich_text(b["body"]) if b.get("body") else ""}'
+                f'{f"<p class=v-buttons>{buttons}</p>" if buttons else ""}')
+        pos, image = b.get("image_position") or "right", b.get("image")
+        align = " v-center" if b.get("align") == "center" else ""
+        if image and pos == "background":
+            return (f'<section class="v-section v-custom v-bgimage{align}" style="background-image:url(\'/api/sites/images/{_e(image)}\')">'
+                    f'<div class="v-custom-text v-text">{text}</div></section>')
+        if not text and not image:
+            return ""
+        figure = f'<div class="v-custom-image">{_img(image)}</div>' if image else ""
+        layout = f" v-image-{pos}" if image else ""
+        return (f'<section class="v-section v-custom{layout}{align}">{figure if pos != "right" else ""}'
+                f'<div class="v-custom-text v-text">{text}</div>{figure if pos == "right" else ""}</section>')
+    if kind == "cards":
+        cards = []
+        for c in b["items"]:
+            link = _button(c.get("link_label") or "En savoir plus", c.get("link"), info, "v-card-link") if c.get("link") else ""
+            cards.append(f'<article class="v-card">{_img(c["image"], c["title"]) if c.get("image") else ""}'
+                         f'<div class="v-card-body"><h3>{_e(c["title"])}</h3>'
+                         f'{rich_text(c["text"]) if c.get("text") else ""}{f"<p>{link}</p>" if link else ""}</div></article>')
+        intro = f'<div class="v-text">{rich_text(b["intro"])}</div>' if b.get("intro") else ""
+        return (f'<section class="v-section">{title}{intro}<div class="v-cards v-cols-{int(b.get("columns") or 3)}">'
+                f'{"".join(cards)}</div></section>')
+    if kind == "faq":
+        items = "".join(f'<details><summary>{_e(q["question"])}</summary><div class="v-text">{rich_text(q["answer"])}</div></details>'
+                        for q in b["items"])
+        return f'<section class="v-section">{title}<div class="v-faq">{items}</div></section>'
+    if kind == "stats":
+        items = "".join(f'<li><strong>{_e(x["value"])}</strong><span>{_e(x["label"])}</span></li>' for x in b["items"])
+        return f'<section class="v-section">{title}<ul class="v-stats">{items}</ul></section>'
     return ""
 
 
@@ -467,11 +665,19 @@ def render(st: sqlite3.Row, data: dict, base: str, *, preview: bool = False) -> 
     info = {
         "join_url": f"{base}/rejoindre.html#{st['join_token']}" if st["join_token"] else None,
         "port": db.get_port(st["default_port_id"]) if st["default_port_id"] else None,
+        "guest_url": f"{base}/sortie.html#{st['guest_token']}" if st["guest_token"] else None,
     }
     logo = card(st)["logo_url"]
     title = data.get("title") or st["name"]
     description = data.get("description") or f"{st['name']} : club de plongée sous-marine."
-    body = "".join(_block_html(st, b, base, info) for b in data["blocks"] if not b.get("hidden"))
+    ids = anchors(data["blocks"])
+    visible = [(b, a) for b, a in zip(data["blocks"], ids) if not b.get("hidden")]
+    body = "".join(_block_html(st, b, base, info, a) for b, a in visible)
+    menu = "".join(f'<a href="#{_e(a)}">{_e(b["menu"])}</a>' for b, a in visible if b.get("menu") and a
+                   and (b["type"] != "join" or info["join_url"]))
+    nav = (f'<nav class="v-nav" aria-label="Menu">{menu}</nav>'
+           f'<details class="v-burger"><summary aria-label="Menu">☰ Menu</summary><nav aria-label="Menu">{menu}'
+           f'<a href="{_e(base)}/">Espace membres</a></nav></details>') if menu else ""
     banner = ('<p class="v-preview">Aperçu du brouillon : cette version n\'est pas encore publiée.</p>' if preview else "")
     return f'''<!DOCTYPE html>
 <html lang="fr">
@@ -486,14 +692,16 @@ def render(st: sqlite3.Row, data: dict, base: str, *, preview: bool = False) -> 
 <meta property="og:type" content="website">
 <meta name="theme-color" content="{_e(colors["primary"])}">
 <link rel="stylesheet" href="/vitrine-public.css">
+<script src="/vitrine-public.js" defer></script>
 <link rel="icon" href="{_e(logo) if logo else '/favicon.svg'}">
 <style>:root{{--v-primary:{_e(colors["primary"])};--v-accent:{_e(colors["accent"])}}}</style>
 </head>
-<body>
+<body id="top">
 {banner}
-<header class="v-header">
-  {f'<img class="v-logo" src="{_e(logo)}" alt="Logo de {_e(st["name"])}">' if logo else ''}
-  <span class="v-name">{_e(st["name"])}</span>
+<header class="v-header{' v-has-menu' if menu else ''}">
+  <a class="v-brand" href="#top">{f'<img class="v-logo" src="{_e(logo)}" alt="Logo de {_e(st["name"])}">' if logo else ''}
+  <span class="v-name">{_e(st["name"])}</span></a>
+  {nav}
   <a class="v-login" href="{_e(base)}/">Espace membres</a>
 </header>
 <main>

@@ -46,7 +46,7 @@ LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
 DOMAIN_RE = re.compile(rf"^{LABEL}(?:\.{LABEL})+$")
 CACHE_SECONDS = 30
 # sur un domaine de structure, seules ces adresses sont servies (le reste part vers Calendive)
-PASSTHROUGH = re.compile(r"^/(?:vitrine-public\.css|favicon\.svg|api/sites/images/[\w-]+|api/structures/\d+/logo)$")
+PASSTHROUGH = re.compile(r"^/(?:vitrine-public\.(?:css|js)|favicon\.svg|api/sites/images/[\w-]+|api/structures/\d+/logo)$")
 
 
 def _now() -> str:
