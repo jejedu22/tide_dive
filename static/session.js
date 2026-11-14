@@ -1212,6 +1212,7 @@ const Session = (() => {
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     map: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
     lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>',
   };
   const icon = (name, size = 18) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -1657,6 +1658,7 @@ const Session = (() => {
     picks: { href: "mes-creneaux.html", label: "Créneaux choisis", icon: "calendar", show: u => u.can.view_selections },
     admin: { href: "admin.html", label: "Administration", icon: "gear", show: u => u.can.admin_area },
     newsletters: { href: "newsletters.html", label: "Newsletters", icon: "mail", show: u => u.can.newsletters },
+    site: { href: "vitrine.html", label: "Vitrine", icon: "globe", show: u => u.can.edit_site },
     divers: { href: "plongeurs.html", label: "Plongeurs", icon: "user", show: u => u.can.view_divers },
     map: { href: "carte.html", label: "Carte", icon: "map", public: true, show: u => u.structure?.features?.map !== false },
     help: { href: "aide.html", label: "Aide", icon: "help", public: true },

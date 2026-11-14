@@ -374,7 +374,7 @@ const today = new Date();
 $("start").value = toISO(today);
 $("end").value = toISO(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 13));
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.site, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
 // Note de source du pied de page : selon les réglages de la structure du compte
 function tideSourceNote(user) {
   const ts = Session.tideSources(user);

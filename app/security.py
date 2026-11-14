@@ -37,7 +37,7 @@ ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS",
 # des newsletters, import de comptes, logo).
 MAX_BODY = int(os.environ.get("MAX_BODY_BYTES", str(1024 * 1024)))
 MAX_UPLOAD_BODY = 16 * 1024 * 1024
-_UPLOAD_PATHS = ("/attachments", "/import", "/logo")
+_UPLOAD_PATHS = ("/attachments", "/import", "/logo", "/site/images")
 
 
 def body_limit(path: str) -> int:

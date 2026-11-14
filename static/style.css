@@ -2246,3 +2246,30 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .duty-count { font-size: 0.82rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); }
 .duty-count.zero { border-color: var(--coral); color: var(--coral); }
 .slot-duty { display: block; font-size: 0.82rem; color: var(--muted); }
+
+/* Page vitrine : éditeur (vitrine.html) */
+.vb-main { max-width: 960px; }
+.vb-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem 1rem; }
+.vb-settings label { display: flex; flex-direction: column; gap: 0.3rem; font-weight: 600; }
+.vb-settings .span-all { grid-column: 1 / -1; }
+.vb-slug { display: flex; align-items: center; gap: 0.3rem; font-weight: 400; }
+.vb-slug input { flex: 1; min-width: 8rem; }
+.vb-add { display: inline-flex; gap: 0.4rem; align-items: center; }
+.vb-blocks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.8rem; }
+.vb-block { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.vb-block.vb-hidden { opacity: 0.6; }
+.vb-block-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; padding: 0.55rem 0.8rem; background: var(--surface-2); border-radius: 10px 10px 0 0; }
+.vb-block-head .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22rem; }
+.vb-tools { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
+.vb-block-body { padding: 0.7rem 0.8rem; display: grid; gap: 0.6rem; }
+.vb-field { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; font-size: 0.9rem; }
+.vb-field input, .vb-field textarea, .vb-field select, .vb-list input { font: inherit; font-weight: 400; }
+.vb-list { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.4rem; }
+.vb-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.vb-price input:first-child { min-width: 10rem; }
+.vb-thumb { width: 64px; height: 48px; object-fit: cover; border-radius: 6px; vertical-align: middle; }
+.vb-images { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
+.vb-images li { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; }
+.vb-images img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; }
+@media (max-width: 640px) { .vb-settings { grid-template-columns: 1fr; } }
+.vb-main input:not([type=checkbox]):not([type=file]), .vb-main textarea, .vb-main select { padding: 0.45rem 0.55rem; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--input-bg); color: var(--text); }

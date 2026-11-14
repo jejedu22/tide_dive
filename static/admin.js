@@ -4459,6 +4459,6 @@ async function onSessionChange(user) {
   showTab(location.hash.slice(1));
 }
 
-Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
+Session.mountAccount(document.getElementById("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.site, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
 Session.onChange(onSessionChange);
 Session.init();

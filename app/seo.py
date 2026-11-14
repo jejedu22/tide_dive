@@ -159,6 +159,9 @@ def sitemap(request: Request):
     urls = [f"  <url><loc>{xml_escape(base + path)}</loc></url>" for path in SITEMAP_PAGES]
     urls += [f"  <url><loc>{xml_escape(f'{base}/marees/{slug}')}</loc><lastmod>{today}</lastmod>"
              f"<changefreq>daily</changefreq></url>" for slug in port_slugs()]
+    # pages vitrines publiées des structures (site.py)
+    urls += [f"  <url><loc>{xml_escape(f'{base}/club/{row["slug"]}')}</loc><lastmod>{(row["published_at"] or today)[:10]}"
+             f"</lastmod></url>" for row in db.published_sites()]
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
            + "\n".join(urls) + "\n</urlset>\n")
     return Response(xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
