@@ -30,7 +30,7 @@ from typing import Annotated, Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from . import accounts, db, theme
 from .auth import CurrentUser, optional_user
@@ -111,6 +111,8 @@ class Button(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = Field(min_length=1, max_length=40)
     link: str = Field(max_length=300)
+    style: Literal["solid", "outline"] | None = None    # None : plein pour le 1er bouton, contour pour le 2e
+    new_tab: bool = False                               # ouvrir dans un nouvel onglet
 
     @field_validator("link")
     @classmethod
@@ -126,8 +128,27 @@ class Hero(_Block):
     title: str = Field(min_length=1, max_length=80)
     subtitle: str | None = Field(None, max_length=200)
     image: str | None = Field(None, max_length=40)
-    button: Literal["none", "join", "dives", "contact"] = "none"
-    button_label: str | None = Field(None, max_length=40)
+    buttons: list[Button] = Field(default_factory=list, max_length=2)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data):
+        return upgrade_block(data) if isinstance(data, dict) else data
+
+
+_LEGACY_HERO_LINKS = {"join": "join", "dives": "#plongees", "contact": "#contact"}
+
+
+def upgrade_block(b: dict) -> dict:
+    """Bandeau enregistré avant les boutons personnalisables (button / button_label) → liste de boutons."""
+    if b.get("type") != "hero" or ("button" not in b and "button_label" not in b):
+        return b
+    b = dict(b)
+    kind, label = b.pop("button", "none"), b.pop("button_label", None)
+    if "buttons" not in b:
+        link = _LEGACY_HERO_LINKS.get(kind)
+        b["buttons"] = [{"label": label or "En savoir plus", "link": link}] if link else []
+    return b
 
 
 class Text(_Block):
@@ -154,6 +175,7 @@ class Dives(_Block):
     days: int = Field(60, ge=7, le=180)
     max_items: int = Field(8, ge=1, le=30)
     guest_link: bool = True
+    button_label: str | None = Field(None, max_length=40)   # défaut : « S'inscrire à une plongée »
 
 
 class Price(BaseModel):
@@ -173,6 +195,7 @@ class Join(_Block):
     type: Literal["join"]
     title: str | None = Field(None, max_length=80)
     text: str | None = Field(None, max_length=500)
+    button_label: str | None = Field(None, max_length=40)   # défaut : « Demander à rejoindre le club »
 
 
 class Links(BaseModel):
@@ -223,6 +246,7 @@ class Card(BaseModel):
     image: str | None = Field(None, max_length=40)
     link_label: str | None = Field(None, max_length=40)
     link: str | None = Field(None, max_length=300)
+    new_tab: bool = False
 
     @field_validator("link")
     @classmethod
@@ -263,7 +287,36 @@ class Stats(_Block):
     items: list[Figure] = Field(min_length=1, max_length=6)
 
 
-Block = Annotated[Union[Hero, Text, Gallery, Dives, Pricing, Join, Contact, Custom, Cards, Faq, Stats],
+YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_YOUTUBE_URL = re.compile(r"^(?:https?://)?(?:www\.|m\.)?(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/|v/)|"
+                          r"youtu\.be/)([A-Za-z0-9_-]{11})(?:[?&#/].*)?$", re.IGNORECASE)
+
+
+def youtube_id(raw: str) -> str:
+    """Identifiant d'une vidéo YouTube d'après son adresse (watch, youtu.be, shorts, live, embed) ou l'identifiant seul."""
+    v = (raw or "").strip()
+    if YOUTUBE_ID.match(v):
+        return v
+    m = _YOUTUBE_URL.match(v)
+    if not m:
+        raise ValueError("adresse de vidéo YouTube non reconnue (ex. https://www.youtube.com/watch?v=…)")
+    return m.group(1)
+
+
+class Video(_Block):
+    """Vidéo YouTube : affichée d'abord comme une vignette ; le lecteur (youtube-nocookie.com) ne se charge qu'au clic."""
+    type: Literal["video"]
+    title: str | None = Field(None, max_length=80)
+    video: str = Field(max_length=300)
+    caption: str | None = Field(None, max_length=300)
+
+    @field_validator("video")
+    @classmethod
+    def _video(cls, v: str) -> str:
+        return youtube_id(v)
+
+
+Block = Annotated[Union[Hero, Text, Gallery, Dives, Pricing, Join, Contact, Custom, Cards, Faq, Stats, Video],
                   Field(discriminator="type")]
 
 
@@ -338,8 +391,9 @@ def _default_site(st: sqlite3.Row) -> dict:
     return {
         "slug": slugify(st["name"])[:50].strip("-") or f"club-{st['id']}", "title": None, "description": None,
         "blocks": [
-            {"type": "hero", "title": st["name"], "subtitle": "Plongée sous-marine", "image": None, "button": "dives",
-             "button_label": "Prochaines plongées", "hidden": False},
+            {"type": "hero", "title": st["name"], "subtitle": "Plongée sous-marine", "image": None,
+             "buttons": [{"label": "Prochaines plongées", "link": "#plongees", "style": None, "new_tab": False}],
+             "hidden": False},
             {"type": "text", "title": "Le club", "body": "Présentez votre club : son histoire, ses valeurs, son bateau, "
              "ses sites de plongée…", "hidden": False},
             {"type": "dives", "title": "Prochaines plongées", "days": 60, "max_items": 8, "guest_link": True,
@@ -354,6 +408,7 @@ def _site_out(sid: int, request: Request) -> dict:
     st = db.get_structure(sid)
     row = db.get_site(sid)
     draft = json.loads(row["draft_json"]) if row else _default_site(st)
+    draft["blocks"] = [upgrade_block(b) for b in draft["blocks"]]
     slug = row["slug"] if row else draft["slug"]
     base = _base(request)
     return {
@@ -536,7 +591,8 @@ def _dives(st: sqlite3.Row, block: dict, base: str) -> str:
                      f'<span class="v-detail">{detail}</span>{places}</li>')
     link = ""
     if block["guest_link"] and st["guest_token"]:
-        link = f'<p><a class="v-button" href="{_e(base)}/sortie.html#{_e(st["guest_token"])}">S\'inscrire à une plongée</a></p>'
+        label = block.get("button_label") or "S'inscrire à une plongée"
+        link = f'<p><a class="v-button" href="{_e(base)}/sortie.html#{_e(st["guest_token"])}">{_e(label)}</a></p>'
     return f'<ul class="v-dives">{"".join(items)}</ul>{link}'
 
 
@@ -548,12 +604,25 @@ def _target(link: str | None, info: dict) -> str | None:
     return link
 
 
-def _button(label: str | None, link: str | None, info: dict, cls: str = "v-button") -> str:
+def _button(label: str | None, link: str | None, info: dict, cls: str = "v-button", new_tab: bool = False) -> str:
     target = _target(link, info)
     if not target or not label:
         return ""
-    external = ' rel="noopener"' if target.startswith("https://") else ""
-    return f'<a class="{cls}" href="{_e(target)}"{external}>{_e(label)}</a>'
+    attrs = ' rel="noopener"' if target.startswith("https://") else ""
+    if new_tab and not target.startswith("#"):
+        attrs = ' target="_blank" rel="noopener"'
+    return f'<a class="{cls}" href="{_e(target)}"{attrs}>{_e(label)}</a>'
+
+
+def _buttons(buttons: list | None, info: dict) -> str:
+    """Boutons d'un bloc : plein / contour (par défaut le premier plein, les suivants en contour)."""
+    out = []
+    for i, x in enumerate(buttons or []):
+        outline = x.get("style") == "outline" or (x.get("style") is None and i > 0)
+        out.append(_button(x["label"], x["link"], info, "v-button v-button-outline" if outline else "v-button",
+                           bool(x.get("new_tab"))))
+    joined = "".join(out)
+    return f'<p class="v-buttons">{joined}</p>' if joined else ""
 
 
 def _img(key: str, alt: str = "", cls: str = "") -> str:
@@ -575,9 +644,7 @@ def _block_inner(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
     kind = b["type"]
     if kind == "hero":
         bg = f' style="background-image:url(\'/api/sites/images/{_e(b["image"])}\')"' if b.get("image") else ""
-        target = {"join": info["join_url"], "dives": "#plongees", "contact": "#contact"}.get(b["button"])
-        button = (f'<p><a class="v-button" href="{_e(target)}">{_e(b.get("button_label") or "En savoir plus")}</a></p>'
-                  if target and b["button"] != "none" else "")
+        button = _buttons(b.get("buttons"), info)
         return (f'<section class="v-hero{" v-hero-image" if b.get("image") else ""}"{bg}><div class="v-hero-inner">'
                 f'<h1>{_e(b["title"])}</h1>{f"<p class=v-subtitle>{_e(b.get("subtitle"))}</p>" if b.get("subtitle") else ""}'
                 f'{button}</div></section>')
@@ -601,7 +668,7 @@ def _block_inner(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
             return ""
         text = f'<p>{_e(b.get("text"))}</p>' if b.get("text") else ""
         return (f'<section class="v-section v-join">{title or "<h2>Nous rejoindre</h2>"}{text}'
-                f'<p><a class="v-button" href="{_e(info["join_url"])}">Demander à rejoindre le club</a></p></section>')
+                f'<p><a class="v-button" href="{_e(info["join_url"])}">{_e(b.get("button_label") or "Demander à rejoindre le club")}</a></p></section>')
     if kind == "contact":
         lines = []
         if st["address"]:
@@ -625,9 +692,7 @@ def _block_inner(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
         return (f'<section class="v-section">{title}{text}<ul class="v-contact">{"".join(lines)}</ul>'
                 f'{f"<p class=v-social>{social_html}</p>" if social_html else ""}{map_link}</section>')
     if kind == "custom":
-        buttons = "".join(_button(x["label"], x["link"], info) for x in b.get("buttons") or [])
-        text = (f'{title}{rich_text(b["body"]) if b.get("body") else ""}'
-                f'{f"<p class=v-buttons>{buttons}</p>" if buttons else ""}')
+        text = f'{title}{rich_text(b["body"]) if b.get("body") else ""}{_buttons(b.get("buttons"), info)}'
         pos, image = b.get("image_position") or "right", b.get("image")
         align = " v-center" if b.get("align") == "center" else ""
         if image and pos == "background":
@@ -642,7 +707,8 @@ def _block_inner(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
     if kind == "cards":
         cards = []
         for c in b["items"]:
-            link = _button(c.get("link_label") or "En savoir plus", c.get("link"), info, "v-card-link") if c.get("link") else ""
+            link = (_button(c.get("link_label") or "En savoir plus", c.get("link"), info, "v-card-link", bool(c.get("new_tab")))
+                    if c.get("link") else "")
             cards.append(f'<article class="v-card">{_img(c["image"], c["title"]) if c.get("image") else ""}'
                          f'<div class="v-card-body"><h3>{_e(c["title"])}</h3>'
                          f'{rich_text(c["text"]) if c.get("text") else ""}{f"<p>{link}</p>" if link else ""}</div></article>')
@@ -653,6 +719,17 @@ def _block_inner(st: sqlite3.Row, b: dict, base: str, info: dict) -> str:
         items = "".join(f'<details><summary>{_e(q["question"])}</summary><div class="v-text">{rich_text(q["answer"])}</div></details>'
                         for q in b["items"])
         return f'<section class="v-section">{title}<div class="v-faq">{items}</div></section>'
+    if kind == "video":
+        vid = _e(b["video"])
+        label = _e(b.get("title") or "Vidéo")
+        caption = f'<p class="v-muted v-caption">{_e(b["caption"])}</p>' if b.get("caption") else ""
+        # vignette + lien : le lecteur YouTube (sans cookie) ne se charge qu'au clic (vitrine-public.js) ; sans script,
+        # le lien ouvre la vidéo sur YouTube
+        return (f'<section class="v-section">{title}<div class="v-video">'
+                f'<a class="v-video-link" href="https://www.youtube.com/watch?v={vid}" data-video="{vid}" data-title="{label}" '
+                f'rel="noopener" target="_blank"><img src="https://i.ytimg.com/vi/{vid}/hqdefault.jpg" alt="{label}" loading="lazy">'
+                f'<span class="v-play" aria-hidden="true"></span><span class="v-visually-hidden">Lire la vidéo « {label} »</span></a>'
+                f'</div>{caption}</section>')
     if kind == "stats":
         items = "".join(f'<li><strong>{_e(x["value"])}</strong><span>{_e(x["label"])}</span></li>' for x in b["items"])
         return f'<section class="v-section">{title}<ul class="v-stats">{items}</ul></section>'
@@ -670,6 +747,7 @@ def render(st: sqlite3.Row, data: dict, base: str, *, preview: bool = False) -> 
     logo = card(st)["logo_url"]
     title = data.get("title") or st["name"]
     description = data.get("description") or f"{st['name']} : club de plongée sous-marine."
+    data = {**data, "blocks": [upgrade_block(b) for b in data["blocks"]]}
     ids = anchors(data["blocks"])
     visible = [(b, a) for b, a in zip(data["blocks"], ids) if not b.get("hidden")]
     body = "".join(_block_html(st, b, base, info, a) for b, a in visible)
@@ -735,5 +813,9 @@ def public_page(slug: str, request: Request, apercu: int = 0, user=Depends(optio
         data = json.loads(row["published_json"])
     base = _base(request)
     page = render(st, data, base, preview=preview)
+    from .security import CSP
+    # lecteur des vidéos YouTube (bloc « Vidéo ») : seule origine admise en iframe
+    csp = CSP + "; frame-src https://www.youtube-nocookie.com"
     return Response(page, media_type="text/html; charset=utf-8",
-                    headers={"Cache-Control": "no-cache" if preview else "public, max-age=300"})
+                    headers={"Cache-Control": "no-cache" if preview else "public, max-age=300",
+                             "Content-Security-Policy": csp})

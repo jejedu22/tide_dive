@@ -131,4 +131,4 @@ def test_prochaines_plongees_et_lien_d_inscription(club, new_client, client):
     alice.post("/api/site/publish")
     page = client.get("/club/club-alpha").text
     assert "Épave du Pélican" in page and "RDV 09:30" in page and "6 place(s)" in page
-    assert "sortie.html#" in page and "S'inscrire à une plongée" in page
+    assert "sortie.html#" in page and "inscrire à une plongée" in page
