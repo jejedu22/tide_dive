@@ -106,6 +106,7 @@ def test_requetes_sur_le_domaine_de_la_structure(club, new_client, client):
     assert page.status_code == 200 and "Club Alpha" in page.text and "vitrine-public.css" in page.text
     assert "Content-Security-Policy" in page.headers                      # en-têtes de sécurité appliqués
     assert client.get("/vitrine-public.css", headers=host).status_code == 200
+    assert client.get("/vitrine-public.js", headers=host).status_code == 200
     assert client.get(f"/api/sites/images/{key}", headers=host).status_code == 200
     # le reste part vers Calendive (connexion, inscriptions…)
     r = client.get("/admin.html?x=1", headers=host, follow_redirects=False)

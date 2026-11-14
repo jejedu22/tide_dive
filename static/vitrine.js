@@ -6,6 +6,7 @@ const esc = s => Session.esc(s);
 let site = null;      // réponse de GET /api/site
 let draft = null;     // brouillon en cours de modification
 let dirty = false;
+const folded = new WeakSet();   // blocs repliés dans l'éditeur (suivis par objet : survit aux déplacements)
 
 const TYPES = {
   hero: { label: "Bandeau d'accueil", make: () => ({ type: "hero", title: site.structure_name, subtitle: "", image: null, button: "dives", button_label: "Prochaines plongées" }) },
@@ -15,7 +16,15 @@ const TYPES = {
   pricing: { label: "Activités et tarifs", make: () => ({ type: "pricing", title: "Activités et tarifs", items: [{ label: "Baptême", price: "", detail: "" }] }) },
   join: { label: "Nous rejoindre", make: () => ({ type: "join", title: "Nous rejoindre", text: "" }) },
   contact: { label: "Contact et accès", make: () => ({ type: "contact", title: "Contact et accès", text: "", show_map: true, links: { facebook: null, instagram: null, youtube: null, website: null } }) },
+  custom: { label: "Bloc personnalisé (texte, photo, boutons)", make: () => ({ type: "custom", title: "Titre", body: "Votre texte…", image: null, image_position: "right", align: "left", buttons: [] }) },
+  cards: { label: "Cartes en colonnes", make: () => ({ type: "cards", title: "Nos formations", intro: "", columns: 3, items: [
+    { title: "Niveau 1", text: "", image: null, link_label: null, link: null }, { title: "Niveau 2", text: "", image: null, link_label: null, link: null },
+    { title: "Niveau 3", text: "", image: null, link_label: null, link: null }] }) },
+  faq: { label: "Questions fréquentes", make: () => ({ type: "faq", title: "Questions fréquentes", items: [{ question: "Faut-il savoir nager ?", answer: "Oui, un minimum d'aisance dans l'eau est nécessaire." }] }) },
+  stats: { label: "Chiffres clés", make: () => ({ type: "stats", title: "", items: [{ value: "40 ans", label: "d'existence" }, { value: "120", label: "adhérents" }, { value: "25", label: "sites de plongée" }] }) },
 };
+const STYLES = { card: "Carte blanche", plain: "Sans fond", tinted: "Teinté", primary: "Couleur du club" };
+const POSITIONS = { right: "À droite du texte", left: "À gauche du texte", top: "Au-dessus du texte", background: "En fond (texte par-dessus)" };
 const BUTTONS = { none: "Aucun bouton", dives: "Vers les prochaines plongées", join: "Vers « Nous rejoindre » (lien d'adhésion)", contact: "Vers le contact" };
 
 function flash(html) { $("flash").innerHTML = html; }
@@ -75,13 +84,48 @@ function blockForm(b, i) {
         + `<p class="hint">Adresse, téléphone et e-mail : ceux de la fiche de la structure (Ma structure).</p>`
         + ["facebook", "instagram", "youtube", "website"].map(k => field({ facebook: "Facebook", instagram: "Instagram", youtube: "YouTube", website: "Autre site" }[k],
           textInput(`${i}.links.${k}`, b.links?.[k], 300))).join("");
+    case "custom":
+      return field("Titre", textInput(p("title"), b.title, 80)) + field("Texte", area(p("body"), b.body, 5000, 6))
+        + field("Photo", imageSelect(p("image"), b.image), site.images.length ? "" : "Ajoutez d'abord des photos (en bas de la page).")
+        + (b.image ? field("Place de la photo", select(p("image_position"), b.image_position, POSITIONS)) : "")
+        + field("Alignement du texte", select(p("align"), b.align, { left: "À gauche", center: "Centré" }))
+        + `<ol class="vb-list">${b.buttons.map((bt, j) => `<li>
+            ${textInput(`${i}.buttons.${j}.label`, bt.label, 40, true).replace("<input", '<input placeholder="Texte du bouton"')}
+            ${linkInput(`${i}.buttons.${j}.link`, bt.link)}
+            <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.buttons" data-index="${j}">Retirer</button></li>`).join("")}</ol>`
+        + (b.buttons.length < 2 ? `<button type="button" class="btn-quiet btn-small" data-act="add-button" data-block="${i}">Ajouter un bouton</button>` : "");
+    case "cards":
+      return field("Titre", textInput(p("title"), b.title, 80)) + field("Introduction", area(p("intro"), b.intro, 1000, 2))
+        + field("Colonnes", select(p("columns"), b.columns, { 2: "2", 3: "3", 4: "4" }).replace("<select", "<select data-number"))
+        + `<ol class="vb-list vb-cards">${b.items.map((c, j) => `<li>
+            ${textInput(`${i}.items.${j}.title`, c.title, 80, true).replace("<input", '<input placeholder="Titre de la carte"')}
+            ${area(`${i}.items.${j}.text`, c.text, 800, 2).replace("<textarea", '<textarea placeholder="Texte (facultatif)"')}
+            <span>${imageSelect(`${i}.items.${j}.image`, c.image)}</span>
+            ${textInput(`${i}.items.${j}.link_label`, c.link_label, 40).replace("<input", '<input placeholder="Texte du lien (facultatif)"')}
+            ${c.link_label ? linkInput(`${i}.items.${j}.link`, c.link) : ""}
+            <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.items" data-index="${j}">Retirer la carte</button></li>`).join("")}</ol>`
+        + (b.items.length < 12 ? `<button type="button" class="btn-quiet btn-small" data-act="add-card" data-block="${i}">Ajouter une carte</button>` : "");
+    case "faq":
+      return field("Titre", textInput(p("title"), b.title, 80))
+        + `<ol class="vb-list vb-cards">${b.items.map((q, j) => `<li>
+            ${textInput(`${i}.items.${j}.question`, q.question, 200, true).replace("<input", '<input placeholder="Question"')}
+            ${area(`${i}.items.${j}.answer`, q.answer, 2000, 2).replace("<textarea", '<textarea placeholder="Réponse"')}
+            <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.items" data-index="${j}">Retirer</button></li>`).join("")}</ol>`
+        + `<button type="button" class="btn-quiet btn-small" data-act="add-question" data-block="${i}">Ajouter une question</button>`;
+    case "stats":
+      return field("Titre", textInput(p("title"), b.title, 80))
+        + `<ol class="vb-list">${b.items.map((x, j) => `<li>
+            ${textInput(`${i}.items.${j}.value`, x.value, 20, true).replace("<input", '<input placeholder="Chiffre (ex. 120)"')}
+            ${textInput(`${i}.items.${j}.label`, x.label, 60, true).replace("<input", '<input placeholder="Légende (ex. adhérents)"')}
+            <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.items" data-index="${j}">Retirer</button></li>`).join("")}</ol>`
+        + (b.items.length < 6 ? `<button type="button" class="btn-quiet btn-small" data-act="add-figure" data-block="${i}">Ajouter un chiffre</button>` : "");
     default:
       return "";
   }
 }
 
 function summary(b) {
-  return b.title || (b.type === "text" ? b.body.slice(0, 50) : "");
+  return [b.menu ? `☰ ${b.menu}` : "", b.title || (b.type === "text" ? b.body.slice(0, 50) : "")].filter(Boolean).join(" · ");
 }
 
 function render() {
@@ -89,17 +133,19 @@ function render() {
   f.slug.value = draft.slug;
   f.title.value = draft.title ?? "";
   f.description.value = draft.description ?? "";
-  $("vb-blocks").innerHTML = draft.blocks.map((b, i) => `<li class="vb-block${b.hidden ? " vb-hidden" : ""}" data-index="${i}">
+  $("vb-blocks").innerHTML = draft.blocks.map((b, i) => `<li class="vb-block${b.hidden ? " vb-hidden" : ""}${folded.has(b) ? " vb-folded" : ""}" data-index="${i}">
       <div class="vb-block-head">
-        <strong>${esc(TYPES[b.type]?.label || b.type)}</strong><span class="muted">${esc(summary(b))}</span>
+        <button type="button" class="vb-fold" data-act="fold" aria-expanded="${!folded.has(b)}" title="Replier / déplier">${folded.has(b) ? "▸" : "▾"}
+        <strong>${esc(TYPES[b.type]?.label || b.type)}</strong></button><span class="muted">${esc(summary(b))}</span>
         <span class="vb-tools">
           <button type="button" class="btn-quiet btn-small" data-act="up" ${i === 0 ? "disabled" : ""} aria-label="Monter">↑</button>
           <button type="button" class="btn-quiet btn-small" data-act="down" ${i === draft.blocks.length - 1 ? "disabled" : ""} aria-label="Descendre">↓</button>
+          <button type="button" class="btn-quiet btn-small" data-act="copy">Dupliquer</button>
           <button type="button" class="btn-quiet btn-small" data-act="toggle">${b.hidden ? "Afficher" : "Masquer"}</button>
           <button type="button" class="btn-danger btn-small" data-act="delete">Supprimer</button>
         </span>
       </div>
-      <div class="vb-block-body">${blockForm(b, i)}</div></li>`).join("")
+      ${folded.has(b) ? "" : `<div class="vb-block-body">${blockForm(b, i)}${commonFields(b, i)}</div>`}</li>`).join("")
     || `<li class="empty">Aucun bloc : ajoutez-en un.</li>`;
   $("vb-images").innerHTML = site.images.map((img, i) => `<li><img src="${esc(img.url)}" alt="Photo ${i + 1}">
       <span>Photo ${i + 1} · ${Math.round(img.size / 1024)} Ko</span>
@@ -137,6 +183,19 @@ $("vb-blocks").addEventListener("input", e => {
   changed();
   if (el.tagName === "SELECT" && el.dataset.path.endsWith("image")) render();   // vignette à jour
 });
+// rendu à jour quand un choix change la forme du formulaire (libellé de menu → cibles des boutons, texte de lien)
+$("vb-blocks").addEventListener("change", e => {
+  const path = e.target.dataset.path || "";
+  if (/\.(menu|link_label)$/.test(path)) render();
+});
+// cible d'un bouton choisie dans la liste
+$("vb-blocks").addEventListener("input", e => {
+  const el = e.target.closest("select[data-link]");
+  if (!el) return;
+  setPath(el.dataset.link, el.value === "__url" ? "" : el.value);
+  changed();
+  render();
+});
 $("vb-blocks").addEventListener("change", e => { if (e.target.type === "checkbox") e.target.dispatchEvent(new Event("input", { bubbles: true })); });
 
 $("vb-blocks").addEventListener("click", e => {
@@ -145,9 +204,28 @@ $("vb-blocks").addEventListener("click", e => {
   const li = btn.closest(".vb-block");
   const i = Number(li?.dataset.index);
   const act = btn.dataset.act;
+  if (act === "fold") {
+    const b = draft.blocks[i];
+    if (folded.has(b)) folded.delete(b); else folded.add(b);
+    render();
+    return;
+  }
   if (act === "up" || act === "down") {
     const j = act === "up" ? i - 1 : i + 1;
     [draft.blocks[i], draft.blocks[j]] = [draft.blocks[j], draft.blocks[i]];
+  } else if (act === "copy") {
+    if (draft.blocks.length >= 30) { status("30 blocs au plus."); return; }
+    const copy = structuredClone(draft.blocks[i]);
+    copy.menu = null;
+    draft.blocks.splice(i + 1, 0, copy);
+  } else if (act === "add-button") {
+    draft.blocks[Number(btn.dataset.block)].buttons.push({ label: "En savoir plus", link: "join" });
+  } else if (act === "add-card") {
+    draft.blocks[Number(btn.dataset.block)].items.push({ title: "", text: "", image: null, link_label: null, link: null });
+  } else if (act === "add-question") {
+    draft.blocks[Number(btn.dataset.block)].items.push({ question: "", answer: "" });
+  } else if (act === "add-figure") {
+    draft.blocks[Number(btn.dataset.block)].items.push({ value: "", label: "" });
   } else if (act === "toggle") {
     draft.blocks[i].hidden = !draft.blocks[i].hidden;
   } else if (act === "delete") {
@@ -172,11 +250,49 @@ $("vb-settings").addEventListener("input", e => {
 });
 
 $("vb-add").addEventListener("click", () => {
+  if (draft.blocks.length >= 30) { status("30 blocs au plus."); return; }
   draft.blocks.push(TYPES[$("vb-add-type").value].make());
   changed();
   render();
   $("vb-blocks").lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
 });
+
+const select = (path, value, options) => `<select data-path="${path}">${Object.entries(options).map(([k, v]) =>
+  `<option value="${esc(k)}"${String(value) === k ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
+
+// ancres des sections : même calcul que app/site.py (anchors)
+function anchors() {
+  const used = new Set();
+  return draft.blocks.map(b => {
+    let base = { dives: "plongees", contact: "contact" }[b.type] || null;
+    if (!base && b.menu?.trim()) {
+      base = b.menu.trim().normalize("NFKD").replace(/[^\x00-\x7f]/g, "").toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50).replace(/^-+|-+$/g, "") || "section";
+    }
+    if (!base) return null;
+    let a = base, n = 2;
+    while (used.has(a)) a = `${base}-${n++}`;
+    used.add(a);
+    return a;
+  });
+}
+
+// cible d'un bouton : liste des choix + champ libre (adresse web, e-mail, téléphone)
+function linkInput(path, value) {
+  const ids = anchors();
+  const options = { join: "Lien d'adhésion au club", guest: "Inscription des personnes extérieures" };
+  draft.blocks.forEach((b, i) => { if (ids[i] && (b.menu || b.type === "dives" || b.type === "contact")) options[`#${ids[i]}`] = `Section « ${b.menu || TYPES[b.type].label} »`; });
+  const known = value != null && value in options;
+  return `<span class="vb-link"><select data-link="${path}">${Object.entries(options).map(([k, v]) =>
+    `<option value="${esc(k)}"${value === k ? " selected" : ""}>${esc(v)}</option>`).join("")}
+    <option value="__url"${known ? "" : " selected"}>Adresse web, e-mail ou téléphone…</option></select>
+    ${known ? "" : `<input data-path="${path}" maxlength="300" placeholder="https://… , contact@club.fr ou tel:0296…" value="${esc(value ?? "")}">`}</span>`;
+}
+
+function commonFields(b, i) {
+  return `<div class="vb-common">${field("Libellé dans le menu", textInput(`${i}.menu`, b.menu, 30), "Facultatif : le bloc apparaît alors dans le menu en haut de la page.")}
+    ${b.type === "hero" ? "" : field("Fond", select(`${i}.style`, b.style || "card", STYLES))}</div>`;
+}
 
 // ---- Enregistrer, aperçu, publier ----
 
@@ -352,6 +468,7 @@ async function onSessionChange(user) {
     return;
   }
   draft = site.draft;
+  if (site.saved && draft.blocks.length > 3) draft.blocks.forEach(b => folded.add(b));   // page déjà composée : vue d'ensemble
   $("structure-name").textContent = `· ${site.structure_name}`;
   $("vb-add-type").innerHTML = Object.entries(TYPES).map(([k, t]) => `<option value="${k}">${t.label}</option>`).join("");
   $("editor").hidden = false;
