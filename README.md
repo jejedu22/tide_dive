@@ -137,7 +137,7 @@ Le service `api` est exposé par le reverse proxy mutualisé [traefik-proxy](htt
 3. Dans `.env` : `MAREE_HOST`, `COOKIE_SECURE=1`, `APP_BASE_URL=https://<MAREE_HOST>` ;
 4. `docker compose up -d --build`.
 
-Traefik ne route le conteneur qu'une fois son healthcheck au vert (quelques secondes après le démarrage).
+Traefik ne route le conteneur qu'une fois son healthcheck au vert (quelques secondes après le démarrage). **Après une mise à jour qui modifie la base** (nouvelle migration), l'API sauvegarde d'abord la base (`data/backups/avant-migration/`) puis applique les migrations avant de répondre : selon la taille de la base, cela peut prendre une à plusieurs minutes, pendant lesquelles Traefik répond « 404 page not found ». Suivre l'avancement avec `docker compose logs -f api` (lignes `[migrations]` puis `[démarrage] base prête en … s`). Le build garde le cache de pip (BuildKit) : ajouter une dépendance ne retélécharge pas les autres.
 
 **En local, sans Traefik** : `docker-compose.local.yml` publie l'API sur `API_PORT` et désactive le cookie sécurisé :
 
