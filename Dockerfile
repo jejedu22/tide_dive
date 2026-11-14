@@ -24,7 +24,8 @@ WORKDIR /srv/maree
 
 # Dépendances d'abord pour profiter du cache Docker
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+# cache pip conservé entre les builds (BuildKit) : ajouter une dépendance ne retélécharge pas numpy, pyTMD…
+RUN --mount=type=cache,target=/root/.cache/pip PIP_NO_CACHE_DIR=0 pip install -r requirements.txt
 
 # Code applicatif (app/ + frontend statique)
 COPY app/ ./app/

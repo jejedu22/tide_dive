@@ -46,19 +46,23 @@ def list_backups(directory: Path | None = None) -> list[Path]:
     return sorted((directory or BACKUP_DIR).glob(f"{PREFIX}*{SUFFIX}"))
 
 
-def check_database(path: Path) -> list[str]:
-    """Problèmes détectés dans une base SQLite (liste vide : saine)."""
+def check_database(path: Path, quick: bool = False) -> list[str]:
+    """Problèmes détectés dans une base SQLite (liste vide : saine). quick : PRAGMA quick_check (structure des pages,
+    sans recouper chaque index avec sa table : plusieurs fois plus rapide)."""
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        problems = [r[0] for r in conn.execute("PRAGMA integrity_check") if r[0] != "ok"]
+        problems = [r[0] for r in conn.execute(f"PRAGMA {'quick_check' if quick else 'integrity_check'}") if r[0] != "ok"]
         problems += [f"clé étrangère : {tuple(r)}" for r in conn.execute("PRAGMA foreign_key_check")]
         return problems
     finally:
         conn.close()
 
 
-def create_backup(keep: int = DEFAULT_KEEP, directory: Path | None = None) -> Path:
-    """Sauvegarde la base, la vérifie, la compresse, applique la rotation. Lève RuntimeError si invalide."""
+def create_backup(keep: int = DEFAULT_KEEP, directory: Path | None = None, fast: bool = False) -> Path:
+    """Sauvegarde la base, la vérifie, la compresse, applique la rotation. Lève RuntimeError si invalide.
+
+    fast : vérification rapide et compression légère (sauvegarde avant migration, faite au démarrage de l'API alors
+    qu'elle ne répond pas encore : environ trois fois plus rapide, fichier à peine plus gros)."""
     directory = directory or BACKUP_DIR
     directory.mkdir(parents=True, exist_ok=True)
     if not db.DB_PATH.exists():
@@ -75,11 +79,11 @@ def create_backup(keep: int = DEFAULT_KEEP, directory: Path | None = None) -> Pa
         finally:
             dst.close()
             src.close()
-        problems = check_database(copy)
+        problems = check_database(copy, quick=fast)
         if problems:
             raise RuntimeError("sauvegarde invalide, non conservée : " + "; ".join(problems[:5]))
         partial = target.with_suffix(".part")
-        with open(copy, "rb") as f_in, gzip.open(partial, "wb", compresslevel=6) as f_out:
+        with open(copy, "rb") as f_in, gzip.open(partial, "wb", compresslevel=1 if fast else 6) as f_out:
             shutil.copyfileobj(f_in, f_out)
         partial.replace(target)  # jamais de fichier à moitié écrit sous le nom final
 

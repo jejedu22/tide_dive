@@ -36,6 +36,7 @@ import argparse
 import json
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Callable
@@ -854,8 +855,11 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False) -> list[
 
         if _has_data(conn):
             from . import backup   # import tardif : backup importe db
-            target = backup.create_backup(PRE_MIGRATION_BACKUPS_KEPT, db.DB_PATH.parent / "backups" / "avant-migration")
-            print(f"[migrations] sauvegarde avant migration : {target}", flush=True)
+            started = time.monotonic()
+            print("[migrations] sauvegarde avant migration… (l'API répond une fois les migrations terminées)", flush=True)
+            target = backup.create_backup(PRE_MIGRATION_BACKUPS_KEPT, db.DB_PATH.parent / "backups" / "avant-migration",
+                                          fast=True)
+            print(f"[migrations] sauvegarde avant migration : {target} ({time.monotonic() - started:.1f} s)", flush=True)
 
         applied: list[int] = []
         for m in pending:
