@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="Calendive">
 </head>
-<body class="help-page" data-guide="inscriptions">
+<body class="help-page" data-guide="vitrine">
   <header>
     <div class="brand">
       <a class="logo" href="./" title="Calendive — accueil">
@@ -21,7 +21,7 @@
       </a>
       <div class="brand-text">
         <h1>Aide : profil Vitrine</h1>
-        <p class="subtitle">Inscrire d'autres membres sur les créneaux.</p>
+        <p class="subtitle">Composer et publier la page publique de la structure.</p>
       </div>
     </div>
     <nav class="account" id="account" aria-label="Compte"></nav>
@@ -60,6 +60,16 @@
           <li><strong>Publier</strong> : le brouillon devient la page publique, à l'adresse indiquée (<code>/club/…</code>), à partager sur le site, les réseaux, une affiche…</li>
           <li><strong>Dépublier</strong> : la page n'est plus visible ; le brouillon est gardé.</li>
         </ul>
+      </section>
+      <section class="panel" id="domaine">
+        <h2>Utiliser le nom de domaine du club</h2>
+        <p>La page peut s'afficher sur le nom de domaine du club (par exemple <code>www.club-plongee.fr</code>), en plus de son adresse Calendive. Dans le panneau <strong>Nom de domaine</strong> de l'éditeur :</p>
+        <ol>
+          <li><strong>Déclarez</strong> le domaine (3 au plus, par exemple avec et sans « www »).</li>
+          <li>Chez votre <strong>registraire</strong> (OVH, Gandi, IONOS…), créez les enregistrements indiqués : un <strong>CNAME</strong> vers l'adresse de Calendive (ou, pour un domaine sans « www », des enregistrements <strong>A / AAAA</strong> vers les adresses du serveur) et un enregistrement <strong>TXT</strong> qui prouve que le domaine est à vous.</li>
+          <li>Cliquez sur <strong>Vérifier</strong>. Les modifications DNS peuvent mettre de quelques minutes à quelques heures à se propager : recommencez plus tard si besoin, le message indique ce qui manque.</li>
+        </ol>
+        <p>Une fois vérifié — et la page publiée — le domaine affiche la page vitrine ; le certificat HTTPS est obtenu automatiquement dans les minutes qui suivent. Les liens de la page (inscription aux plongées, adhésion, connexion) mènent vers Calendive. « Retirer » arrête de servir le domaine ; une nouvelle vérification qui échoue (DNS modifié) le désactive aussi.</p>
       </section>
     </article>
 

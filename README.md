@@ -119,6 +119,7 @@ Le `scheduler` ne calcule rien lui-même : il ajoute des tâches que le `worker`
 | `FES_MODEL` | `FES2014` | Modèle par défaut (`FES2014` ou `FES2022`), pour le téléchargement et les calculs, tant qu'aucun n'est choisi dans l'administration |
 | `FES_DIR` | `./models` | Dossier hôte des fichiers NetCDF |
 | `MAREE_HOST` | — | Domaine public routé par Traefik (obligatoire) |
+| `TRAEFIK_PROVIDER_TOKEN` | — | Jeton du fournisseur HTTP de Traefik pour les domaines des pages vitrines (voir [Nom de domaine d'une page vitrine](#nom-de-domaine-dune-page-vitrine)) ; vide : désactivé |
 | `API_PORT` | `8000` | Port exposé sur l'hôte, en local uniquement (`docker-compose.local.yml`) |
 | `HOST_UID`, `HOST_GID` | `1000` | Utilisateur propriétaire de `./data` et `./models` |
 | `MAIL_BACKEND`, `APP_BASE_URL`, `SMTP_*` | — | Envoi d'e-mails (invitations, mot de passe oublié) : voir [Comptes](#comptes-structures-et-préférences) |
@@ -573,7 +574,38 @@ Chaque structure peut publier une **page vitrine** publique, à l'adresse `/club
 - **Brouillon, aperçu, publication** : l'éditeur enregistre un brouillon ; l'aperçu (`?apercu=1`, `noindex`) n'est visible que des éditeurs ; « Publier » remplace la page publique, « Dépublier » la retire (le brouillon reste). Les pages publiées figurent dans le plan du site.
 - **Couleurs et logo** : ceux de la structure. **Photos** : PNG, JPEG ou WebP, 1 Mo et 12 au plus par structure, servies par une clé aléatoire ; une photo encore utilisée ne se supprime pas.
 - API : `GET` / `PUT /api/site`, `POST` / `DELETE /api/site/publish`, `GET` / `POST /api/site/images`, `DELETE /api/site/images/{clé}` ; publiques : `GET /club/{adresse}`, `GET /api/sites/images/{clé}`. Tables `structure_sites`, `site_images` (migration 37).
-- **À venir** : rattacher le nom de domaine du club à sa page vitrine.
+- **Nom de domaine du club** : voir ci-dessous.
+
+#### Nom de domaine d'une page vitrine
+
+Une structure peut faire servir sa page vitrine sur son propre domaine (`www.club-plongee.fr`), depuis le panneau **Nom de domaine** de l'éditeur (3 domaines au plus) :
+
+1. elle **déclare** le domaine ; Calendive lui indique les enregistrements DNS à créer : un `CNAME` vers le domaine de Calendive (`APP_BASE_URL`) — ou, pour un domaine sans « www », des `A` / `AAAA` vers les adresses du serveur — et un `TXT` `_calendive.<domaine>` = `calendive-verify=<jeton>` (preuve que le domaine est à elle) ;
+2. **« Vérifier »** contrôle les deux (résolution DNS côté serveur, `dnspython`) ; un domaine n'est servi qu'une fois vérifié et la page publiée. Une vérification qui échoue plus tard (DNS modifié) le désactive ;
+3. Traefik interroge l'application (**fournisseur HTTP**) et crée un routeur par domaine actif, avec son certificat Let's Encrypt.
+
+Sur un domaine de structure, l'application ne sert que la page (`/`), sa feuille de style, ses photos et le logo ; toute autre adresse est redirigée vers Calendive (connexion, inscriptions…) : aucune session ni cookie n'existe sur ces domaines.
+
+**Mise en place côté serveur** (une fois) :
+
+- dans `.env` de Calendive : `TRAEFIK_PROVIDER_TOKEN` (long secret, `openssl rand -hex 32`) et `APP_BASE_URL` ; sans jeton, l'adresse `/api/internal/traefik` n'existe pas (404) ;
+- le service `api` est joignable sur le réseau `proxy` sous l'alias `calendive-api` (déjà dans `docker-compose.yml`) ;
+- dans la configuration **statique** de Traefik (stack `traefik-proxy`), ajouter le fournisseur HTTP, avec le même jeton :
+
+```yaml
+providers:
+  http:
+    endpoint: "http://calendive-api:8000/api/internal/traefik"
+    pollInterval: "30s"
+    headers:
+      X-Calendive-Token: "<TRAEFIK_PROVIDER_TOKEN>"
+```
+
+  (ou en arguments : `--providers.http.endpoint=http://calendive-api:8000/api/internal/traefik`, `--providers.http.pollInterval=30s`, `--providers.http.headers.X-Calendive-Token=<jeton>`), puis redémarrer Traefik.
+
+Les routeurs générés (`calendive-site-<n>`) visent le service `maree@docker` sur l'entrée `websecure`, avec le résolveur `letsencrypt` et le middleware `default@file` ; à adapter si besoin par `TRAEFIK_SERVICE`, `TRAEFIK_ENTRYPOINT`, `TRAEFIK_CERTRESOLVER`, `TRAEFIK_MIDDLEWARES` (liste séparée par des virgules). Le certificat de chaque domaine est obtenu par challenge HTTP/TLS : le domaine doit donc pointer vers le serveur avant (c'est ce que vérifie Calendive).
+
+API : `GET` / `POST /api/site/domains`, `POST /api/site/domains/{id}/verify`, `DELETE /api/site/domains/{id}` ; table `site_domains` (migration 38).
 
 ### Couleurs et logo de la structure
 

@@ -82,6 +82,17 @@
           <input type="file" id="vb-upload" accept="image/png,image/jpeg,image/webp" hidden></label></p>
         <ul id="vb-images" class="vb-images"></ul>
       </div>
+
+      <div class="panel" id="vb-domains-panel">
+        <h2>Nom de domaine</h2>
+        <p class="hint">Faites pointer le nom de domaine de votre club (ex. <code>www.club-plongee.fr</code>) sur cette page. Déclarez-le ici, créez chez votre registraire les enregistrements DNS indiqués, puis cliquez sur « Vérifier ». Le domaine est servi une fois vérifié <strong>et la page publiée</strong> ; le certificat HTTPS est obtenu automatiquement.</p>
+        <form id="vb-domain-form" class="vb-add" novalidate>
+          <input id="vb-domain" maxlength="253" placeholder="www.club-plongee.fr" spellcheck="false" autocomplete="off" aria-label="Nom de domaine">
+          <button type="submit" class="btn-secondary btn-small">Déclarer le domaine</button>
+        </form>
+        <ul id="vb-domains" class="vb-domains"></ul>
+        <p id="vb-domain-status" class="form-status" role="status"></p>
+      </div>
     </div>
   </main>
 

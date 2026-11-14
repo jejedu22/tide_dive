@@ -27,6 +27,7 @@ x-app: &app
     FES_MODEL: ${FES_MODEL:-FES2014}  # modèle par défaut, tant qu'aucun n'est choisi dans l'administration
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie pour les vacances scolaires
     API_MAREE_KEY: ${API_MAREE_KEY:-}           # recalage FES sur api-maree.fr (facultatif)
+    TRAEFIK_PROVIDER_TOKEN: ${TRAEFIK_PROVIDER_TOKEN:-}   # domaines des vitrines : jeton du fournisseur HTTP de Traefik (README)
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}      # connexion avec Google (voir README, « Connexion avec Google »)
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     SECRETS_KEY: ${SECRETS_KEY:-}               # chiffrement des clés Mailjet en base (voir .env.example)
@@ -79,8 +80,9 @@ services:
     # Exposé uniquement via Traefik (dépôt traefik-proxy, réseau externe `proxy`) : aucun port publié.
     # En local sans Traefik : docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
     networks:
-      - default   # worker, scheduler, maildev
-      - proxy
+      default: {}   # worker, scheduler, maildev
+      proxy:
+        aliases: [calendive-api]   # adresse fixe pour le fournisseur HTTP de Traefik (domaines des vitrines)
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy

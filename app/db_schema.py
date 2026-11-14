@@ -306,6 +306,19 @@ CREATE TABLE IF NOT EXISTS site_images (
 );
 CREATE INDEX IF NOT EXISTS idx_site_images_structure ON site_images(structure_id);
 
+-- Noms de domaine des structures pointés sur leur page vitrine (site_domains.py) : actifs une fois vérifiés
+CREATE TABLE IF NOT EXISTS site_domains (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    domain TEXT NOT NULL UNIQUE,            -- en minuscules, sans point final
+    verify_token TEXT NOT NULL,             -- valeur attendue dans l'enregistrement TXT _calendive.<domaine>
+    verified_at TEXT,                       -- NULL : pas (ou plus) vérifié
+    checked_at TEXT,
+    check_message TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_site_domains_structure ON site_domains(structure_id);
+
 CREATE TABLE IF NOT EXISTS structure_logos (
     structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
     content_type TEXT NOT NULL,
