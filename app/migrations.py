@@ -717,6 +717,29 @@ def _m036_duties(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE slot_selections ADD COLUMN {col} INTEGER REFERENCES users(id) ON DELETE SET NULL")
 
 
+def _m037_structure_sites(conn: sqlite3.Connection) -> None:
+    """Page vitrine publique des structures et ses photos (site.py)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS structure_sites (
+        structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL UNIQUE,
+        draft_json TEXT NOT NULL,
+        published_json TEXT,
+        published_at TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS site_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+        key TEXT NOT NULL UNIQUE,
+        content_type TEXT NOT NULL,
+        data BLOB NOT NULL,
+        size INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_site_images_structure ON site_images(structure_id)")
+
+
 # Migrations postérieures à la version 1, par numéro croissant.
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
@@ -754,6 +777,7 @@ MIGRATIONS: list[Migration] = [
     Migration(34, "couleurs personnalisées des structures", _m034_structure_theme),
     Migration(35, "inscriptions extérieures confirmées par e-mail", _m035_guest_confirmation),
     Migration(36, "pilotes et directeurs de plongée", _m036_duties),
+    Migration(37, "page vitrine des structures", _m037_structure_sites),
 ]
 
 

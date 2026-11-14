@@ -34,6 +34,7 @@ Organisation (ce module est une façade : tout y est réexporté, le reste du co
   db_identities.py  comptes externes liés (connexion Google), étapes de connexion en cours
   db_guests.py      inscriptions de personnes extérieures aux créneaux (lien public)
   db_duties.py      pilotes et directeurs de plongée : rôles des membres, affectations sur les créneaux
+  db_site.py        page vitrine publique des structures (blocs, publication, photos)
 Les évolutions nouvelles du schéma : migrations.py.
 """
 
@@ -289,6 +290,19 @@ from .db_water import (  # noqa: F401
     delete_threshold,
     create_water_selection,
     water_selections_between,
+)
+from .db_site import (  # noqa: F401
+    get_site,
+    site_by_slug,
+    slug_taken,
+    save_site_draft,
+    publish_site,
+    unpublish_site,
+    published_sites,
+    add_site_image,
+    list_site_images,
+    get_site_image,
+    delete_site_image,
 )
 from .db_duties import (  # noqa: F401
     _NAME,

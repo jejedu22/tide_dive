@@ -40,7 +40,7 @@ def test_apercu_membre_avec_profil(new_client, setup):
     assert u["can"] == {"super_admin": False, "admin_area": False, "manage_structure": False, "pick": False,
                         "view_selections": True, "manage_mailjet": False, "manage_registrations": False,
                         "newsletters": True, "validate_caci": True, "view_divers": True,
-                        "currents": True, "diver_sheet": True}
+                        "currents": True, "diver_sheet": True, "edit_site": False}
     # ni les structures ni les invitations du super administrateur : pas de sélecteur
     assert u["structures"] == [{"id": setup["a"], "name": "Club A", "role": "viewer"}] and u["invitations"] == 0
 

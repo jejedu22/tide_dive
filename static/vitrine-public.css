@@ -1,0 +1,46 @@
+/* Page vitrine publique d'une structure (/club/<adresse>, app/site.py) : couleurs de la structure dans
+   --v-primary (en-tête, titres) et --v-accent (boutons). Aucune police ni script tiers. */
+:root { --v-text: #13303b; --v-muted: #52707c; --v-bg: #f5f9fb; --v-line: #d6e5ea; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--v-text); background: var(--v-bg); line-height: 1.55; }
+a { color: var(--v-primary); }
+.v-preview { margin: 0; padding: 0.5rem 1rem; text-align: center; background: #ffd166; color: #3a2c00; font-weight: 600; }
+.v-header { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 1.25rem; background: var(--v-primary); color: #fff; }
+.v-logo { height: 48px; width: auto; max-width: 120px; border-radius: 10px; background: #fff; padding: 3px; object-fit: contain; }
+.v-name { font-weight: 700; font-size: 1.15rem; }
+.v-login { margin-left: auto; color: #fff; font-size: 0.9rem; opacity: 0.9; }
+main { max-width: 960px; margin: 0 auto; padding: 0 1rem 2rem; }
+.v-hero { margin: 1.25rem 0; padding: 3rem 1.5rem; border-radius: 16px; background: var(--v-primary); color: #fff; text-align: center; background-size: cover; background-position: center; }
+.v-hero-image { position: relative; overflow: hidden; }
+.v-hero-image::before { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.42); }
+.v-hero-inner { position: relative; }
+.v-hero h1 { margin: 0 0 0.5rem; font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.15; }
+.v-subtitle { margin: 0 auto 1rem; max-width: 40rem; font-size: 1.15rem; opacity: 0.95; }
+.v-button { display: inline-block; padding: 0.7rem 1.3rem; border-radius: 10px; background: var(--v-accent); color: var(--v-primary); font-weight: 700; text-decoration: none; }
+.v-section { margin: 1.25rem 0; padding: 1.4rem 1.5rem; border-radius: 14px; background: #fff; box-shadow: 0 2px 8px rgba(7, 59, 76, 0.07); }
+.v-section h2 { margin: 0 0 0.8rem; color: var(--v-primary); font-size: 1.4rem; }
+.v-text h3 { margin: 1rem 0 0.4rem; color: var(--v-primary); }
+.v-muted { color: var(--v-muted); }
+.v-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.8rem; }
+.v-gallery figure { margin: 0; }
+.v-gallery img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; display: block; }
+.v-gallery figcaption { font-size: 0.85rem; color: var(--v-muted); margin-top: 0.3rem; }
+.v-dives, .v-pricing, .v-contact { list-style: none; margin: 0 0 1rem; padding: 0; }
+.v-dives li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; padding: 0.6rem 0; border-bottom: 1px solid var(--v-line); }
+.v-date { font-weight: 700; text-transform: capitalize; }
+.v-time { color: var(--v-muted); }
+.v-detail { flex-basis: 100%; color: var(--v-muted); font-size: 0.92rem; }
+.v-places { margin-left: auto; font-size: 0.85rem; font-weight: 600; color: var(--v-primary); }
+.v-full { color: #b3261e; }
+.v-pricing li { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--v-line); }
+.v-pricing .v-label { font-weight: 600; }
+.v-pricing .v-price { font-weight: 700; color: var(--v-primary); white-space: nowrap; }
+.v-pricing .v-detail { grid-column: 1 / -1; }
+.v-contact li { padding: 0.25rem 0; }
+.v-join { text-align: center; }
+.v-footer { padding: 1.5rem 1rem; text-align: center; color: var(--v-muted); font-size: 0.85rem; }
+@media (max-width: 560px) {
+  .v-hero { padding: 2rem 1rem; }
+  .v-section { padding: 1.1rem; }
+  .v-logo { height: 38px; }
+}

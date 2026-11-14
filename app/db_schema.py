@@ -283,6 +283,29 @@ CREATE TABLE IF NOT EXISTS announcements (
 );
 
 -- Logo d'une structure (PNG, JPEG ou WebP, 200 Ko au plus)
+-- Page vitrine publique d'une structure (site.py) : blocs en JSON, brouillon et version publiée
+CREATE TABLE IF NOT EXISTS structure_sites (
+    structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
+    slug TEXT NOT NULL UNIQUE,              -- adresse publique : /club/<slug>
+    draft_json TEXT NOT NULL,
+    published_json TEXT,                    -- NULL : pas publiée
+    published_at TEXT,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+);
+
+-- Photos de la page vitrine : servies par une clé aléatoire (/api/sites/images/<clé>)
+CREATE TABLE IF NOT EXISTS site_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER NOT NULL REFERENCES structures(id) ON DELETE CASCADE,
+    key TEXT NOT NULL UNIQUE,
+    content_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    size INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_site_images_structure ON site_images(structure_id);
+
 CREATE TABLE IF NOT EXISTS structure_logos (
     structure_id INTEGER PRIMARY KEY REFERENCES structures(id) ON DELETE CASCADE,
     content_type TEXT NOT NULL,

@@ -1572,7 +1572,7 @@ typeFilter.addEventListener("change", () => { closePop(); render(); });
 showPast.addEventListener("change", () => { closePop(); render(); });
 onlyMine.addEventListener("change", () => { closePop(); render(); });
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.newsletters, Session.LINKS.site, Session.LINKS.admin, Session.LINKS.map, Session.LINKS.divers, Session.LINKS.help]);
 Session.onChange(user => {
   const member = !!user?.can.view_selections;
   picksEl.hidden = !member;

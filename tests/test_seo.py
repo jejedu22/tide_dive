@@ -16,7 +16,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 BASE = "https://calendive.test"
 OFFSET = 6.0
 PRIVATE_PAGES = ("admin", "mes-creneaux", "newsletters", "plongeurs", "rejoindre", "desinscription", "mot-de-passe",
-                 "hors-ligne", "sortie")
+                 "hors-ligne", "sortie", "vitrine")
 
 
 @pytest.fixture(autouse=True)

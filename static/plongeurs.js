@@ -140,7 +140,7 @@ $("divers-export").addEventListener("click", () => {
   ], rows);
 });
 
-Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin,
+Session.mountAccount($("account"), [Session.LINKS.search, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.site, Session.LINKS.admin,
                                     Session.LINKS.map, Session.LINKS.help]);
 Session.onChange(u => {
   $("structure-name").textContent = u?.structure ? `· ${u.structure.name}` : "";

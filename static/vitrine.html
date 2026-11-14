@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Page vitrine — Calendive</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#073b4c">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Calendive">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="logo" href="./" title="Calendive — accueil">
+        <img src="logo-sombre.svg" width="44" height="44" alt="">
+        <span class="wordmark">calen<span>dive</span></span>
+      </a>
+      <div class="brand-text">
+        <h1>Page vitrine <span id="structure-name" class="h1-sub"></span></h1>
+        <p class="subtitle"><a href="mes-creneaux.html">Retour aux créneaux choisis</a></p>
+      </div>
+    </div>
+    <nav class="account" id="account" aria-label="Compte"></nav>
+  </header>
+
+  <main class="vb-main">
+    <p id="gate" class="gate" hidden></p>
+    <p id="flash" class="flash" role="status"></p>
+
+    <div id="editor" hidden>
+      <div class="panel vb-status">
+        <div class="panel-head">
+          <h2>Publication</h2>
+          <span id="vb-state" class="tag"></span>
+        </div>
+        <p class="hint">Composez la page avec des blocs, enregistrez le brouillon, regardez l'aperçu, puis publiez : rien n'est visible du public avant « Publier ». Les couleurs et le logo sont ceux de la structure (Administration → Ma structure).</p>
+        <p id="vb-url" class="join-link"></p>
+        <p class="form-actions">
+          <button type="button" id="vb-save" class="btn-secondary">Enregistrer le brouillon</button>
+          <button type="button" id="vb-preview" class="btn-quiet">Aperçu</button>
+          <button type="button" id="vb-publish" class="btn-primary">Publier</button>
+          <button type="button" id="vb-unpublish" class="btn-quiet">Dépublier</button>
+        </p>
+        <p id="vb-status" class="form-status" role="status"></p>
+      </div>
+
+      <div class="panel">
+        <h2>Réglages de la page</h2>
+        <form id="vb-settings" class="vb-settings" novalidate>
+          <label>Adresse de la page
+            <span class="vb-slug"><span id="vb-slug-prefix" class="muted"></span><input name="slug" maxlength="50" required pattern="[a-z0-9][a-z0-9-]{1,48}[a-z0-9]" spellcheck="false"></span>
+            <small class="hint">Lettres minuscules, chiffres et tirets.</small></label>
+          <label>Titre de la page <span class="optional">(facultatif : le nom de la structure)</span>
+            <input name="title" maxlength="80"></label>
+          <label class="span-all">Description pour les moteurs de recherche <span class="optional">(facultatif)</span>
+            <textarea name="description" maxlength="300" rows="2"></textarea></label>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Blocs de la page</h2>
+          <span class="vb-add">
+            <label for="vb-add-type" class="visually-hidden">Type de bloc</label>
+            <select id="vb-add-type"></select>
+            <button type="button" id="vb-add" class="btn-secondary btn-small">Ajouter le bloc</button>
+          </span>
+        </div>
+        <p class="hint">Dans les textes : **gras**, *italique*, [lien](https://…), une ligne « - » par élément de liste, « ## » pour un intertitre. Une ligne vide sépare les paragraphes.</p>
+        <ol id="vb-blocks" class="vb-blocks"></ol>
+      </div>
+
+      <div class="panel">
+        <h2>Photos</h2>
+        <p class="hint">PNG, JPEG ou WebP, 1 Mo et 12 photos au plus. Elles servent ensuite dans le bandeau d'accueil et les galeries.</p>
+        <p><label class="btn-secondary btn-small file-btn">Ajouter une photo…
+          <input type="file" id="vb-upload" accept="image/png,image/jpeg,image/webp" hidden></label></p>
+        <ul id="vb-images" class="vb-images"></ul>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p><a href="./">Accueil</a> · <a href="aide.html">Aide</a> · <a href="mentions-legales.html">Mentions légales et confidentialité</a></p>
+  </footer>
+
+  <script src="session.js"></script>
+  <script src="vitrine.js"></script>
+</body>
+</html>

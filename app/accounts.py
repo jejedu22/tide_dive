@@ -142,6 +142,11 @@ PROFILES = {
         "description": "Choisir, ajouter, modifier et retirer les créneaux de la structure, inscrire des membres et "
                        "pointer les présences, sans gérer les membres ni les réglages (directeur de plongée…)",
     },
+    "vitrine": {
+        "label": "Vitrine",
+        "description": "Composer et publier la page vitrine publique de la structure (textes, photos, tarifs, "
+                       "prochaines plongées), sans autre droit d'administration",
+    },
 }
 
 
@@ -216,6 +221,8 @@ def permissions(row: sqlite3.Row) -> dict:
         # fonctions activables de la structure (voir FEATURES)
         "currents": in_structure and feat["currents"],
         "diver_sheet": in_structure and feat["divers"],
+        # page vitrine publique de la structure (site.py) : administration ou profil « vitrine »
+        "edit_site": manager or (in_structure and "vitrine" in profiles_of(row)),
     }
 
 

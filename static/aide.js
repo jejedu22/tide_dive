@@ -4,10 +4,11 @@
 function guidesFor(u) {
   if (!u?.structure) return new Set();
   const mine = new Set(["membre"]);
-  if (u.role === "manager") mine.add("administrateur").add("inscriptions").add("creneaux");
+  if (u.role === "manager") mine.add("administrateur").add("inscriptions").add("creneaux").add("vitrine");
   if (u.profiles?.includes("gestionnaire")) mine.add("gestionnaire");
   if (u.profiles?.includes("inscriptions")) mine.add("inscriptions");
   if (u.profiles?.includes("creneaux")) mine.add("creneaux");
+  if (u.profiles?.includes("vitrine")) mine.add("vitrine");
   return mine;
 }
 
@@ -42,6 +43,6 @@ if (installBtn) {
 }
 
 Session.mountAccount(document.getElementById("account"),
-  [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.admin]);
+  [Session.LINKS.search, Session.LINKS.heights, Session.LINKS.picks, Session.LINKS.newsletters, Session.LINKS.site, Session.LINKS.admin]);
 Session.onChange(markMine);
 Session.init();
