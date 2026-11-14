@@ -67,7 +67,17 @@ main { max-width: 960px; margin: 0 auto; padding: 0 1rem 2rem; }
 .v-center .v-text ul { display: inline-block; text-align: left; }
 .v-buttons { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 .v-center .v-buttons { justify-content: center; }
-.v-buttons .v-button + .v-button { background: transparent; color: inherit; border: 2px solid currentColor; padding: calc(0.7rem - 2px) calc(1.3rem - 2px); }
+.v-button-outline { background: transparent; color: inherit; border: 2px solid currentColor; padding: calc(0.7rem - 2px) calc(1.3rem - 2px); }
+.v-hero .v-buttons { justify-content: center; margin-bottom: 0; }
+/* vidéo YouTube */
+.v-video { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; }
+.v-video iframe, .v-video-link, .v-video-link img { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.v-video-link img { object-fit: cover; }
+.v-play { position: absolute; left: 50%; top: 50%; width: 72px; height: 50px; transform: translate(-50%, -50%); border-radius: 14px; background: rgba(0, 0, 0, 0.72); transition: background 0.15s; }
+.v-play::after { content: ""; position: absolute; left: 29px; top: 15px; border-style: solid; border-width: 10px 0 10px 17px; border-color: transparent transparent transparent #fff; }
+.v-video-link:hover .v-play, .v-video-link:focus-visible .v-play { background: #e00; }
+.v-caption { margin: 0.5rem 0 0; font-size: 0.9rem; }
+.v-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .v-bgimage { position: relative; overflow: hidden; color: #fff; background-size: cover; background-position: center; padding: 3rem 2rem; }
 .v-bgimage::before { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
 .v-bgimage .v-custom-text { position: relative; }

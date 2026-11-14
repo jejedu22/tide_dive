@@ -9,7 +9,7 @@ let dirty = false;
 const folded = new WeakSet();   // blocs repliés dans l'éditeur (suivis par objet : survit aux déplacements)
 
 const TYPES = {
-  hero: { label: "Bandeau d'accueil", make: () => ({ type: "hero", title: site.structure_name, subtitle: "", image: null, button: "dives", button_label: "Prochaines plongées" }) },
+  hero: { label: "Bandeau d'accueil", make: () => ({ type: "hero", title: site.structure_name, subtitle: "", image: null, buttons: [{ label: "Prochaines plongées", link: "#plongees", style: null, new_tab: false }] }) },
   text: { label: "Texte", make: () => ({ type: "text", title: "", body: "Votre texte…" }) },
   gallery: { label: "Galerie photos", make: () => ({ type: "gallery", title: "Photos", photos: [] }) },
   dives: { label: "Prochaines plongées", make: () => ({ type: "dives", title: "Prochaines plongées", days: 60, max_items: 8, guest_link: true }) },
@@ -21,11 +21,11 @@ const TYPES = {
     { title: "Niveau 1", text: "", image: null, link_label: null, link: null }, { title: "Niveau 2", text: "", image: null, link_label: null, link: null },
     { title: "Niveau 3", text: "", image: null, link_label: null, link: null }] }) },
   faq: { label: "Questions fréquentes", make: () => ({ type: "faq", title: "Questions fréquentes", items: [{ question: "Faut-il savoir nager ?", answer: "Oui, un minimum d'aisance dans l'eau est nécessaire." }] }) },
+  video: { label: "Vidéo YouTube", make: () => ({ type: "video", title: "Le club en vidéo", video: "", caption: "" }) },
   stats: { label: "Chiffres clés", make: () => ({ type: "stats", title: "", items: [{ value: "40 ans", label: "d'existence" }, { value: "120", label: "adhérents" }, { value: "25", label: "sites de plongée" }] }) },
 };
 const STYLES = { card: "Carte blanche", plain: "Sans fond", tinted: "Teinté", primary: "Couleur du club" };
 const POSITIONS = { right: "À droite du texte", left: "À gauche du texte", top: "Au-dessus du texte", background: "En fond (texte par-dessus)" };
-const BUTTONS = { none: "Aucun bouton", dives: "Vers les prochaines plongées", join: "Vers « Nous rejoindre » (lien d'adhésion)", contact: "Vers le contact" };
 
 function flash(html) { $("flash").innerHTML = html; }
 function status(text) { $("vb-status").textContent = text; }
@@ -49,9 +49,7 @@ function blockForm(b, i) {
     case "hero":
       return field("Titre", textInput(p("title"), b.title, 80, true)) + field("Accroche", area(p("subtitle"), b.subtitle, 200, 2))
         + field("Photo de fond", imageSelect(p("image"), b.image), site.images.length ? "" : "Ajoutez d'abord des photos (en bas de la page).")
-        + field("Bouton", `<select data-path="${p("button")}">${Object.entries(BUTTONS).map(([k, v]) =>
-          `<option value="${k}"${b.button === k ? " selected" : ""}>${v}</option>`).join("")}</select>`)
-        + field("Texte du bouton", textInput(p("button_label"), b.button_label, 40));
+        + buttonsForm(b, i);
     case "text":
       return field("Titre", textInput(p("title"), b.title, 80)) + field("Texte", area(p("body"), b.body, 5000, 8));
     case "gallery":
@@ -65,7 +63,8 @@ function blockForm(b, i) {
       return field("Titre", textInput(p("title"), b.title, 80))
         + field("Période", `<input type="number" data-path="${p("days")}" data-number min="7" max="180" value="${b.days}"> jours`)
         + field("Nombre de plongées au plus", `<input type="number" data-path="${p("max_items")}" data-number min="1" max="30" value="${b.max_items}">`)
-        + check(p("guest_link"), b.guest_link, `Bouton « S'inscrire à une plongée » pour les personnes extérieures${site.has_guest_link ? "" : " (activez d'abord leur inscription dans Ma structure)"}`)
+        + check(p("guest_link"), b.guest_link, `Bouton d'inscription pour les personnes extérieures${site.has_guest_link ? "" : " (activez d'abord leur inscription dans Ma structure)"}`)
+        + (b.guest_link ? field("Texte du bouton", textInput(p("button_label"), b.button_label, 40).replace("<input", `<input placeholder="S'inscrire à une plongée"`)) : "")
         + `<p class="hint">Les plongées s'affichent toutes seules, d'après les créneaux de la structure.</p>`;
     case "pricing":
       return field("Titre", textInput(p("title"), b.title, 80))
@@ -77,6 +76,7 @@ function blockForm(b, i) {
           <button type="button" class="btn-quiet btn-small" data-act="add-price" data-block="${i}">Ajouter une ligne</button>`;
     case "join":
       return field("Titre", textInput(p("title"), b.title, 80)) + field("Texte", area(p("text"), b.text, 500, 3))
+        + field("Texte du bouton", textInput(p("button_label"), b.button_label, 40).replace("<input", '<input placeholder="Demander à rejoindre le club"'))
         + (site.has_join_link ? "" : `<p class="hint">Ce bloc n'apparaît qu'une fois le lien d'adhésion activé (Ma structure).</p>`);
     case "contact":
       return field("Titre", textInput(p("title"), b.title, 80)) + field("Texte", area(p("text"), b.text, 500, 2))
@@ -89,11 +89,7 @@ function blockForm(b, i) {
         + field("Photo", imageSelect(p("image"), b.image), site.images.length ? "" : "Ajoutez d'abord des photos (en bas de la page).")
         + (b.image ? field("Place de la photo", select(p("image_position"), b.image_position, POSITIONS)) : "")
         + field("Alignement du texte", select(p("align"), b.align, { left: "À gauche", center: "Centré" }))
-        + `<ol class="vb-list">${b.buttons.map((bt, j) => `<li>
-            ${textInput(`${i}.buttons.${j}.label`, bt.label, 40, true).replace("<input", '<input placeholder="Texte du bouton"')}
-            ${linkInput(`${i}.buttons.${j}.link`, bt.link)}
-            <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.buttons" data-index="${j}">Retirer</button></li>`).join("")}</ol>`
-        + (b.buttons.length < 2 ? `<button type="button" class="btn-quiet btn-small" data-act="add-button" data-block="${i}">Ajouter un bouton</button>` : "");
+        + buttonsForm(b, i);
     case "cards":
       return field("Titre", textInput(p("title"), b.title, 80)) + field("Introduction", area(p("intro"), b.intro, 1000, 2))
         + field("Colonnes", select(p("columns"), b.columns, { 2: "2", 3: "3", 4: "4" }).replace("<select", "<select data-number"))
@@ -102,7 +98,7 @@ function blockForm(b, i) {
             ${area(`${i}.items.${j}.text`, c.text, 800, 2).replace("<textarea", '<textarea placeholder="Texte (facultatif)"')}
             <span>${imageSelect(`${i}.items.${j}.image`, c.image)}</span>
             ${textInput(`${i}.items.${j}.link_label`, c.link_label, 40).replace("<input", '<input placeholder="Texte du lien (facultatif)"')}
-            ${c.link_label ? linkInput(`${i}.items.${j}.link`, c.link) : ""}
+            ${c.link_label ? linkInput(`${i}.items.${j}.link`, c.link) + check(`${i}.items.${j}.new_tab`, c.new_tab, "Nouvel onglet") : ""}
             <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.items" data-index="${j}">Retirer la carte</button></li>`).join("")}</ol>`
         + (b.items.length < 12 ? `<button type="button" class="btn-quiet btn-small" data-act="add-card" data-block="${i}">Ajouter une carte</button>` : "");
     case "faq":
@@ -119,6 +115,15 @@ function blockForm(b, i) {
             ${textInput(`${i}.items.${j}.label`, x.label, 60, true).replace("<input", '<input placeholder="Légende (ex. adhérents)"')}
             <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.items" data-index="${j}">Retirer</button></li>`).join("")}</ol>`
         + (b.items.length < 6 ? `<button type="button" class="btn-quiet btn-small" data-act="add-figure" data-block="${i}">Ajouter un chiffre</button>` : "");
+    case "video": {
+      const id = youtubeId(b.video);
+      return field("Titre", textInput(p("title"), b.title, 80))
+        + field("Adresse de la vidéo YouTube", textInput(p("video"), b.video, 300, true).replace("<input", '<input placeholder="https://www.youtube.com/watch?v=…" data-refresh'),
+          id ? "" : "Copiez l'adresse de la vidéo depuis YouTube (bouton « Partager »).")
+        + (id ? `<img class="vb-video-thumb" src="https://i.ytimg.com/vi/${esc(id)}/mqdefault.jpg" alt="Aperçu de la vidéo">` : "")
+        + field("Légende", textInput(p("caption"), b.caption, 300))
+        + `<p class="hint">Sur la page, une vignette s'affiche ; le lecteur YouTube (sans cookie) ne se charge que si le visiteur clique.</p>`;
+    }
     default:
       return "";
   }
@@ -186,7 +191,7 @@ $("vb-blocks").addEventListener("input", e => {
 // rendu à jour quand un choix change la forme du formulaire (libellé de menu → cibles des boutons, texte de lien)
 $("vb-blocks").addEventListener("change", e => {
   const path = e.target.dataset.path || "";
-  if (/\.(menu|link_label)$/.test(path)) render();
+  if (/\.(menu|link_label|guest_link)$/.test(path) || e.target.hasAttribute("data-refresh")) setTimeout(render);   // après l'enregistrement de la valeur
 });
 // cible d'un bouton choisie dans la liste
 $("vb-blocks").addEventListener("input", e => {
@@ -219,9 +224,9 @@ $("vb-blocks").addEventListener("click", e => {
     copy.menu = null;
     draft.blocks.splice(i + 1, 0, copy);
   } else if (act === "add-button") {
-    draft.blocks[Number(btn.dataset.block)].buttons.push({ label: "En savoir plus", link: "join" });
+    draft.blocks[Number(btn.dataset.block)].buttons.push({ label: "En savoir plus", link: "join", style: null, new_tab: false });
   } else if (act === "add-card") {
-    draft.blocks[Number(btn.dataset.block)].items.push({ title: "", text: "", image: null, link_label: null, link: null });
+    draft.blocks[Number(btn.dataset.block)].items.push({ title: "", text: "", image: null, link_label: null, link: null, new_tab: false });
   } else if (act === "add-question") {
     draft.blocks[Number(btn.dataset.block)].items.push({ question: "", answer: "" });
   } else if (act === "add-figure") {
@@ -288,6 +293,20 @@ function linkInput(path, value) {
     <option value="__url"${known ? "" : " selected"}>Adresse web, e-mail ou téléphone…</option></select>
     ${known ? "" : `<input data-path="${path}" maxlength="300" placeholder="https://… , contact@club.fr ou tel:0296…" value="${esc(value ?? "")}">`}</span>`;
 }
+
+// boutons d'un bloc (bandeau, bloc personnalisé) : texte, cible, apparence, nouvel onglet
+function buttonsForm(b, i) {
+  return `<ol class="vb-list vb-buttons">${b.buttons.map((bt, j) => `<li>
+      ${textInput(`${i}.buttons.${j}.label`, bt.label, 40, true).replace("<input", '<input placeholder="Texte du bouton" aria-label="Texte du bouton"')}
+      ${linkInput(`${i}.buttons.${j}.link`, bt.link)}
+      ${select(`${i}.buttons.${j}.style`, bt.style ?? "", { "": "Apparence automatique", solid: "Bouton plein", outline: "Bouton contour" })}
+      ${check(`${i}.buttons.${j}.new_tab`, bt.new_tab, "Nouvel onglet")}
+      <button type="button" class="btn-quiet btn-small" data-act="remove-item" data-list="${i}.buttons" data-index="${j}">Retirer</button></li>`).join("")}</ol>`
+    + (b.buttons.length < 2 ? `<button type="button" class="btn-quiet btn-small" data-act="add-button" data-block="${i}">Ajouter un bouton</button>` : "");
+}
+
+const YT = /(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
+const youtubeId = v => (/^[A-Za-z0-9_-]{11}$/.test(v || "") ? v : (v || "").match(YT)?.[1]) || null;
 
 function commonFields(b, i) {
   return `<div class="vb-common">${field("Libellé dans le menu", textInput(`${i}.menu`, b.menu, 30), "Facultatif : le bloc apparaît alors dans le menu en haut de la page.")}

@@ -2295,3 +2295,5 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .vb-fold { all: unset; cursor: pointer; display: inline-flex; gap: 0.4rem; align-items: center; }
 .vb-fold:focus-visible { outline: 2px solid var(--accent, #118ab2); outline-offset: 2px; border-radius: 4px; }
 .vb-folded .vb-block-head { border-radius: 10px; }
+.vb-video-thumb { width: 240px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
+.vb-buttons .check { font-weight: 400; white-space: nowrap; }
