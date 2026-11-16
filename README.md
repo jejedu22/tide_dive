@@ -369,6 +369,7 @@ L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs
 - Si le worker est arrêté, un bandeau le signale dans l'administration et les tâches restent en attente.
 - Sans identifiants AVISO+, le téléchargement est refusé avec un message clair (le script de pyTMD attendrait sinon une saisie au clavier).
 - Une tâche tuée par manque de mémoire est signalée comme telle dans son journal.
+- Un précalcul écrit son année en une seule transaction (quelques secondes, davantage sur un petit serveur) : pendant ce temps, le worker garde le journal en mémoire et réessaie (il ne s'arrête plus sur « database is locked ») ; la fin de la tâche est réessayée jusqu'à 5 minutes environ.
 
 ### Mémoire du conteneur `api` (256 Mo)
 
