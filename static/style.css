@@ -2297,3 +2297,9 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .vb-folded .vb-block-head { border-radius: 10px; }
 .vb-video-thumb { width: 240px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
 .vb-buttons .check { font-weight: 400; white-space: nowrap; }
+.ram-panel > summary { cursor: pointer; list-style-position: inside; }
+.ram-panel > summary h2 { display: inline; margin: 0; }
+.ram-zones { border: 1px solid var(--line); border-radius: 8px; margin: 0.6rem 0; padding: 0.4rem 0.8rem 0.6rem; }
+.ram-zones > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0.2rem 1rem; }
+.ram-plan ul { margin: 0.6rem 0; padding-left: 1.2rem; }
+.ram-plan .warn { color: var(--warn-text, #8a5300); }

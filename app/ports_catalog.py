@@ -157,3 +157,27 @@ PORTS = [
     {"name": "Île-Grande", "latitude": 48.8158, "longitude": -3.5988, "offset_zh_m": 0, "api_maree_site": "ile-grande"},
     {"name": "Îles Saint-Marcouf", "latitude": 49.5006, "longitude": -1.1331, "offset_zh_m": 0, "api_maree_site": "iles-saint-marcouf"},
 ]
+
+
+def _with_shom_levels(ports: list[dict]) -> list[dict]:
+    """Complète le catalogue avec les Références Altimétriques Maritimes du Shom (ram.py) : niveau moyen des ports qui
+    n'en ont pas (les valeurs saisies ci-dessus sont gardées), puis les sites du Shom absents du catalogue."""
+    from . import ram
+    out, used = [], set()
+    for p in ports:
+        site = ram.match(p["name"], p["latitude"], p["longitude"])
+        if site:
+            used.add(site["name"])
+            if not p["offset_zh_m"]:
+                p = {**p, "offset_zh_m": site["nm"], "level_source": "shom"}
+        out.append(p)
+    names = {ram.norm(p["name"]) for p in out}
+    for site in ram.sites():
+        if site["name"] in used or ram.norm(site["name"]) in names:
+            continue
+        out.append({"name": site["name"], "latitude": site["latitude"], "longitude": site["longitude"],
+                    "offset_zh_m": site["nm"], "api_maree_site": None, "level_source": "shom", "zone": site["zone"]})
+    return out
+
+
+PORTS = _with_shom_levels(PORTS)

@@ -170,6 +170,7 @@ SUMMARIES = {
     ("GET", "/api/admin/structures/{structure_id}/profile"): "Fiche d'une structure",
     ("GET", "/api/admin/status"): "État des données de marée",
     ("GET", "/api/admin/ports"): "Ports, années calculées, recalages",
+    ("GET", "/api/admin/ports/ram"): "Zones et sites du Shom proposés à l'import",
     ("GET", "/api/admin/jobs"): "Tâches de fond récentes",
     ("GET", "/api/admin/jobs/{job_id}"): "Une tâche et son journal",
     ("GET", "/api/admin/structure-requests"): "Demandes de création de structure",

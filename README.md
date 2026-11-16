@@ -208,9 +208,19 @@ Le script avertit si la basse mer la plus basse passe à plus de 0,30 m sous le 
 
 FES donne des hauteurs par rapport au **niveau moyen**. Pour obtenir des hauteurs comparables à l'annuaire SHOM (au-dessus du **zéro hydrographique**), chaque port porte un décalage `offset_zh_m` dans `app/ports_catalog.py`.
 
-Valeurs actuellement renseignées : Binic (6,68 m), Saint-Quay-Portrieux (6,57 m), Erquy (6,62 m), Paimpol (6,25 m), Brest (4,32 m). Les autres ports du catalogue sont à `0` : **le précalcul refuse de les traiter** tant qu'une valeur n'est pas renseignée ou passée avec `--offset-zh`.
+Le catalogue contient les **133 sites d'api-maree.fr** (liste publique `GET https://api-maree.fr/sites`, avec identifiant, nom et coordonnées de la station), **complétés par les Références Altimétriques Maritimes (RAM) du Shom** : l'onglet Ports de l'administration les propose pour pré-remplir le formulaire, y compris le niveau moyen et l'identifiant `api_maree_site` (recalage). Leurs coordonnées sont celles de la station et peuvent tomber à terre ou hors du modèle FES : les ajuster à l'eau avant le calcul.
 
-Le catalogue contient les **133 sites d'api-maree.fr** (liste publique `GET https://api-maree.fr/sites`, avec identifiant, nom et coordonnées de la station) : l'onglet Ports de l'administration les propose pour pré-remplir le formulaire, y compris l'identifiant `api_maree_site` (recalage). Leurs coordonnées sont celles de la station et peuvent tomber à terre ou hors du modèle FES : les ajuster à l'eau avant le calcul. Le niveau moyen reste à renseigner (RAM du Shom).
+### Ports et niveaux moyens du Shom (Manche et Atlantique)
+
+`app/data/ram_manche_atlantique.json` reprend les **183 sites des 13 zones Manche et Atlantique** des RAM du Shom qui ont un niveau moyen (nom, zone, coordonnées de l'observatoire, colonne « NM »), sous **Licence Ouverte 2.0** (source à citer : Shom). `app/ram.py` :
+
+- **complète le catalogue** : niveau moyen des ports du catalogue qui n'en avaient pas (une valeur saisie dans `ports_catalog.py` est gardée), et sites du Shom absents du catalogue ;
+- **associe un port à un site du Shom** : même nom (à 25 km près), sinon un mot distinctif commun (« Audierne » / « Audierne (Quai Pelletan) », à 10 km près), sinon le site le plus proche à moins de 1,5 km ;
+- **importe** (onglet Ports → *Importer les ports de la Manche et de l'Atlantique (Shom)*, super administrateurs) : choix des zones, aperçu (`POST /api/admin/ports/import-ram/preview`), puis import (`POST /api/admin/ports/import-ram`) qui crée les ports manquants — **sans** recalcul annuel automatique, à activer port par port — et renseigne le niveau moyen des ports existants qui n'en ont pas. Les niveaux *estimés* (api-maree.fr) sont remplacés par défaut ; les niveaux saisis à la main ne le sont que sur demande, et les écarts sont listés.
+
+> Les valeurs saisies avant cet import diffèrent du Shom : Binic 6,68 m (Shom 6,36), Saint-Quay-Portrieux 6,57 (6,46), Erquy 6,62 (6,33), Brest 4,32 (4,14). Elles sont gardées dans le catalogue ; l'import les signale et peut les aligner.
+
+Mise à jour des données : `python -m app.ram refresh` (service WFS du Shom), ou `python -m app.ram refresh fichier.json` à partir d'un GeoJSON téléchargé depuis ce service.
 
 ### Estimer les niveaux moyens manquants
 

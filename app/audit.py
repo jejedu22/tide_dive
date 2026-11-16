@@ -77,6 +77,7 @@ LABELS: dict[tuple[str, str], str] = {
     ("PATCH", "/api/admin/ports/{port_id}"): "Port modifié",
     ("DELETE", "/api/admin/ports/{port_id}"): "Port supprimé",
     ("DELETE", "/api/admin/ports/{port_id}/calibration"): "Recalage du port abandonné",
+    ("POST", "/api/admin/ports/import-ram"): "Ports et niveaux moyens importés (Shom)",
     ("POST", "/api/admin/jobs"): "Tâche mise en file",
     ("POST", "/api/admin/jobs/annual"): "Précalcul annuel mis en file",
     ("POST", "/api/admin/jobs/{job_id}/cancel"): "Tâche annulée",
@@ -167,7 +168,7 @@ LABELS: dict[tuple[str, str], str] = {
 SKIPPED_PREFIXES = (
     "/api/auth/login", "/api/auth/forgot-password", "/api/auth/token-info", "/api/auth/reset-password",
     "/api/me/preferences", "/api/me/water-preferences", "/api/me/notifications", "/api/me/push", "/api/me/structure", "/api/me/calendar-feeds",
-    "/api/me/newsletters", "/api/newsletters/preview", "/api/newsletters/unsubscribe", "/api/mailjet/events",
+    "/api/me/newsletters", "/api/newsletters/preview", "/api/admin/ports/import-ram/preview", "/api/newsletters/unsubscribe", "/api/mailjet/events",
     "/api/structure-requests", "/api/join/", "/api/admin/mailjet/test", "/api/admin/mailjet/events",
 )
 

@@ -7,7 +7,7 @@
 
 # --- Données générées ---
 # Base SQLite (recalculable via precompute) et ses fichiers de journal
-data/
+/data/
 *.db
 *.db-journal
 *.db-wal
