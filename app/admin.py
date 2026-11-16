@@ -19,7 +19,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db, health, jobs, level_estimate, tide_model, tide_reference
+from . import calendar_fr, db, health, jobs, level_estimate, ram, tide_model, tide_reference
 from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
@@ -217,6 +217,42 @@ def admin_ports_catalog(admin: CurrentAdmin):
         {**p, "offset_zh_m": p.get("offset_zh_m") or None}
         for p in PORTS if p["name"].lower() not in existing
     ]
+
+
+class RamImportIn(BaseModel):
+    zones: list[str] = Field(min_length=1, max_length=len(ram.ZONES), description="Zones des RAM du Shom à importer")
+    replace_estimated: bool = Field(True, description="Remplacer les niveaux estimés depuis api-maree.fr")
+    replace_manual: bool = Field(False, description="Remplacer aussi les niveaux saisis à la main")
+
+    @field_validator("zones")
+    @classmethod
+    def _zones(cls, v: list[str]) -> list[str]:
+        unknown = [z for z in v if z not in ram.ZONES]
+        if unknown:
+            raise ValueError(f"zone inconnue : {unknown[0]}")
+        return v
+
+
+@router.get("/ports/ram")
+def admin_ports_ram(admin: CurrentAdmin):
+    """Zones et sites du Shom (Manche et Atlantique) proposés à l'import, avec ce que ferait l'import de toutes les zones."""
+    counts = {z: 0 for z in ram.ZONES}
+    for s in ram.sites():
+        counts[s["zone"]] += 1
+    return {**ram.metadata(), "zones": [{"name": z, "sites": n} for z, n in counts.items()],
+            "plan": ram.plan(ram.ZONES)}
+
+
+@router.post("/ports/import-ram/preview")
+def admin_ports_ram_preview(body: RamImportIn, admin: CurrentAdmin):
+    """Ce que ferait l'import (rien n'est modifié)."""
+    return ram.plan(body.zones, body.replace_estimated, body.replace_manual)
+
+
+@router.post("/ports/import-ram")
+def admin_ports_ram_import(body: RamImportIn, admin: CurrentAdmin):
+    """Importe les ports du Shom : crée les ports manquants (sans précalcul automatique) et renseigne leur niveau moyen."""
+    return ram.apply(body.zones, body.replace_estimated, body.replace_manual)
 
 
 def _get_port_or_404(port_id: int) -> sqlite3.Row:

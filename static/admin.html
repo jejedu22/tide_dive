@@ -317,6 +317,21 @@
           </div>
         </form>
 
+        <details class="panel ram-panel" id="ram-panel">
+          <summary><h2>Importer les ports de la Manche et de l'Atlantique (Shom)</h2></summary>
+          <p class="hint">Ports et <strong>niveaux moyens officiels</strong> (colonne « NM » des Références Altimétriques Maritimes du Shom, Licence Ouverte) : crée les ports manquants et renseigne le niveau moyen des ports déjà enregistrés. Les ports créés n'ont pas le recalcul annuel automatique : cochez « Auto » pour ceux qui vous intéressent, ou lancez leur calcul. Leurs coordonnées sont celles de l'observatoire de marée : à ajuster à l'eau si le calcul échoue.</p>
+          <p id="ram-source" class="hint"></p>
+          <fieldset class="ram-zones">
+            <legend>Zones <button type="button" class="btn-quiet btn-small" id="ram-all">Toutes</button> <button type="button" class="btn-quiet btn-small" id="ram-none">Aucune</button></legend>
+            <div id="ram-zones"></div>
+          </fieldset>
+          <label class="check"><input type="checkbox" id="ram-estimated" checked> Remplacer les niveaux <em>estimés</em> (api-maree.fr) par ceux du Shom</label>
+          <label class="check"><input type="checkbox" id="ram-manual"> Remplacer aussi les niveaux saisis à la main</label>
+          <div id="ram-plan" class="ram-plan" aria-live="polite"></div>
+          <p><button type="button" id="ram-import" class="btn-primary" disabled>Importer</button>
+            <span id="ram-status" class="form-status" role="status"></span></p>
+        </details>
+
         <div class="panel">
           <div class="panel-head">
             <h2>Ports enregistrés</h2>

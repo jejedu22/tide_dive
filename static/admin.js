@@ -1776,6 +1776,77 @@ portForm.addEventListener("submit", async e => {
   }
 });
 
+// Import des ports et niveaux moyens du Shom (app/ram.py) : zones au choix, aperçu de ce qui changera, puis import
+const ramPanel = $("ram-panel");
+let ramLoaded = false, ramTimer = null;
+
+function ramBody() {
+  return { zones: [...$("ram-zones").querySelectorAll("input:checked")].map(i => i.value),
+    replace_estimated: $("ram-estimated").checked, replace_manual: $("ram-manual").checked };
+}
+
+const fmtM = v => v == null ? "—" : `${String(v.toFixed(2)).replace(".", ",")} m`;
+
+function renderRamPlan(plan) {
+  const n = (count, one, many) => `${count} ${count > 1 ? many : one}`;
+  const rows = list => list.map(i => `<tr><td>${esc(i.name)}</td><td class="muted">${esc(i.site)}</td><td class="num">${fmtM(i.current)}${i.estimated ? " <span class=\"tag\">estimé</span>" : ""}</td><td class="num">${fmtM(i.nm)}</td></tr>`).join("");
+  const table = (title, list) => list.length ? `<details><summary>${title}</summary><div class="table-wrap"><table class="users"><thead><tr><th>Port</th><th>Site du Shom</th><th class="num">Actuel</th><th class="num">Shom</th></tr></thead><tbody>${rows(list)}</tbody></table></div></details>` : "";
+  $("ram-plan").innerHTML = `<ul>
+      <li><strong>${n(plan.create.length, "port à créer", "ports à créer")}</strong>${plan.create.length ? ` : ${plan.create.slice(0, 12).map(p => esc(p.name)).join(", ")}${plan.create.length > 12 ? "…" : ""}` : ""}</li>
+      <li>${n(plan.fill.length, "niveau moyen à renseigner", "niveaux moyens à renseigner")} (ports existants sans niveau)</li>
+      <li>${n(plan.replace.length, "niveau à remplacer", "niveaux à remplacer")}</li>
+      <li>${n(plan.unchanged, "port déjà conforme", "ports déjà conformes")}</li>
+      ${plan.differ.length ? `<li class="warn">${n(plan.differ.length, "niveau saisi à la main diffère", "niveaux saisis à la main diffèrent")} du Shom et ${plan.differ.length > 1 ? "sont gardés" : "est gardé"} (cochez « Remplacer aussi les niveaux saisis à la main » pour les aligner)</li>` : ""}
+    </ul>${table("Niveaux à renseigner ou remplacer", [...plan.fill, ...plan.replace])}${table("Écarts gardés", plan.differ)}`;
+  $("ram-import").disabled = !(plan.create.length || plan.fill.length || plan.replace.length);
+}
+
+async function previewRam() {
+  const body = ramBody();
+  if (!body.zones.length) { $("ram-plan").textContent = "Choisissez au moins une zone."; $("ram-import").disabled = true; return; }
+  try {
+    renderRamPlan(await Session.api("/api/admin/ports/import-ram/preview", { method: "POST", body }));
+  } catch (err) {
+    $("ram-plan").textContent = err.message;
+  }
+}
+const schedulePreview = () => { clearTimeout(ramTimer); ramTimer = setTimeout(previewRam, 250); };
+
+ramPanel.addEventListener("toggle", async () => {
+  if (!ramPanel.open || ramLoaded) return;
+  try {
+    const data = await Session.api("/api/admin/ports/ram");
+    $("ram-source").textContent = `Source : ${data.source}, données du ${new Date(data.retrieved).toLocaleDateString("fr-FR")}.`;
+    $("ram-zones").innerHTML = data.zones.map(z => `<label class="check"><input type="checkbox" value="${esc(z.name)}" checked> ${esc(z.name)} <span class="muted">(${z.sites})</span></label>`).join("");
+    ramLoaded = true;
+    renderRamPlan(data.plan);
+  } catch (err) {
+    $("ram-plan").textContent = err.message;
+  }
+});
+$("ram-zones").addEventListener("change", schedulePreview);
+$("ram-estimated").addEventListener("change", schedulePreview);
+$("ram-manual").addEventListener("change", schedulePreview);
+$("ram-all").addEventListener("click", () => { $("ram-zones").querySelectorAll("input").forEach(i => { i.checked = true; }); schedulePreview(); });
+$("ram-none").addEventListener("click", () => { $("ram-zones").querySelectorAll("input").forEach(i => { i.checked = false; }); schedulePreview(); });
+$("ram-import").addEventListener("click", async e => {
+  const btn = e.currentTarget;
+  const body = ramBody();
+  if (body.replace_manual && !confirm("Remplacer aussi les niveaux saisis à la main par ceux du Shom ?")) return;
+  btn.disabled = true;
+  $("ram-status").textContent = "Import en cours…";
+  try {
+    const r = await Session.api("/api/admin/ports/import-ram", { method: "POST", body });
+    $("ram-status").textContent = `${r.created} port${r.created > 1 ? "s" : ""} créé${r.created > 1 ? "s" : ""}, `
+      + `${r.fill.length + r.replace.length} niveau${r.fill.length + r.replace.length > 1 ? "x" : ""} moyen${r.fill.length + r.replace.length > 1 ? "s" : ""} renseigné${r.fill.length + r.replace.length > 1 ? "s" : ""}.`;
+    await loadPorts();
+    await previewRam();
+  } catch (err) {
+    $("ram-status").textContent = err.message;
+    btn.disabled = false;
+  }
+});
+
 // Niveaux moyens manquants : estimés par lots de 5 ports (une requête api-maree.fr chacun), tant qu'il en reste
 $("estimate-levels").addEventListener("click", async e => {
   const btn = e.currentTarget, out = $("estimate-status");

@@ -1,0 +1,1303 @@
+{
+ "source": "Shom, Références Altimétriques Maritimes (Licence Ouverte 2.0)",
+ "url": "https://data.shom.fr",
+ "retrieved": "2026-11-16",
+ "zones": [
+  "Abords de Dunkerque",
+  "Abords de Calais",
+  "Abords de Boulogne-sur-Mer",
+  "Abords de Dieppe",
+  "Abords de Cherbourg et du Havre",
+  "Abords de Saint-Malo",
+  "Entrée de La Manche",
+  "Iroise, Sud Bretagne",
+  "Loire, Vendée",
+  "Pertuis Charentais",
+  "Abords de la Gironde",
+  "La Gironde, la Garonne",
+  "Abords d'Arcachon et de Cap Breton"
+ ],
+ "sites": [
+  {
+   "name": "Banc du Sandettié",
+   "zone": "Abords de Dunkerque",
+   "latitude": 51.25,
+   "longitude": 2.05,
+   "nm": 2.89
+  },
+  {
+   "name": "Dunkerque",
+   "zone": "Abords de Dunkerque",
+   "latitude": 51.05,
+   "longitude": 2.36667,
+   "nm": 3.24
+  },
+  {
+   "name": "Dunkerque Ouest",
+   "zone": "Abords de Dunkerque",
+   "latitude": 51.0225,
+   "longitude": 2.18083,
+   "nm": 3.43
+  },
+  {
+   "name": "Gravelines",
+   "zone": "Abords de Dunkerque",
+   "latitude": 51.01667,
+   "longitude": 2.1,
+   "nm": 3.49
+  },
+  {
+   "name": "Calais",
+   "zone": "Abords de Calais",
+   "latitude": 50.96933,
+   "longitude": 1.8675,
+   "nm": 4.03
+  },
+  {
+   "name": "Wissant",
+   "zone": "Abords de Calais",
+   "latitude": 50.88333,
+   "longitude": 1.66667,
+   "nm": 4.44
+  },
+  {
+   "name": "Boulogne-sur-Mer",
+   "zone": "Abords de Boulogne-sur-Mer",
+   "latitude": 50.72745,
+   "longitude": 1.5777,
+   "nm": 5
+  },
+  {
+   "name": "Banc du Vergoyer",
+   "zone": "Abords de Boulogne-sur-Mer",
+   "latitude": 50.59417,
+   "longitude": 1.33033,
+   "nm": 4.92
+  },
+  {
+   "name": "Le Touquet-Étaples",
+   "zone": "Abords de Boulogne-sur-Mer",
+   "latitude": 50.5153,
+   "longitude": 1.561,
+   "nm": 5.2
+  },
+  {
+   "name": "Berck Plage - Fort Mahon",
+   "zone": "Abords de Boulogne-sur-Mer",
+   "latitude": 50.34167,
+   "longitude": 1.51583,
+   "nm": 5.37
+  },
+  {
+   "name": "Bouée entrée Baie de Somme (AT-SO)",
+   "zone": "Abords de Boulogne-sur-Mer",
+   "latitude": 50.23523,
+   "longitude": 1.4723,
+   "nm": 5.42
+  },
+  {
+   "name": "Cayeux-sur-Mer",
+   "zone": "Abords de Boulogne-sur-Mer",
+   "latitude": 50.18333,
+   "longitude": 1.48333,
+   "nm": 5.49
+  },
+  {
+   "name": "Le Tréport",
+   "zone": "Abords de Dieppe",
+   "latitude": 50.06667,
+   "longitude": 1.36667,
+   "nm": 5.05
+  },
+  {
+   "name": "Dieppe",
+   "zone": "Abords de Dieppe",
+   "latitude": 49.93,
+   "longitude": 1.085,
+   "nm": 5.08
+  },
+  {
+   "name": "Saint-Valery-en-Caux",
+   "zone": "Abords de Dieppe",
+   "latitude": 49.88333,
+   "longitude": 0.72,
+   "nm": 4.72
+  },
+  {
+   "name": "Alpha-Baie de Seine",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.85973,
+   "longitude": -0.38866,
+   "nm": 4.11
+  },
+  {
+   "name": "Fécamp",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.76235,
+   "longitude": 0.36705,
+   "nm": 4.96
+  },
+  {
+   "name": "Omonville-la-Rogue",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.71383,
+   "longitude": -1.83467,
+   "nm": 3.77
+  },
+  {
+   "name": "Étretat",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.71333,
+   "longitude": 0.19833,
+   "nm": 4.8
+  },
+  {
+   "name": "Barfleur",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.66667,
+   "longitude": -1.25,
+   "nm": 4.02
+  },
+  {
+   "name": "Cherbourg",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.65117,
+   "longitude": -1.6355,
+   "nm": 3.87
+  },
+  {
+   "name": "Le Havre-Antifer (Terminal pétrolier)",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.65,
+   "longitude": 0.15,
+   "nm": 4.87
+  },
+  {
+   "name": "Saint-Vaast-la-Hougue",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.58767,
+   "longitude": -1.26433,
+   "nm": 4.08
+  },
+  {
+   "name": "Îles Saint-Marcouf",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.5,
+   "longitude": -1.13333,
+   "nm": 4.28
+  },
+  {
+   "name": "Le Havre",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.48167,
+   "longitude": 0.10617,
+   "nm": 4.96
+  },
+  {
+   "name": "PK 364,775 : Balise A",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.43333,
+   "longitude": 0.12167,
+   "nm": 4.91
+  },
+  {
+   "name": "Grandcamp (Entrée chenal de Carentan)",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.42018,
+   "longitude": -1.08662,
+   "nm": 4.4
+  },
+  {
+   "name": "PK 355,850 : Honfleur",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.41667,
+   "longitude": 0.23333,
+   "nm": 5.03
+  },
+  {
+   "name": "Courseulles-sur-Mer (Large)",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.4,
+   "longitude": -0.46667,
+   "nm": 4.59
+  },
+  {
+   "name": "Trouville-Deauville",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.36667,
+   "longitude": 0.08333,
+   "nm": 5.15
+  },
+  {
+   "name": "Arromanches-les-Bains",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.3555,
+   "longitude": -0.62,
+   "nm": 4.43
+  },
+  {
+   "name": "Port-en-Bessin",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.35139,
+   "longitude": -0.75556,
+   "nm": 4.4
+  },
+  {
+   "name": "Dives-sur-Mer",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.3,
+   "longitude": -0.1,
+   "nm": 5.08
+  },
+  {
+   "name": "Ouistreham",
+   "zone": "Abords de Cherbourg et du Havre",
+   "latitude": 49.28333,
+   "longitude": -0.25,
+   "nm": 4.8
+  },
+  {
+   "name": "Goury",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.71417,
+   "longitude": -1.94867,
+   "nm": 5.06
+  },
+  {
+   "name": "Herqueville",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.65833,
+   "longitude": -1.88917,
+   "nm": 5.51
+  },
+  {
+   "name": "Diélette",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.55445,
+   "longitude": -1.86388,
+   "nm": 5.49
+  },
+  {
+   "name": "Carteret",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.37283,
+   "longitude": -1.787,
+   "nm": 5.95
+  },
+  {
+   "name": "Portbail",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.30683,
+   "longitude": -1.74467,
+   "nm": 6.32
+  },
+  {
+   "name": "Saint-Germain-sur-Ay",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.2,
+   "longitude": -1.66667,
+   "nm": 6.42
+  },
+  {
+   "name": "Les Roches Douvres",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.10417,
+   "longitude": -2.81333,
+   "nm": 5.52
+  },
+  {
+   "name": "Le Sénéquet",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 49.099,
+   "longitude": -1.68517,
+   "nm": 6.65
+  },
+  {
+   "name": "Pointe d'Agon",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.9885,
+   "longitude": -1.62183,
+   "nm": 7.05
+  },
+  {
+   "name": "Les Ardentes",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.96483,
+   "longitude": -1.8605,
+   "nm": 6.73
+  },
+  {
+   "name": "Les Héaux-de-Bréhat",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.90814,
+   "longitude": -3.08333,
+   "nm": 5.7
+  },
+  {
+   "name": "Grande-Île (Îles Chausey)",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.86667,
+   "longitude": -1.81667,
+   "nm": 7.38
+  },
+  {
+   "name": "Île de Bréhat",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.83517,
+   "longitude": -3.00333,
+   "nm": 5.95
+  },
+  {
+   "name": "Granville",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.83417,
+   "longitude": -1.64433,
+   "nm": 7.1
+  },
+  {
+   "name": "Paimpol",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.79033,
+   "longitude": -2.95533,
+   "nm": 6.21
+  },
+  {
+   "name": "Lézardrieux",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.78333,
+   "longitude": -3.1,
+   "nm": 5.9
+  },
+  {
+   "name": "Brehec",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.7265,
+   "longitude": -2.94583,
+   "nm": 6.37
+  },
+  {
+   "name": "Cancale",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.68,
+   "longitude": -1.82667,
+   "nm": 7.2
+  },
+  {
+   "name": "Saint-Quay-Portrieux",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.6475,
+   "longitude": -2.81806,
+   "nm": 6.46
+  },
+  {
+   "name": "Saint-Malo",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.64117,
+   "longitude": -2.0275,
+   "nm": 6.78
+  },
+  {
+   "name": "Erquy",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.63922,
+   "longitude": -2.49018,
+   "nm": 6.33
+  },
+  {
+   "name": "Saint-Cast",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.63833,
+   "longitude": -2.24333,
+   "nm": 6.64
+  },
+  {
+   "name": "Saint-Briac-sur-Mer",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.634,
+   "longitude": -2.1685,
+   "nm": 6.68
+  },
+  {
+   "name": "Le Mont-Saint-Michel",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.63333,
+   "longitude": -1.51667,
+   "nm": 7.19
+  },
+  {
+   "name": "Île des Hébihens",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.61667,
+   "longitude": -2.21,
+   "nm": 6.65
+  },
+  {
+   "name": "Binic",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.6,
+   "longitude": -2.81667,
+   "nm": 6.36
+  },
+  {
+   "name": "Dahouet",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.57917,
+   "longitude": -2.56933,
+   "nm": 6.39
+  },
+  {
+   "name": "Le Légué (Bouée)",
+   "zone": "Abords de Saint-Malo",
+   "latitude": 48.56667,
+   "longitude": -2.68333,
+   "nm": 6.46
+  },
+  {
+   "name": "Port-Béni",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.84717,
+   "longitude": -3.17233,
+   "nm": 5.7
+  },
+  {
+   "name": "Ploumanac'h",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.83667,
+   "longitude": -3.486,
+   "nm": 5.5
+  },
+  {
+   "name": "Perros-Guirec",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.82,
+   "longitude": -3.45833,
+   "nm": 5.52
+  },
+  {
+   "name": "Tréguier",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.78633,
+   "longitude": -3.21933,
+   "nm": 5.72
+  },
+  {
+   "name": "Trébeurden",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.77083,
+   "longitude": -3.58667,
+   "nm": 5.48
+  },
+  {
+   "name": "Île de Batz",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.74167,
+   "longitude": -4.01333,
+   "nm": 5.25
+  },
+  {
+   "name": "Locquemeau",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.725,
+   "longitude": -3.58167,
+   "nm": 5.38
+  },
+  {
+   "name": "Roscoff",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.71869,
+   "longitude": -3.96569,
+   "nm": 5.3
+  },
+  {
+   "name": "Anse de Primel",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.71667,
+   "longitude": -3.83333,
+   "nm": 5.46
+  },
+  {
+   "name": "Locquirec",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.7,
+   "longitude": -3.63333,
+   "nm": 5.49
+  },
+  {
+   "name": "Château du Taureau",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.68333,
+   "longitude": -3.88333,
+   "nm": 5.27
+  },
+  {
+   "name": "Brignogan-Plage",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.6785,
+   "longitude": -4.3175,
+   "nm": 4.92
+  },
+  {
+   "name": "L'Aber Wrac'h",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.59833,
+   "longitude": -4.56167,
+   "nm": 4.46
+  },
+  {
+   "name": "L'Aber Benoît",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.5915,
+   "longitude": -4.63333,
+   "nm": 4.68
+  },
+  {
+   "name": "Portsall",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.56667,
+   "longitude": -4.71667,
+   "nm": 4.45
+  },
+  {
+   "name": "L'Aber Ildut",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.47117,
+   "longitude": -4.7545,
+   "nm": 4.26
+  },
+  {
+   "name": "Baie du Stiff (Île d'Ouessant)",
+   "zone": "Entrée de La Manche",
+   "latitude": 48.46802,
+   "longitude": -5.05405,
+   "nm": 4.16
+  },
+  {
+   "name": "Baie de Lampaul (Île d'Ouessant)",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.45,
+   "longitude": -5.1,
+   "nm": 4.09
+  },
+  {
+   "name": "Île Molène",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.4035,
+   "longitude": -4.95467,
+   "nm": 4.37
+  },
+  {
+   "name": "Moulin Blanc",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.395,
+   "longitude": -4.43,
+   "nm": 4.21
+  },
+  {
+   "name": "Brest",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.3825,
+   "longitude": -4.49472,
+   "nm": 4.14
+  },
+  {
+   "name": "Le Conquet",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.35953,
+   "longitude": -4.78284,
+   "nm": 4.01
+  },
+  {
+   "name": "Le Dellec",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.35367,
+   "longitude": -4.562,
+   "nm": 3.99
+  },
+  {
+   "name": "Trez-Hir",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.33967,
+   "longitude": -4.69933,
+   "nm": 3.91
+  },
+  {
+   "name": "Tinduff",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.33583,
+   "longitude": -4.3675,
+   "nm": 4.27
+  },
+  {
+   "name": "Pont de Térénez",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.28,
+   "longitude": -4.26888,
+   "nm": 4.43
+  },
+  {
+   "name": "Camaret-sur-Mer",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.27833,
+   "longitude": -4.59,
+   "nm": 3.83
+  },
+  {
+   "name": "Morgat",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.2245,
+   "longitude": -4.49733,
+   "nm": 3.88
+  },
+  {
+   "name": "Douarnenez",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.1,
+   "longitude": -4.31667,
+   "nm": 3.83
+  },
+  {
+   "name": "Port du Vorlen",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.053,
+   "longitude": -4.7125,
+   "nm": 3.65
+  },
+  {
+   "name": "Île de Sein",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.04017,
+   "longitude": -4.8475,
+   "nm": 3.59
+  },
+  {
+   "name": "Plogoff",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.024,
+   "longitude": -4.69867,
+   "nm": 3.26
+  },
+  {
+   "name": "Audierne (Quai Pelletan)",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 48.02155,
+   "longitude": -4.53758,
+   "nm": 3.05
+  },
+  {
+   "name": "Les trois Tourtes",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.94617,
+   "longitude": -4.1125,
+   "nm": 3.26
+  },
+  {
+   "name": "Port-la-Forêt",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.901,
+   "longitude": -3.97383,
+   "nm": 3.02
+  },
+  {
+   "name": "Bénodet",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.881,
+   "longitude": -4.11583,
+   "nm": 3.21
+  },
+  {
+   "name": "Concarneau",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.87333,
+   "longitude": -3.90667,
+   "nm": 3.06
+  },
+  {
+   "name": "Loctudy",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.83333,
+   "longitude": -4.16667,
+   "nm": 2.91
+  },
+  {
+   "name": "Saint-Guénolé",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.814,
+   "longitude": -4.3825,
+   "nm": 3.01
+  },
+  {
+   "name": "Port Manec'h",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.80083,
+   "longitude": -3.7385,
+   "nm": 2.93
+  },
+  {
+   "name": "Hennebont",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.8,
+   "longitude": -3.28333,
+   "nm": 3.08
+  },
+  {
+   "name": "Lesconil",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.79517,
+   "longitude": -4.21133,
+   "nm": 3.05
+  },
+  {
+   "name": "Le Guilvinec",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.79417,
+   "longitude": -4.2785,
+   "nm": 3.04
+  },
+  {
+   "name": "Le Pouldu",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.762,
+   "longitude": -3.54267,
+   "nm": 3.06
+  },
+  {
+   "name": "Lorient (Port de commerce)",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.7375,
+   "longitude": -3.3545,
+   "nm": 3.16
+  },
+  {
+   "name": "Penfret (Îles de Glénan)",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.72217,
+   "longitude": -3.955,
+   "nm": 3
+  },
+  {
+   "name": "Port-Louis (Locmalo)",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.7055,
+   "longitude": -3.34533,
+   "nm": 3.13
+  },
+  {
+   "name": "Port d'Étel",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.65667,
+   "longitude": -3.20667,
+   "nm": 3.25
+  },
+  {
+   "name": "Port-Tudy",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.64458,
+   "longitude": -3.44631,
+   "nm": 3.19
+  },
+  {
+   "name": "Entrée rivière d'Étel",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.64417,
+   "longitude": -3.21167,
+   "nm": 3.21
+  },
+  {
+   "name": "Portivy",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.53133,
+   "longitude": -3.14733,
+   "nm": 3.15
+  },
+  {
+   "name": "Port-Maria",
+   "zone": "Iroise, Sud Bretagne",
+   "latitude": 47.48333,
+   "longitude": -3.1333,
+   "nm": 3.2
+  },
+  {
+   "name": "Auray (St-Goustan)",
+   "zone": "Loire, Vendée",
+   "latitude": 47.66338,
+   "longitude": -2.97812,
+   "nm": 2.76
+  },
+  {
+   "name": "Vannes",
+   "zone": "Loire, Vendée",
+   "latitude": 47.63833,
+   "longitude": -2.76083,
+   "nm": 1.73
+  },
+  {
+   "name": "Arradon",
+   "zone": "Loire, Vendée",
+   "latitude": 47.615,
+   "longitude": -2.83,
+   "nm": 1.53
+  },
+  {
+   "name": "Fort Espagnol",
+   "zone": "Loire, Vendée",
+   "latitude": 47.61233,
+   "longitude": -2.95317,
+   "nm": 2.78
+  },
+  {
+   "name": "Saint-Armel (Le Passage)",
+   "zone": "Loire, Vendée",
+   "latitude": 47.59133,
+   "longitude": -2.715,
+   "nm": 1.78
+  },
+  {
+   "name": "La Trinité-sur-Mer",
+   "zone": "Loire, Vendée",
+   "latitude": 47.5875,
+   "longitude": -3.02556,
+   "nm": 3.3
+  },
+  {
+   "name": "Locmariaquer",
+   "zone": "Loire, Vendée",
+   "latitude": 47.57,
+   "longitude": -2.93,
+   "nm": 2.76
+  },
+  {
+   "name": "Port-Navalo",
+   "zone": "Loire, Vendée",
+   "latitude": 47.55,
+   "longitude": -2.91667,
+   "nm": 3.05
+  },
+  {
+   "name": "Le Logeo",
+   "zone": "Loire, Vendée",
+   "latitude": 47.54783,
+   "longitude": -2.8455,
+   "nm": 1.59
+  },
+  {
+   "name": "Port du Crouesty",
+   "zone": "Loire, Vendée",
+   "latitude": 47.5426,
+   "longitude": -2.89495,
+   "nm": 3.32
+  },
+  {
+   "name": "Pénerf",
+   "zone": "Loire, Vendée",
+   "latitude": 47.51433,
+   "longitude": -2.62383,
+   "nm": 3.28
+  },
+  {
+   "name": "Tréhiguier",
+   "zone": "Loire, Vendée",
+   "latitude": 47.495,
+   "longitude": -2.44,
+   "nm": 3.4
+  },
+  {
+   "name": "Port-Haliguen",
+   "zone": "Loire, Vendée",
+   "latitude": 47.48333,
+   "longitude": -3.1,
+   "nm": 3.13
+  },
+  {
+   "name": "Houat",
+   "zone": "Loire, Vendée",
+   "latitude": 47.404,
+   "longitude": -2.94967,
+   "nm": 3.17
+  },
+  {
+   "name": "Le Palais (Belle-Île)",
+   "zone": "Loire, Vendée",
+   "latitude": 47.34767,
+   "longitude": -3.15217,
+   "nm": 3.07
+  },
+  {
+   "name": "Hoëdic",
+   "zone": "Loire, Vendée",
+   "latitude": 47.3445,
+   "longitude": -2.87417,
+   "nm": 3.09
+  },
+  {
+   "name": "Montoir de Bretagne",
+   "zone": "Loire, Vendée",
+   "latitude": 47.30556,
+   "longitude": -2.10836,
+   "nm": 3.69
+  },
+  {
+   "name": "Le Croisic",
+   "zone": "Loire, Vendée",
+   "latitude": 47.3,
+   "longitude": -2.51667,
+   "nm": 3.3
+  },
+  {
+   "name": "Cordemais",
+   "zone": "Loire, Vendée",
+   "latitude": 47.27722,
+   "longitude": -1.88981,
+   "nm": 3.78
+  },
+  {
+   "name": "Saint-Nazaire",
+   "zone": "Loire, Vendée",
+   "latitude": 47.26694,
+   "longitude": -2.20167,
+   "nm": 3.61
+  },
+  {
+   "name": "Pornichet",
+   "zone": "Loire, Vendée",
+   "latitude": 47.25833,
+   "longitude": -2.34667,
+   "nm": 3.41
+  },
+  {
+   "name": "Le Pouliguen",
+   "zone": "Loire, Vendée",
+   "latitude": 47.25167,
+   "longitude": -2.40333,
+   "nm": 3.31
+  },
+  {
+   "name": "Le Grand Charpentier",
+   "zone": "Loire, Vendée",
+   "latitude": 47.215,
+   "longitude": -2.31694,
+   "nm": 3.39
+  },
+  {
+   "name": "Le Pellerin",
+   "zone": "Loire, Vendée",
+   "latitude": 47.20539,
+   "longitude": -1.76514,
+   "nm": 3.97
+  },
+  {
+   "name": "Nantes (Chantenay)",
+   "zone": "Loire, Vendée",
+   "latitude": 47.19344,
+   "longitude": -1.63367,
+   "nm": 4.1
+  },
+  {
+   "name": "Pointe de Saint-Gildas",
+   "zone": "Loire, Vendée",
+   "latitude": 47.14,
+   "longitude": -2.24667,
+   "nm": 3.44
+  },
+  {
+   "name": "Pornic",
+   "zone": "Loire, Vendée",
+   "latitude": 47.10917,
+   "longitude": -2.11367,
+   "nm": 3.57
+  },
+  {
+   "name": "L'Herbaudière (Île de Noirmoutier)",
+   "zone": "Loire, Vendée",
+   "latitude": 47.02667,
+   "longitude": -2.29833,
+   "nm": 3.6
+  },
+  {
+   "name": "Fromentine (embarcadère)",
+   "zone": "Loire, Vendée",
+   "latitude": 46.89333,
+   "longitude": -2.14,
+   "nm": 3.4
+  },
+  {
+   "name": "Bouée Fromentine",
+   "zone": "Loire, Vendée",
+   "latitude": 46.8847,
+   "longitude": -2.19317,
+   "nm": 3.2
+  },
+  {
+   "name": "Port-Joinville (Île d'Yeu)",
+   "zone": "Loire, Vendée",
+   "latitude": 46.72667,
+   "longitude": -2.348,
+   "nm": 3.12
+  },
+  {
+   "name": "Saint-Gilles-Croix-de-Vie",
+   "zone": "Loire, Vendée",
+   "latitude": 46.69667,
+   "longitude": -1.9425,
+   "nm": 3.17
+  },
+  {
+   "name": "Les Sables d'Olonne",
+   "zone": "Loire, Vendée",
+   "latitude": 46.4975,
+   "longitude": -1.79361,
+   "nm": 3.31
+  },
+  {
+   "name": "L'Aiguillon-sur-Mer",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.335,
+   "longitude": -1.31639,
+   "nm": 4.05
+  },
+  {
+   "name": "Pointe de l'Aiguillon",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.2575,
+   "longitude": -1.19083,
+   "nm": 4.05
+  },
+  {
+   "name": "Saint-Martin-de-Ré (Île de Ré)",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.208,
+   "longitude": -1.3655,
+   "nm": 3.82
+  },
+  {
+   "name": "La Rochelle - La Pallice",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.16,
+   "longitude": -1.22167,
+   "nm": 3.9
+  },
+  {
+   "name": "Saint-Denis d'Oléron",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.03683,
+   "longitude": -1.37233,
+   "nm": 3.89
+  },
+  {
+   "name": "Île d'Aix",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.00833,
+   "longitude": -1.17333,
+   "nm": 3.96
+  },
+  {
+   "name": "Port du Douhet (Bouée W)",
+   "zone": "Pertuis Charentais",
+   "latitude": 46.00617,
+   "longitude": -1.29633,
+   "nm": 3.9
+  },
+  {
+   "name": "Fort Boyard",
+   "zone": "Pertuis Charentais",
+   "latitude": 46,
+   "longitude": -1.21167,
+   "nm": 3.94
+  },
+  {
+   "name": "Rochefort",
+   "zone": "Pertuis Charentais",
+   "latitude": 45.95,
+   "longitude": -0.96667,
+   "nm": 4.19
+  },
+  {
+   "name": "Le Chapus",
+   "zone": "Pertuis Charentais",
+   "latitude": 45.85367,
+   "longitude": -1.178,
+   "nm": 3.99
+  },
+  {
+   "name": "Pont aval de la Seudre",
+   "zone": "Pertuis Charentais",
+   "latitude": 45.79956,
+   "longitude": -1.1378,
+   "nm": 3.29
+  },
+  {
+   "name": "La Cayenne",
+   "zone": "Pertuis Charentais",
+   "latitude": 45.78917,
+   "longitude": -1.1255,
+   "nm": 3.63
+  },
+  {
+   "name": "La Cotinière",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.91417,
+   "longitude": -1.32583,
+   "nm": 3.62
+  },
+  {
+   "name": "Pointe de Gatseau",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.79917,
+   "longitude": -1.23667,
+   "nm": 3.44
+  },
+  {
+   "name": "Royan",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.61933,
+   "longitude": -1.028,
+   "nm": 3.42
+  },
+  {
+   "name": "Cordouan",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.58333,
+   "longitude": -1.16667,
+   "nm": 3.03
+  },
+  {
+   "name": "Pointe de Grave",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.56867,
+   "longitude": -1.06667,
+   "nm": 3.29
+  },
+  {
+   "name": "Le Verdon-sur-Mer",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.54633,
+   "longitude": -1.04083,
+   "nm": 3.33
+  },
+  {
+   "name": "Richard",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.45367,
+   "longitude": -0.92305,
+   "nm": 3.38
+  },
+  {
+   "name": "Lamena",
+   "zone": "Abords de la Gironde",
+   "latitude": 45.33573,
+   "longitude": -0.79522,
+   "nm": 3.32
+  },
+  {
+   "name": "Lacanau",
+   "zone": "Abords de la Gironde",
+   "latitude": 45,
+   "longitude": -1.2,
+   "nm": 2.69
+  },
+  {
+   "name": "Pauillac - Trompeloup",
+   "zone": "La Gironde, la Garonne",
+   "latitude": 45.2168,
+   "longitude": -0.746,
+   "nm": 3.12
+  },
+  {
+   "name": "Fort Médoc",
+   "zone": "La Gironde, la Garonne",
+   "latitude": 45.11727,
+   "longitude": -0.70026,
+   "nm": 2.9
+  },
+  {
+   "name": "Le Marquis",
+   "zone": "La Gironde, la Garonne",
+   "latitude": 45.00312,
+   "longitude": -0.55967,
+   "nm": 2.46
+  },
+  {
+   "name": "Bordeaux",
+   "zone": "La Gironde, la Garonne",
+   "latitude": 44.85998,
+   "longitude": -0.5528,
+   "nm": 2.45
+  },
+  {
+   "name": "Le Grand Piquey",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 44.7135,
+   "longitude": -1.21083,
+   "nm": 2.37
+  },
+  {
+   "name": "Arcachon",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 44.66433,
+   "longitude": -1.16367,
+   "nm": 2.48
+  },
+  {
+   "name": "Cap Ferret",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 44.62917,
+   "longitude": -1.24167,
+   "nm": 2.37
+  },
+  {
+   "name": "Pilat Plage",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 44.60306,
+   "longitude": -1.21056,
+   "nm": 2.33
+  },
+  {
+   "name": "Biscarrosse",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 44.46755,
+   "longitude": -1.27075,
+   "nm": 2.49
+  },
+  {
+   "name": "Mimizan",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 44.21667,
+   "longitude": -1.3,
+   "nm": 2.63
+  },
+  {
+   "name": "Vieux-Boucau",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 43.78333,
+   "longitude": -1.41667,
+   "nm": 2.22
+  },
+  {
+   "name": "Capbreton",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 43.65367,
+   "longitude": -1.43717,
+   "nm": 2.41
+  },
+  {
+   "name": "Boucau-Bayonne",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 43.52722,
+   "longitude": -1.51472,
+   "nm": 2.53
+  },
+  {
+   "name": "Saint-Jean-de-Luz",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 43.395,
+   "longitude": -1.68167,
+   "nm": 2.51
+  },
+  {
+   "name": "Hendaye",
+   "zone": "Abords d'Arcachon et de Cap Breton",
+   "latitude": 43.37933,
+   "longitude": -1.78467,
+   "nm": 2.52
+  }
+ ]
+}
