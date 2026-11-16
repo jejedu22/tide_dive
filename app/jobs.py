@@ -36,6 +36,7 @@ import json
 import os
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -215,6 +216,26 @@ def enqueue_calibrations(created_by: str, kind: str = "calibrate") -> list[int]:
 # Worker
 # ---------------------------------------------------------------------------
 
+LOG_BACKLOG_MAX = 200_000   # journal gardé en mémoire tant que la base est verrouillée (caractères)
+
+
+def _locked(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and ("locked" in str(exc) or "busy" in str(exc))
+
+
+def _retry(fn, *args, what: str, attempts: int = 10):
+    """Réessaie une écriture tant que la base est verrouillée par un autre processus (un calcul écrit une année
+    entière en une transaction : plus de 30 s sur un petit serveur) ; environ 5 minutes au plus."""
+    for i in range(attempts):
+        try:
+            return fn(*args)
+        except sqlite3.OperationalError as exc:
+            if not _locked(exc) or i == attempts - 1:
+                raise
+            print(f"[worker] base verrouillée ({what}), nouvel essai…", file=sys.stderr, flush=True)
+            time.sleep(min(30, 2 ** i))
+
+
 class Worker:
     def __init__(self) -> None:
         self.stopping = False
@@ -246,7 +267,13 @@ class Worker:
         print(f"[worker] prêt (modèles : {MODEL_DIR}).", flush=True)
         while not self.stopping:
             self.beat()
-            job = db.claim_next_job(now_iso())
+            try:
+                job = db.claim_next_job(now_iso())
+            except sqlite3.OperationalError as exc:
+                if not _locked(exc):
+                    raise
+                time.sleep(POLL_SECONDS)       # base verrouillée : on réessaie au tour suivant
+                continue
             if job is None:
                 time.sleep(POLL_SECONDS)
                 continue
@@ -267,7 +294,7 @@ class Worker:
     def execute(self, job) -> None:
         job_id, kind = job["id"], job["kind"]
         self.current_job = job_id
-        log = lambda text: db.append_job_log(job_id, text)
+        log = lambda text: self._log(job_id, text)
         print(f"[worker] tâche #{job_id} ({kind}) démarrée.", flush=True)
 
         try:
@@ -275,7 +302,7 @@ class Worker:
             cmd = build_command(kind, params)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
             log(f"Paramètres invalides : {exc}\n")
-            db.finish_job(job_id, "failed", None, now_iso())
+            self._finish(job_id, "failed", None)
             self._alert_failure(job_id, kind, job["params_json"])
             self.current_job = None
             return
@@ -283,18 +310,42 @@ class Worker:
         refusal = preflight(kind)
         if refusal:
             log(refusal + "\n")
-            db.finish_job(job_id, "failed", None, now_iso())
+            self._finish(job_id, "failed", None)
             self._alert_failure(job_id, kind, job["params_json"])
             self.current_job = None
             return
 
         log(f"$ {' '.join(cmd)}\n")
         status, code = self._run_process(job_id, cmd, log)
-        db.finish_job(job_id, status, code, now_iso())
+        self._finish(job_id, status, code)
         print(f"[worker] tâche #{job_id} terminée : {status} (code {code}).", flush=True)
         if status == "failed":
             self._alert_failure(job_id, kind, job["params_json"])
         self.current_job = None
+
+    @staticmethod
+    def _log(job_id: int, text: str) -> bool:
+        """Ajoute au journal de la tâche ; False si la base est verrouillée (le texte sera renvoyé plus tard)."""
+        try:
+            db.append_job_log(job_id, text)
+            return True
+        except sqlite3.OperationalError as exc:
+            if not _locked(exc):
+                raise
+            return False
+
+    @staticmethod
+    def _finish(job_id: int, status: str, code: int | None) -> None:
+        _retry(db.finish_job, job_id, status, code, now_iso(), what=f"fin de la tâche #{job_id}")
+
+    @staticmethod
+    def _cancel_requested(job_id: int) -> bool:
+        try:
+            return db.job_cancel_requested(job_id)
+        except sqlite3.OperationalError as exc:
+            if not _locked(exc):
+                raise
+            return False
 
     def _run_process(self, job_id: int, cmd: list[str], log) -> tuple[str, int | None]:
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
@@ -322,12 +373,22 @@ class Worker:
         t = threading.Thread(target=reader, daemon=True)
         t.start()
 
-        def flush():
+        def flush(final: bool = False):
             with lock:
                 chunk = "".join(buf)
                 buf.clear()
-            if chunk:
-                log(chunk)
+            if not chunk:
+                return
+            ok = log(chunk)
+            for i in range(10 if final else 0):      # dernier envoi : on attend que la base se libère
+                if ok:
+                    break
+                time.sleep(min(30, 2 ** i))
+                ok = log(chunk)
+            if not ok and not final:
+                # base verrouillée (le calcul écrit) : le texte attend le prochain passage, sans dépasser la limite
+                with lock:
+                    buf.insert(0, chunk[-LOG_BACKLOG_MAX:])
 
         reason = None
         last_beat = 0.0
@@ -337,7 +398,7 @@ class Worker:
             if time.monotonic() - last_beat > 10:
                 self.beat()
                 last_beat = time.monotonic()
-            if reason is None and db.job_cancel_requested(job_id):
+            if reason is None and self._cancel_requested(job_id):
                 reason = "cancelled"
             elif reason is None and self.stopping:
                 reason = "stopping"
@@ -347,7 +408,7 @@ class Worker:
 
         proc.wait()
         t.join(timeout=5)
-        flush()
+        flush(final=True)
 
         if reason and proc.returncode == 0:
             reason = None  # terminée d'elle-même juste avant l'annulation
