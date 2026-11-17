@@ -166,3 +166,38 @@ def test_le_demarrage_attend_la_migration_en_cours(tmp_db):
     done["waited"] = _time.monotonic() - before
     t.join()
     assert done["waited"] >= 1.0
+
+
+def test_separation_rapide(tmp_db):
+    """split_tides : même résultat que la migration 39, en copiant le fichier (base en version 38 → 39)."""
+    from app import split_tides
+    port = db.create_port("Binic", 48.6, -2.8, "Europe/Paris", 6.36, False)
+    conn = sqlite3.connect(tmp_db)
+    conn.executescript(f"""
+        CREATE TABLE main.tide_heights {TIDE_HEIGHTS_COLUMNS};
+        CREATE TABLE main.tide_extrema {TIDE_EXTREMA_COLUMNS};
+        CREATE TABLE main.computed_years (port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
+                                          year INTEGER NOT NULL, model TEXT NOT NULL, computed_at TEXT NOT NULL,
+                                          PRIMARY KEY (port_id, year));
+        INSERT INTO main.tide_heights VALUES ({port}, 'fes', '{YEAR}-01-01T00:00:00+00:00', 1.5);
+        INSERT INTO main.tide_extrema VALUES ({port}, 'fes', '{YEAR}-01-01T03:00:00+00:00', 'PM', 4.0, 90);
+        INSERT INTO main.computed_years VALUES ({port}, {YEAR}, 'FES2014', 'x');
+        PRAGMA user_version = 38;
+    """)
+    conn.close()
+    from app.db_core import _local
+    cached = getattr(_local, "cached", None)          # connexion du fil de test : fermée, comme l'application arrêtée
+    if cached:
+        cached[1].close()
+        _local.cached = None
+    assert split_tides.split() is True
+    db.init_db()
+    assert migrations.schema_version() == 39 and db.years_by_port() == {port: [YEAR]}
+    h, e, sun = _series(30, 2.0)
+    db.replace_year(port, YEAR + 1, h, e, sun, model="FES2014")   # écriture possible (clé étrangère retirée)
+    db.delete_port(port)
+    with db.get_conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM main.sqlite_master WHERE name = 'tide_heights'").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM tide_heights").fetchone()[0] == 0
+        assert "REFERENCES" not in c.execute("SELECT sql FROM tides.sqlite_master WHERE name = 'computed_years'").fetchone()[0]
+    assert split_tides.split() is False
