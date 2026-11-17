@@ -47,13 +47,18 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "plongee.db"
 
 # Réexportations : après DB_PATH, que db_core relit à chaque appel (get_conn)
 from .db_core import (  # noqa: F401
+    TIDE_TABLES,
+    TIDES_SCHEMA_NAME,
+    attach_tides,
     fetch_all,
     get_conn,
     get_setting,
     set_setting,
+    tides_path,
 )
 from .db_schema import (  # noqa: F401
     DIVE_SITES_COLUMNS,
+    TIDES_SCHEMA,
     SITE_CURRENTS_COLUMNS,
     SLOT_SELECTIONS_COLUMNS,
     TIDE_HEIGHTS_COLUMNS,
@@ -68,6 +73,7 @@ from .db_schema import (  # noqa: F401
     _migrate,
 )
 from .db_tides import (  # noqa: F401
+    HEIGHTS_CHUNK,
     get_weather_cache,
     save_weather_cache,
     _SQL_INSERT_HEIGHTS,

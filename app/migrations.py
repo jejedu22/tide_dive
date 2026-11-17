@@ -757,6 +757,26 @@ def _m038_site_domains(conn: sqlite3.Connection) -> None:
 
 
 # Migrations postérieures à la version 1, par numéro croissant.
+def _m039_tides_file(conn: sqlite3.Connection) -> None:
+    """Hauteurs, étales, couverture, soleil et années calculées passent dans le fichier des marées (rattaché sous le
+    nom « tides », db_core.tides_path) : un précalcul n'y bloque plus les écritures de l'application. Copie puis
+    suppression dans la base principale ; INSERT OR REPLACE : sans effet si une copie a déjà eu lieu. La base principale
+    est compactée ensuite (run, VACUUM)."""
+    from .db_core import TIDE_TABLES, TIDES_SCHEMA_NAME
+    from .db_schema import TIDES_SCHEMA
+    for statement in TIDES_SCHEMA.split(";"):          # executescript validerait la transaction en cours
+        if statement.strip() and not all(line.strip().startswith("--") for line in statement.strip().splitlines()):
+            conn.execute(statement)
+    for table in TIDE_TABLES:
+        if conn.execute("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone() is None:
+            continue
+        old = {r["name"] for r in conn.execute(f"PRAGMA main.table_info({table})")}
+        cols = ", ".join(r["name"] for r in conn.execute(f"PRAGMA {TIDES_SCHEMA_NAME}.table_info({table})")
+                         if r["name"] in old)
+        conn.execute(f"INSERT OR REPLACE INTO {TIDES_SCHEMA_NAME}.{table} ({cols}) SELECT {cols} FROM main.{table}")
+        conn.execute(f"DROP TABLE main.{table}")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
     Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
@@ -795,6 +815,7 @@ MIGRATIONS: list[Migration] = [
     Migration(36, "pilotes et directeurs de plongée", _m036_duties),
     Migration(37, "page vitrine des structures", _m037_structure_sites),
     Migration(38, "noms de domaine des pages vitrines", _m038_site_domains),
+    Migration(39, "marées précalculées dans un fichier à part", _m039_tides_file),
 ]
 
 
@@ -814,7 +835,8 @@ def _validate(migrations: list[Migration]) -> list[Migration]:
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(db.DB_PATH, timeout=60, isolation_level=None)   # transactions gérées ici
     conn.row_factory = sqlite3.Row
-    return conn
+    from .db_core import attach_tides
+    return attach_tides(conn, db.DB_PATH)
 
 
 def schema_version() -> int:
@@ -881,6 +903,15 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False) -> list[
                 raise
             applied.append(m.version)
             print(f"[migrations] migration {m.version} appliquée : {m.description}", flush=True)
+        if 39 in applied:
+            # les marées ont quitté la base principale : la compacter (sinon sa taille et ses sauvegardes ne baissent pas)
+            started = time.monotonic()
+            try:
+                conn.execute("VACUUM main")
+                conn.execute("PRAGMA main.wal_checkpoint(TRUNCATE)")   # le fichier rétrécit tout de suite
+                print(f"[migrations] base principale compactée ({time.monotonic() - started:.1f} s)", flush=True)
+            except sqlite3.OperationalError as exc:
+                print(f"[migrations] compactage remis à plus tard : {exc}", file=sys.stderr, flush=True)
         return applied
     finally:
         conn.close()
