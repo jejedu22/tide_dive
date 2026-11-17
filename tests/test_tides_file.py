@@ -142,3 +142,27 @@ def test_migration_sans_sauvegarde(tmp_db, monkeypatch):
         conn.execute("PRAGMA user_version = 38")
     assert migrations.main(["run", "--no-backup"]) == 0
     assert migrations.schema_version() == 39
+
+
+def test_le_demarrage_attend_la_migration_en_cours(tmp_db):
+    """Pendant qu'un processus migre (verrou tenu), init_db attend au lieu d'échouer sur une base occupée."""
+    import threading
+    import time as _time
+    started, done = threading.Event(), {}
+
+    def migrating():
+        with migrations.migration_lock():
+            conn = db.attach_tides(sqlite3.connect(tmp_db, isolation_level=None))
+            conn.execute("BEGIN IMMEDIATE")                  # comme une longue migration
+            started.set()
+            _time.sleep(1.5)
+            conn.execute("COMMIT")
+
+    t = threading.Thread(target=migrating)
+    t.start()
+    started.wait()
+    before = _time.monotonic()
+    db.init_db()                                             # attend la fin, puis démarre normalement
+    done["waited"] = _time.monotonic() - before
+    t.join()
+    assert done["waited"] >= 1.0

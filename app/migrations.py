@@ -39,7 +39,9 @@ import os
 import shutil
 import sqlite3
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Callable
@@ -866,9 +868,24 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False, backup: 
     Un seul processus à la fois (verrou data/.migrations.lock) : l'API, le worker et le planificateur démarrent
     ensemble ; les deux autres attendent la fin, puis ne trouvent plus rien à faire (sinon chacun sauvegardait la base
     de son côté, trois fois plus lentement)."""
-    import fcntl
     if backup is None:
         backup = os.environ.get("MIGRATION_BACKUP", "1").lower() not in ("0", "false", "no")
+    with migration_lock():
+        return _run(migrations, fresh, backup)
+
+
+_lock_state = threading.local()
+
+
+@contextmanager
+def migration_lock():
+    """Verrou data/.migrations.lock, pour tout le démarrage de la base (db.init_db) et les migrations : un seul
+    processus à la fois ; les autres attendent (aussi longtemps qu'il faut) au lieu d'échouer sur une base occupée.
+    Réentrant dans un même fil."""
+    import fcntl
+    if getattr(_lock_state, "held", False):
+        yield
+        return
     lock_path = db.DB_PATH.parent / ".migrations.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "w") as lock:
@@ -877,9 +894,11 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False, backup: 
         except BlockingIOError:
             print("[migrations] un autre processus met la base à jour : attente de la fin…", flush=True)
             fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock_state.held = True
         try:
-            return _run(migrations, fresh, backup)
+            yield
         finally:
+            _lock_state.held = False
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
