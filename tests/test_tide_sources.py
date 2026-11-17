@@ -216,7 +216,7 @@ def test_precalcul_sans_recalage_un_seul_calcul(tmp_db, monkeypatch):
     port = db.upsert_port("Brest", 48.38, -4.49, offset_zh_m=4.32)
     monkeypatch.setattr(sys, "argv", ["precompute", "--port-id", str(port), "--year", "2027", "--model", "FES2014"])
     precompute.main()
-    with sqlite3.connect(db.DB_PATH) as conn:
+    with db.attach_tides(sqlite3.connect(db.DB_PATH)) as conn:
         assert {r[0] for r in conn.execute("SELECT DISTINCT source FROM tide_extrema")} == {"fes"}
 
 
@@ -225,7 +225,7 @@ def test_precalcul_sans_recalage_un_seul_calcul(tmp_db, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_migration_5(tmp_db):
-    with sqlite3.connect(db.DB_PATH) as conn:
+    with db.attach_tides(sqlite3.connect(db.DB_PATH)) as conn:
         conn.executescript("""
             DROP TABLE tide_extrema; DROP TABLE tide_heights;
             CREATE TABLE tide_heights (port_id INTEGER NOT NULL, ts_utc TEXT NOT NULL, height_m REAL NOT NULL,
@@ -249,7 +249,7 @@ def test_migration_5(tmp_db):
         conn.execute("PRAGMA user_version = 4")
     assert migrations.run()[:1] == [5]       # (et les suivantes)
 
-    with sqlite3.connect(db.DB_PATH) as conn:
+    with db.attach_tides(sqlite3.connect(db.DB_PATH)) as conn:
         sources = dict(conn.execute("SELECT ts_utc || '/' || port_id, source FROM tide_extrema").fetchall())
         assert sources == {f"{FES[0][0]}/1": "api", f"{FES[1][0]}/1": "api", f"{FES[2][0]}/1": "cal",
                            f"{FES[0][0]}/2": "fes", f"{FES[1][0]}/2": "fes", f"{FES[2][0]}/2": "fes"}

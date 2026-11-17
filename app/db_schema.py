@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from .db_core import db_path, get_conn
+from .db_core import TIDES_SCHEMA_NAME, attach_tides, db_path, get_conn
 from .db_jobs import _prune_jobs
 
 
@@ -121,6 +121,44 @@ SITE_CURRENTS_COLUMNS = """(
     PRIMARY KEY (site_id, offset_min)
 )"""
 
+# Tables des marées précalculées, dans le fichier rattaché « tides » (db_core.tides_path) : pas de clé étrangère
+# vers ports (SQLite n'en admet pas d'un fichier à l'autre) ; delete_port efface les lignes du port.
+TIDES_SCHEMA = f"""
+CREATE TABLE IF NOT EXISTS {TIDES_SCHEMA_NAME}.tide_heights {TIDE_HEIGHTS_COLUMNS.replace(" REFERENCES ports(id) ON DELETE CASCADE", "")};
+CREATE TABLE IF NOT EXISTS {TIDES_SCHEMA_NAME}.tide_extrema {TIDE_EXTREMA_COLUMNS.replace(" REFERENCES ports(id) ON DELETE CASCADE", "")};
+CREATE INDEX IF NOT EXISTS {TIDES_SCHEMA_NAME}.idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
+CREATE INDEX IF NOT EXISTS {TIDES_SCHEMA_NAME}.idx_heights_port_date ON tide_heights(port_id, ts_utc);
+
+-- Périodes [début, fin[ (ISO UTC) couvertes par chaque source d'un port : précalcul d'une année (fes, cal),
+-- fenêtres du mois glissant (api). Une source « couvre » une période même sans étale (ce n'est pas un trou).
+CREATE TABLE IF NOT EXISTS {TIDES_SCHEMA_NAME}.tide_coverage (
+    port_id INTEGER NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('fes', 'cal', 'api')),
+    start_utc TEXT NOT NULL,
+    end_utc TEXT NOT NULL,
+    PRIMARY KEY (port_id, source, start_utc)
+);
+
+CREATE TABLE IF NOT EXISTS {TIDES_SCHEMA_NAME}.sun_times (
+    port_id INTEGER NOT NULL,
+    date TEXT NOT NULL,             -- YYYY-MM-DD, jour local
+    sunrise_local TEXT,
+    sunset_local TEXT,
+    nautical_dawn_local TEXT,
+    nautical_dusk_local TEXT,
+    PRIMARY KEY (port_id, date)
+);
+
+-- Modèle de marée utilisé pour chaque année calculée d'un port
+CREATE TABLE IF NOT EXISTS {TIDES_SCHEMA_NAME}.computed_years (
+    port_id INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+    PRIMARY KEY (port_id, year)
+);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,20 +197,6 @@ CREATE TABLE IF NOT EXISTS tide_calibration (
 -- Séries de marée d'un port, par source (voir db_tides.SOURCES) : « fes » calcul FES brut, « cal » calcul
 -- corrigé par le recalage du port, « api » horaires d'api-maree.fr (mois glissant). Chaque structure compose
 -- les séries selon ses réglages (structures.use_api_maree / use_calibration).
-CREATE TABLE IF NOT EXISTS tide_heights """ + TIDE_HEIGHTS_COLUMNS + """;
-
-CREATE TABLE IF NOT EXISTS tide_extrema """ + TIDE_EXTREMA_COLUMNS + """;
-
--- Périodes [début, fin[ (ISO UTC) couvertes par chaque source d'un port : précalcul d'une année (fes, cal),
--- fenêtres du mois glissant (api). Une source « couvre » une période même sans étale (ce n'est pas un trou).
-CREATE TABLE IF NOT EXISTS tide_coverage (
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    source TEXT NOT NULL CHECK (source IN ('fes', 'cal', 'api')),
-    start_utc TEXT NOT NULL,
-    end_utc TEXT NOT NULL,
-    PRIMARY KEY (port_id, source, start_utc)
-);
-
 -- Fenêtre glissante où les hauteurs et étales viennent d'api-maree.fr
 -- (rafraîchie chaque jour, voir short_term.py) au lieu du calcul FES
 CREATE TABLE IF NOT EXISTS short_term_windows (
@@ -184,16 +208,6 @@ CREATE TABLE IF NOT EXISTS short_term_windows (
     max_shift_min REAL,                 -- plus grand écart d'heure avec l'étale FES remplacée
     level_diff_m REAL,                  -- hauteur moyenne api-maree.fr − FES sur la fenêtre
     refreshed_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sun_times (
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    date TEXT NOT NULL,             -- YYYY-MM-DD, jour local
-    sunrise_local TEXT,
-    sunset_local TEXT,
-    nautical_dawn_local TEXT,
-    nautical_dusk_local TEXT,
-    PRIMARY KEY (port_id, date)
 );
 
 -- Vacances scolaires par académie (source : data.education.gouv.fr).
@@ -553,15 +567,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_by TEXT
 );
 
--- Modèle de marée utilisé pour chaque année calculée d'un port
-CREATE TABLE IF NOT EXISTS computed_years (
-    port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-    year INTEGER NOT NULL,
-    model TEXT NOT NULL,
-    computed_at TEXT NOT NULL,
-    PRIMARY KEY (port_id, year)
-);
-
 -- Profils d'un compte, en plus de son rôle de structure (visualisation / administration) :
 -- un compte en a autant qu'il faut. Catalogue : accounts.PROFILES (sans CHECK ici, pour
 -- en ajouter sans migration). « gestionnaire » : newsletters.
@@ -895,8 +900,6 @@ CREATE TABLE IF NOT EXISTS unavailabilities (
 CREATE INDEX IF NOT EXISTS idx_unavailabilities_structure ON unavailabilities(structure_id, end_date);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_extrema_port_date ON tide_extrema(port_id, ts_utc);
-CREATE INDEX IF NOT EXISTS idx_heights_port_date ON tide_heights(port_id, ts_utc);
 """
 
 
@@ -963,6 +966,8 @@ def init_db() -> None:
         fresh = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ports'").fetchone() is None
         # WAL : l'API continue de lire pendant qu'un précalcul écrit une année entière
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute(f"PRAGMA {TIDES_SCHEMA_NAME}.journal_mode = WAL")
+        conn.executescript(TIDES_SCHEMA)
         conn.executescript(SCHEMA)
         _migrate(conn)
         _prune_jobs(conn)  # historique d'avant la limite
@@ -1002,7 +1007,7 @@ def _migrate_structures() -> None:
     Tout se fait en une transaction, clés étrangères suspendues le temps de la
     reconstruction (procédure recommandée par SQLite), puis vérifiées.
     """
-    conn = sqlite3.connect(db_path(), timeout=30, isolation_level=None)
+    conn = attach_tides(sqlite3.connect(db_path(), timeout=30, isolation_level=None))
     conn.row_factory = sqlite3.Row
     try:
         user_cols = _columns(conn, "users")
@@ -1117,7 +1122,7 @@ def _migrate_custom_selections() -> None:
     que _migrate_structures). Les inscriptions (slot_registrations) pointent
     vers la table par son nom : elles suivent sans être touchées.
     """
-    conn = sqlite3.connect(db_path(), timeout=30, isolation_level=None)
+    conn = attach_tides(sqlite3.connect(db_path(), timeout=30, isolation_level=None))
     conn.row_factory = sqlite3.Row
     try:
         old_cols = _columns(conn, "slot_selections")

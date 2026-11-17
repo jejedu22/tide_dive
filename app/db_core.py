@@ -20,6 +20,27 @@ def db_path() -> Path:
     return db.DB_PATH
 
 
+# Marées précalculées (hauteurs, étales, soleil, couverture, années calculées) : fichier à part, rattaché à chaque
+# connexion sous le nom « tides ». Un précalcul qui écrit une année n'y bloque que les autres écritures de marées,
+# jamais les connexions, inscriptions ou journaux de tâches (base principale). Données recalculables : la sauvegarde
+# quotidienne ne porte que sur la base principale.
+TIDES_SCHEMA_NAME = "tides"
+TIDE_TABLES = ("tide_heights", "tide_extrema", "tide_coverage", "sun_times", "computed_years")
+
+
+def tides_path(main: Path | None = None) -> Path:
+    """data/plongee.db → data/plongee-marees.db"""
+    main = Path(main or db_path())
+    return main.with_name(f"{main.stem}-marees{main.suffix or '.db'}")
+
+
+def attach_tides(conn: sqlite3.Connection, main: Path | None = None) -> sqlite3.Connection:
+    """Rattache le fichier des marées à une connexion (une fois)."""
+    if not any(r[1] == TIDES_SCHEMA_NAME for r in conn.execute("PRAGMA database_list")):
+        conn.execute(f"ATTACH DATABASE ? AS {TIDES_SCHEMA_NAME}", (str(tides_path(main)),))
+    return conn
+
+
 _local = threading.local()
 
 
@@ -28,6 +49,7 @@ def _open(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    attach_tides(conn, path)
     return conn
 
 

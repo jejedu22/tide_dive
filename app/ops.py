@@ -73,6 +73,7 @@ def list_backups(admin: CurrentSuperAdmin):
     usage = shutil.disk_usage(backup.BACKUP_DIR if backup.BACKUP_DIR.exists() else db.DB_PATH.parent)
     return {"directory": str(backup.BACKUP_DIR), "keep": backup.DEFAULT_KEEP, "free_bytes": usage.free,
             "database_bytes": db.DB_PATH.stat().st_size if db.DB_PATH.exists() else 0,
+            "tides_bytes": db.tides_path().stat().st_size if db.tides_path().exists() else 0,   # non sauvegardée
             "backups": [_backup_out(p) for p in files],
             "restore_command": "python -m app.backup restore data/backups/FICHIER"}
 

@@ -1264,7 +1264,7 @@ async function loadBackups() {
   }
   $("backups-dir").textContent = data.directory;
   $("backups-restore").textContent = data.restore_command;
-  $("backups-summary").textContent = `${data.backups.length} sauvegarde(s) (${data.keep} gardées au plus) · base : ${fmtBytes(data.database_bytes)} · espace libre : ${fmtBytes(data.free_bytes)}.`;
+  $("backups-summary").textContent = `${data.backups.length} sauvegarde(s) (${data.keep} gardées au plus) · base : ${fmtBytes(data.database_bytes)} · marées précalculées (recalculables, non sauvegardées) : ${fmtBytes(data.tides_bytes || 0)} · espace libre : ${fmtBytes(data.free_bytes)}.`;
   $("backups-list").innerHTML = data.backups.length ? data.backups.map((b, i) => `
     <li data-name="${esc(b.name)}">
       <span><strong>${stamp(b.created_at)}</strong>${i === 0 ? ' <span class="tag">la plus récente</span>' : ""}

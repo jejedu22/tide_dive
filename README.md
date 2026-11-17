@@ -369,7 +369,7 @@ L'API ne lance jamais de calcul : elle enregistre une tâche dans la table `jobs
 - Si le worker est arrêté, un bandeau le signale dans l'administration et les tâches restent en attente.
 - Sans identifiants AVISO+, le téléchargement est refusé avec un message clair (le script de pyTMD attendrait sinon une saisie au clavier).
 - Une tâche tuée par manque de mémoire est signalée comme telle dans son journal.
-- Un précalcul écrit son année en une seule transaction (quelques secondes, davantage sur un petit serveur) : pendant ce temps, le worker garde le journal en mémoire et réessaie (il ne s'arrête plus sur « database is locked ») ; la fin de la tâche est réessayée jusqu'à 5 minutes environ.
+- **Marées dans un fichier à part** : hauteurs, étales, couverture, soleil et années calculées sont dans `data/plongee-marees.db` (à côté de `plongee.db`, rattaché à chaque connexion sous le nom `tides`, tables lisibles sans préfixe). Un précalcul n'y bloque que les autres écritures de marées, jamais les connexions, inscriptions ou journaux de tâches. L'année s'écrit par morceaux de 5 000 hauteurs (un verrou bref à chaque fois), puis une dernière transaction courte remplace étales, soleil et couverture et recale les créneaux. Si la base reste malgré tout occupée, le worker garde le journal en mémoire et réessaie (il ne s'arrête plus sur « database is locked »). La migration 39 déplace les marées d'une base existante (une à quelques minutes selon sa taille : Traefik répond 404 pendant ce temps) puis compacte la base principale. Les sauvegardes quotidiennes ne portent que sur la base principale : les marées se recalculent (onglet Ports).
 
 ### Mémoire du conteneur `api` (256 Mo)
 
@@ -1287,6 +1287,7 @@ Dockerfile
 docker-compose.yml
 .env.example
 data/plongee.db     base générée (non versionnée)
+data/plongee-marees.db  marées précalculées (hauteurs, étales, soleil), rattachées à la base ; recalculables, non sauvegardées
 models/             fichiers FES (non versionnés, licence AVISO+)
 ```
 

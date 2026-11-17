@@ -10,7 +10,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Iterable
 
-from .db_core import get_conn
+from .db_core import TIDE_TABLES, get_conn
 
 
 _SQL_INSERT_HEIGHTS = (
@@ -206,8 +206,11 @@ def update_port(port_id: int, **fields) -> None:
 
 
 def delete_port(port_id: int) -> None:
-    """Supprime le port et toutes ses données précalculées (ON DELETE CASCADE)."""
+    """Supprime le port et toutes ses données : précalculées (fichier des marées, effacées ici) et autres (ON DELETE
+    CASCADE dans la base principale)."""
     with get_conn() as conn:
+        for table in TIDE_TABLES:
+            conn.execute(f"DELETE FROM {table} WHERE port_id = ?", (port_id,))
         conn.execute("DELETE FROM ports WHERE id = ?", (port_id,))
 
 
@@ -276,6 +279,9 @@ def _year_bounds(year: int) -> tuple[str, str]:
     return f"{year:04d}-01-01", f"{year + 1:04d}-01-01"
 
 
+HEIGHTS_CHUNK = 5000   # hauteurs écrites par transaction : le verrou d'écriture est relâché entre deux morceaux
+
+
 def replace_year(
     port_id: int,
     year: int,
@@ -287,8 +293,7 @@ def replace_year(
     calibrated: tuple[Iterable[tuple[str, float]], Iterable[tuple[str, str, float, float | None]]] | None = None,
 ) -> None:
     """
-    Remplace les données d'UNE année pour un port, en une seule transaction :
-    soit tout est écrit, soit rien ne change. Les autres années sont conservées.
+    Remplace les données d'UNE année pour un port. Les autres années sont conservées.
     model : modèle de marée utilisé, enregistré pour l'année (si fourni).
 
     heights  : (ts_utc ISO, height_m)                      — calcul FES brut (source « fes »)
@@ -297,15 +302,30 @@ def replace_year(
     calibrated : (heights, extrema) du calcul corrigé par le recalage (source « cal »), None si le port n'a
                  pas de recalage : l'ancienne série corrigée de l'année disparaît alors.
     Les horaires api-maree.fr (source « api ») ne sont pas touchés.
+
+    Écriture en deux temps, pour ne jamais tenir le verrou d'écriture longtemps (petit serveur) :
+    1. les hauteurs (des dizaines de milliers de lignes) remplacent les anciennes à la même heure, par morceaux de
+       HEIGHTS_CHUNK, chacun dans sa transaction : pendant ce temps, l'année reste complète (anciennes et nouvelles
+       valeurs mêlées, toutes valables) ;
+    2. une dernière transaction, courte, retire les hauteurs qui ne font plus partie de la série, remplace étales,
+       soleil et couverture, recale les créneaux et enregistre l'année calculée. Un arrêt avant elle laisse l'ancienne
+       année (étales, modèle) en place : il suffit de relancer le calcul.
     """
     start, end = _year_bounds(year)
     series = {"fes": (list(heights), list(extrema))}
     if calibrated is not None:
         series["cal"] = (list(calibrated[0]), list(calibrated[1]))
+    for source, (h_rows, _) in series.items():
+        for i in range(0, len(h_rows), HEIGHTS_CHUNK):
+            with get_conn() as conn:
+                conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, source, ts, h) for ts, h in h_rows[i:i + HEIGHTS_CHUNK]])
     with get_conn() as conn:
         for source in ("fes", "cal"):
-            conn.execute("DELETE FROM tide_heights WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
-                         (port_id, source, start, end))
+            keep = {ts for ts, _ in series[source][0]} if source in series else set()
+            stale = [(port_id, source, r[0]) for r in conn.execute(
+                "SELECT ts_utc FROM tide_heights WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
+                (port_id, source, start, end)) if r[0] not in keep]
+            conn.executemany("DELETE FROM tide_heights WHERE port_id = ? AND source = ? AND ts_utc = ?", stale)
             conn.execute("DELETE FROM tide_extrema WHERE port_id = ? AND source = ? AND ts_utc >= ? AND ts_utc < ?",
                          (port_id, source, start, end))
             uncover(conn, port_id, source, start, end)
@@ -313,8 +333,7 @@ def replace_year(
             "DELETE FROM sun_times WHERE port_id = ? AND date >= ? AND date < ?",
             (port_id, start, end),
         )
-        for source, (h_rows, e_rows) in series.items():
-            conn.executemany(_SQL_INSERT_HEIGHTS, [(port_id, source, ts, h) for ts, h in h_rows])
+        for source, (_, e_rows) in series.items():
             conn.executemany(_SQL_INSERT_EXTREMA, [(port_id, source, ts, kind, h, coef) for ts, kind, h, coef in e_rows])
             cover(conn, port_id, source, start, end)
         conn.executemany(_SQL_INSERT_SUN, [(port_id, *r) for r in sun_rows])
