@@ -28,12 +28,15 @@ Garanties
 - une base plus récente que le code (retour en arrière) n'est PAS modifiée : simple avertissement.
 
     python -m app.migrations status
+    python -m app.migrations run [--no-backup]   # appliquer les migrations (une seule fois, hors démarrage)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sqlite3
 import sys
 import time
@@ -854,10 +857,33 @@ def _has_data(conn: sqlite3.Connection) -> bool:
     )
 
 
-def run(migrations: list[Migration] | None = None, fresh: bool = False) -> list[int]:
+def run(migrations: list[Migration] | None = None, fresh: bool = False, backup: bool | None = None) -> list[int]:
     """Applique les migrations en attente ; renvoie les versions appliquées par CET appel.
 
-    fresh : la base vient d'être créée par db.SCHEMA (déjà à jour) : on la marque à la dernière version."""
+    fresh : la base vient d'être créée par db.SCHEMA (déjà à jour) : on la marque à la dernière version.
+    backup : sauvegarde avant migration (défaut : oui, sauf MIGRATION_BACKUP=0).
+
+    Un seul processus à la fois (verrou data/.migrations.lock) : l'API, le worker et le planificateur démarrent
+    ensemble ; les deux autres attendent la fin, puis ne trouvent plus rien à faire (sinon chacun sauvegardait la base
+    de son côté, trois fois plus lentement)."""
+    import fcntl
+    if backup is None:
+        backup = os.environ.get("MIGRATION_BACKUP", "1").lower() not in ("0", "false", "no")
+    lock_path = db.DB_PATH.parent / ".migrations.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("[migrations] un autre processus met la base à jour : attente de la fin…", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            return _run(migrations, fresh, backup)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _run(migrations: list[Migration] | None, fresh: bool, backup: bool) -> list[int]:
     ordered = _validate(MIGRATIONS if migrations is None else migrations)
     latest = latest_version(ordered)
     conn = _connect()
@@ -875,12 +901,15 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False) -> list[
         if not pending:
             return []
 
-        if _has_data(conn):
+        if backup and _has_data(conn):
             from . import backup   # import tardif : backup importe db
+            directory = db.DB_PATH.parent / "backups" / "avant-migration"
+            # restes de sauvegardes interrompues (arrêt pendant la copie) : sous verrou, personne d'autre n'y écrit
+            for leftover in directory.glob("tmp*") if directory.exists() else ():
+                shutil.rmtree(leftover, ignore_errors=True)
             started = time.monotonic()
             print("[migrations] sauvegarde avant migration… (l'API répond une fois les migrations terminées)", flush=True)
-            target = backup.create_backup(PRE_MIGRATION_BACKUPS_KEPT, db.DB_PATH.parent / "backups" / "avant-migration",
-                                          fast=True)
+            target = backup.create_backup(PRE_MIGRATION_BACKUPS_KEPT, directory, fast=True)
             print(f"[migrations] sauvegarde avant migration : {target} ({time.monotonic() - started:.1f} s)", flush=True)
 
         applied: list[int] = []
@@ -919,10 +948,21 @@ def run(migrations: list[Migration] | None = None, fresh: bool = False) -> list[
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.migrations", description="Version du schéma de la base")
-    parser.add_argument("cmd", choices=["status"])
-    parser.parse_args(argv)
+    parser.add_argument("cmd", choices=["status", "run"],
+                        help="status : version de la base ; run : appliquer les migrations en attente")
+    parser.add_argument("--no-backup", action="store_true",
+                        help="run : sans sauvegarde préalable (une sauvegarde récente existe déjà)")
+    args = parser.parse_args(argv)
+    if args.cmd == "run":
+        started = time.monotonic()
+        if args.no_backup:
+            os.environ["MIGRATION_BACKUP"] = "0"
+        db.init_db()        # schéma, puis migrations en attente (verrou : les autres processus attendent)
+        print(f"Base en version {schema_version()} ({time.monotonic() - started:.1f} s).")
+        return 0
     print(f"Base en version {schema_version()} ; ce code va jusqu'à la version {latest_version()}.")
     return 0
+
 
 
 if __name__ == "__main__":

@@ -100,3 +100,45 @@ def test_la_sauvegarde_ne_porte_que_sur_la_base_principale(tmp_db, tmp_path):
     copy.write_bytes(gzip.decompress(target.read_bytes()))
     names = {r[0] for r in sqlite3.connect(copy).execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "ports" in names and "tide_heights" not in names
+
+
+def test_un_seul_processus_migre(tmp_db, monkeypatch):
+    """Deux démarrages simultanés : le second attend la fin du premier puis ne refait rien (ni sauvegarde)."""
+    import threading
+    import time as _time
+
+    from app import backup as backup_mod
+    calls = []
+    real = backup_mod.create_backup
+
+    def slow_backup(*args, **kwargs):
+        calls.append(threading.current_thread().name)
+        _time.sleep(0.5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(backup_mod, "create_backup", slow_backup)
+    db.create_port("Binic", 48.6, -2.8, "Europe/Paris", 6.36, False)        # base non vide : sauvegarde
+    leftover = tmp_db.parent / "backups" / "avant-migration" / "tmpreste"
+    leftover.mkdir(parents=True)
+    (leftover / "copy.db").write_bytes(b"x" * 10)
+    with sqlite3.connect(tmp_db) as conn:
+        conn.execute("PRAGMA user_version = 38")
+    results = {}
+    threads = [threading.Thread(target=lambda n=n: results.__setitem__(n, migrations.run()), name=n) for n in "ab"]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results.values()) == [[], [39]] and len(calls) == 1
+    assert not leftover.exists()                                           # reste d'une sauvegarde interrompue
+
+
+def test_migration_sans_sauvegarde(tmp_db, monkeypatch):
+    monkeypatch.setenv("MIGRATION_BACKUP", "1")          # rétabli après le test (main le met à 0)
+    from app import backup as backup_mod
+    monkeypatch.setattr(backup_mod, "create_backup", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sauvegarde")))
+    db.create_port("Binic", 48.6, -2.8, "Europe/Paris", 6.36, False)
+    with sqlite3.connect(tmp_db) as conn:
+        conn.execute("PRAGMA user_version = 38")
+    assert migrations.main(["run", "--no-backup"]) == 0
+    assert migrations.schema_version() == 39
