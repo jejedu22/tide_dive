@@ -961,6 +961,15 @@ CREATE INDEX IF NOT EXISTS idx_newsletter_recipients_nl ON newsletter_recipients
 
 
 def init_db() -> None:
+    """Schéma, rattrapages historiques puis migrations versionnées. Tout le démarrage se fait sous le verrou des
+    migrations (migrations.migration_lock) : l'API, le worker et le planificateur démarrent ensemble ; pendant qu'un
+    processus migre (longtemps, parfois), les autres attendent au lieu d'échouer sur une base occupée."""
+    from . import migrations   # import tardif : migrations importe db
+    with migrations.migration_lock():
+        _init_db(migrations)
+
+
+def _init_db(migrations) -> None:
     db_path().parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         fresh = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ports'").fetchone() is None
@@ -980,7 +989,6 @@ def init_db() -> None:
             conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by INTEGER REFERENCES users(id) ON DELETE SET NULL")
         if "registered_by_name" not in reg_cols:
             conn.execute("ALTER TABLE slot_registrations ADD COLUMN registered_by_name TEXT")
-    from . import migrations   # import tardif : migrations importe db
     migrations.run(fresh=fresh)    # évolutions de schéma versionnées (voir migrations.py)
 
 
