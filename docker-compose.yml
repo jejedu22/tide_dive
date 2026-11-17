@@ -41,6 +41,7 @@ x-app: &app
     ALERT_EMAIL: ${ALERT_EMAIL:-}               # destinataires des alertes (défaut : super administrateurs)
     BACKUP_KEEP: ${BACKUP_KEEP:-14}             # sauvegardes quotidiennes conservées (data/backups/)
     PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
+    MIGRATION_BACKUP: ${MIGRATION_BACKUP:-1}    # 0 : migrations sans sauvegarde préalable (MIGRATION_BACKUP=0 docker compose up -d)
     # E-mails : invitations et mot de passe oublié (voir .env.example)
     MAIL_BACKEND: ${MAIL_BACKEND:-none}
     APP_BASE_URL: ${APP_BASE_URL:-}
