@@ -119,6 +119,9 @@ def _window(ds, x0: float, y0: float, d: float = WINDOW_DEG):
     else:
         parts = [ds.sel(x=slice(lo, hi))]
     window = xr.concat(parts, dim="x") if len(parts) > 1 else parts[0]
+    # grilles qui contiennent à la fois 0° et 360° (FES2022) : au raccord, la même longitude figurerait deux fois
+    # (l'interpolation refuse alors un index non unique, « Reindexing only valid with uniquely valued Index objects »)
+    window = window.drop_duplicates("x").sortby("x")
     window = window.sel(y=slice(y0 - d, y0 + d)).compute()
     window.attrs.update(ds.attrs)
     return window
