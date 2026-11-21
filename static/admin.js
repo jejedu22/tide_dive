@@ -253,7 +253,10 @@ function jobLogRow(j) {
       <div class="job-log">
         <div class="job-log-head">
           <h3>Journal · #${j.id} · ${esc(j.label)} · ${STATUS_LABELS[j.status]}</h3>
-          <button type="button" class="btn-quiet btn-small" data-act="close-log">Fermer le journal</button>
+          <span class="job-log-tools">
+            <button type="button" class="btn-quiet btn-small" data-act="copy-log">Copier le journal</button>
+            <button type="button" class="btn-quiet btn-small" data-act="close-log">Fermer le journal</button>
+          </span>
         </div>
         <pre id="job-log-text" tabindex="0"></pre>
       </div></td></tr>`;
@@ -339,9 +342,37 @@ async function loadJobLog(id, { quiet = false } = {}) {
   }
 }
 
+// Copie du journal ouvert dans le presse-papiers (API Clipboard, sinon sélection + copie à l'ancienne)
+async function copyJobLog(btn) {
+  const pre = $("job-log-text");
+  const text = openLog?.text ?? pre?.textContent ?? "";
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch {
+    if (pre) {
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
+      if (ok) sel.removeAllRanges();   // sinon le texte reste sélectionné : copie manuelle possible
+    }
+  }
+  const label = btn.textContent;
+  btn.textContent = ok ? "Copié ✓" : "Texte sélectionné : copiez-le";
+  setTimeout(() => { btn.textContent = label; }, 2000);
+}
+
 jobsBody.addEventListener("click", async e => {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
+  if (btn.dataset.act === "copy-log") {
+    copyJobLog(btn);
+    return;
+  }
   if (btn.dataset.act === "close-log") {
     openJobId = null;
     openLog = null;
