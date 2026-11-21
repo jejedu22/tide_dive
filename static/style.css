@@ -1589,6 +1589,12 @@ tr.cancelled { background: #fdf0ee; }
   .users td.contact,
   .users td.check-cell { grid-column: 1 / -1; min-width: 0; }
   .users td.empty { grid-column: 1 / -1; text-align: center; }
+  /* Journal d'une tâche : toute la largeur, collé sous la carte de sa tâche */
+  .users tbody tr.job-log-row { display: block; margin-top: -0.4rem; padding: 0.6rem; }
+  .users tbody tr.job-log-row > td { display: block; width: 100%; padding: 0; background: none; }
+  .job-log-row .job-log-head { flex-wrap: wrap; gap: 0.4rem; }
+  .job-log-row .job-log-head h3 { flex: 1 1 100%; font-size: 0.9rem; }
+  .job-log-row pre { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 
   /* Actions : ligne en bas de carte, boutons tactiles */
   .users tbody td.actions {
