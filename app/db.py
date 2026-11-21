@@ -225,6 +225,9 @@ from .db_memberships import (  # noqa: F401
 from .db_jobs import (  # noqa: F401
     JOB_LOG_MAX,
     JOBS_KEPT,
+    JOBS_KEPT_DAYS,
+    JOBS_KEPT_MIN,
+    JOBS_PAGE,
     _prune_jobs,
     _JOB_COLUMNS,
     enqueue_job,

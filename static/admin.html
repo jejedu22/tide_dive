@@ -412,8 +412,21 @@
         </div>
 
         <div class="panel">
-          <h2>Tâches</h2>
-          <p class="hint">Seules les 20 dernières tâches et leurs journaux sont conservés.</p>
+          <div class="panel-head">
+            <h2>Tâches</h2>
+            <p class="inline-form">
+              <label for="jobs-status">Afficher</label>
+              <select id="jobs-status">
+                <option value="">Toutes les tâches</option>
+                <option value="failed">Échecs</option>
+                <option value="running">En cours</option>
+                <option value="queued">En attente</option>
+                <option value="succeeded">Terminées</option>
+                <option value="cancelled">Annulées</option>
+              </select>
+            </p>
+          </div>
+          <p class="hint">Les tâches et leurs journaux sont conservés 30 jours (1 000 au plus). « Journal » l'ouvre juste sous la tâche.</p>
           <div class="table-wrap">
             <table class="users jobs">
               <thead>
@@ -430,13 +443,7 @@
               <tbody id="jobs-body"></tbody>
             </table>
           </div>
-          <div id="job-log" class="job-log" hidden>
-            <div class="job-log-head">
-              <h3 id="job-log-title"></h3>
-              <button type="button" id="job-log-close" class="btn-quiet">Fermer le journal</button>
-            </div>
-            <pre id="job-log-text" tabindex="0"></pre>
-          </div>
+          <p class="jobs-more"><button type="button" id="jobs-more" class="btn-quiet btn-small" hidden>Afficher plus de tâches</button></p>
         </div>
       </section>
 

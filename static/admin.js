@@ -244,6 +244,21 @@ function statusTag(j) {
   return `<span class="tag job-${j.status}">${label}</span>`;
 }
 
+const JOBS_PAGE = 50;
+let jobsLimit = JOBS_PAGE;
+let openLog = null;   // journal ouvert : {text, scrollTop, atBottom} (garde sa position quand la liste se rafraîchit)
+
+function jobLogRow(j) {
+  return `<tr class="job-log-row"><td colspan="7">
+      <div class="job-log">
+        <div class="job-log-head">
+          <h3>Journal · #${j.id} · ${esc(j.label)} · ${STATUS_LABELS[j.status]}</h3>
+          <button type="button" class="btn-quiet btn-small" data-act="close-log">Fermer le journal</button>
+        </div>
+        <pre id="job-log-text" tabindex="0"></pre>
+      </div></td></tr>`;
+}
+
 function renderJobs() {
   jobsBody.innerHTML = jobs.length ? jobs.map(j => `
     <tr data-id="${j.id}" class="${j.id === openJobId ? "is-open" : ""}">
@@ -254,24 +269,38 @@ function renderJobs() {
       <td data-label="Créée">${stamp(j.created_at)}</td>
       <td class="num" data-label="Durée">${fmtDuration(j.duration_s)}</td>
       <td class="actions">
-        <button type="button" class="btn-quiet" data-act="log">Journal</button>
+        <button type="button" class="btn-quiet" data-act="log" aria-expanded="${j.id === openJobId}">${j.id === openJobId ? "Fermer" : "Journal"}</button>
         ${["queued", "running"].includes(j.status) && !j.cancel_requested
           ? `<button type="button" class="btn-danger" data-act="cancel">Annuler</button>` : ""}
       </td>
-    </tr>`).join("")
-    : `<tr><td colspan="7" class="empty">Aucune tâche pour l'instant.</td></tr>`;
+    </tr>${j.id === openJobId ? jobLogRow(j) : ""}`).join("")
+    : `<tr><td colspan="7" class="empty">${$("jobs-status").value ? "Aucune tâche de ce statut." : "Aucune tâche pour l'instant."}</td></tr>`;
+  const pre = $("job-log-text");
+  if (pre && openLog) {
+    pre.textContent = openLog.text;
+    pre.scrollTop = openLog.atBottom ? pre.scrollHeight : openLog.scrollTop;
+  }
+  $("jobs-more").hidden = jobs.length < jobsLimit;
 
-  const active = jobs.filter(j => ["queued", "running"].includes(j.status)).length;
-  const badge = $("active-count");
-  badge.hidden = !active;
-  badge.textContent = active;
+  if (!$("jobs-status").value) {
+    const active = jobs.filter(j => ["queued", "running"].includes(j.status)).length;
+    const badge = $("active-count");
+    badge.hidden = !active;
+    badge.textContent = active;
+  }
 }
 
 let previousStatuses = new Map();
 
 async function loadJobs() {
+  const pre = $("job-log-text");
+  if (pre && openLog) {           // position de lecture du journal ouvert, avant de tout redessiner
+    openLog.scrollTop = pre.scrollTop;
+    openLog.atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+  }
   try {
-    jobs = await Session.api("/api/admin/jobs");
+    const statusFilter = $("jobs-status").value;
+    jobs = await Session.api(`/api/admin/jobs?limit=${jobsLimit}${statusFilter ? `&status=${statusFilter}` : ""}`);
   } catch (e) {
     return;
   }
@@ -286,6 +315,7 @@ async function loadJobs() {
     }
   }
   previousStatuses = new Map(jobs.map(j => [j.id, j.status]));
+  if (openJobId && !jobs.some(j => j.id === openJobId)) { openJobId = null; openLog = null; }
   renderJobs();
   if (refreshPorts) loadPorts();
   if (refreshStatus) loadStatus();
@@ -293,28 +323,41 @@ async function loadJobs() {
 }
 
 async function loadJobLog(id, { quiet = false } = {}) {
-  const pre = $("job-log-text");
   try {
     const j = await Session.api(`/api/admin/jobs/${id}`);
-    $("job-log-title").textContent = `#${j.id} · ${j.label} · ${STATUS_LABELS[j.status]}`;
-    // colle en bas si l'utilisateur y était déjà (suivi en direct)
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-    pre.textContent = j.log || (j.status === "queued" ? "En attente du worker…" : "(journal vide)");
-    if (atBottom || !quiet) pre.scrollTop = pre.scrollHeight;
-    $("job-log").hidden = false;
+    if (id !== openJobId) return;                       // fermé (ou un autre ouvert) entre-temps
+    const pre = $("job-log-text");
+    const atBottom = !pre || !quiet || pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    openLog = { text: j.log || (j.status === "queued" ? "En attente du worker…" : "(journal vide)"),
+      scrollTop: pre ? pre.scrollTop : 0, atBottom };
+    if (pre) {
+      pre.textContent = openLog.text;
+      if (atBottom) pre.scrollTop = pre.scrollHeight;  // suivi en direct si l'on était en bas
+    }
   } catch (e) {
-    if (!quiet) pre.textContent = e.message;
+    if (!quiet && $("job-log-text")) $("job-log-text").textContent = e.message;
   }
 }
 
 jobsBody.addEventListener("click", async e => {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
+  if (btn.dataset.act === "close-log") {
+    openJobId = null;
+    openLog = null;
+    renderJobs();
+    return;
+  }
   const id = Number(btn.closest("tr").dataset.id);
   if (btn.dataset.act === "log") {
-    openJobId = id;
+    const closing = openJobId === id;
+    openJobId = closing ? null : id;
+    openLog = closing ? null : { text: "Chargement…", scrollTop: 0, atBottom: true };
     renderJobs();
-    loadJobLog(id);
+    if (!closing) {
+      loadJobLog(id);
+      btn.closest("tr").nextElementSibling?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   } else if (btn.dataset.act === "cancel") {
     const j = jobs.find(x => x.id === id);
     if (!confirm(`Annuler « ${j.label} » ?`)) return;
@@ -327,10 +370,13 @@ jobsBody.addEventListener("click", async e => {
   }
 });
 
-$("job-log-close").addEventListener("click", () => {
-  openJobId = null;
-  $("job-log").hidden = true;
-  renderJobs();
+$("jobs-status").addEventListener("change", () => {
+  jobsLimit = JOBS_PAGE;
+  loadJobs();
+});
+$("jobs-more").addEventListener("click", () => {
+  jobsLimit += JOBS_PAGE;
+  loadJobs();
 });
 
 async function enqueue(kind, params) {

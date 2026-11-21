@@ -18,16 +18,25 @@ from .db_core import get_conn
 JOB_LOG_MAX = 200_000  # caractères : on ne garde que la fin du journal
 
 
-JOBS_KEPT = 20         # tâches conservées (avec leur journal) : les plus récentes
+# Tâches conservées (avec leur journal) : celles des JOBS_KEPT_DAYS derniers jours, JOBS_KEPT au plus — assez pour
+# un calcul groupé de tous les ports (près de 200 tâches) et quelques semaines d'historique ; un journal de précalcul
+# pèse quelques Ko. Les JOBS_KEPT_MIN plus récentes restent, même anciennes.
+JOBS_KEPT = 1000
+JOBS_KEPT_DAYS = 30
+JOBS_KEPT_MIN = 20
+JOBS_PAGE = 50         # tâches affichées d'abord dans l'administration (« Afficher plus » ensuite)
 
 
 def _prune_jobs(conn: sqlite3.Connection) -> None:
-    """Supprime les tâches terminées au-delà des JOBS_KEPT plus récentes ;
+    """Supprime les tâches terminées trop anciennes ou au-delà des JOBS_KEPT plus récentes ;
     une tâche en attente ou en cours n'est jamais supprimée."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=JOBS_KEPT_DAYS)).isoformat(timespec="seconds")
     conn.execute(
         "DELETE FROM jobs WHERE status NOT IN ('queued', 'running')"
-        " AND id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT ?)",
-        (JOBS_KEPT,),
+        " AND id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT ?)"
+        " AND (created_at < ? OR id NOT IN (SELECT id FROM jobs ORDER BY id DESC LIMIT ?))",
+        (JOBS_KEPT_MIN, cutoff, JOBS_KEPT),
     )
 
 
@@ -54,10 +63,12 @@ def enqueue_job(kind: str, params_json: str, created_by: str, now: str) -> int |
         return cur.lastrowid
 
 
-def list_jobs(limit: int = JOBS_KEPT) -> list[sqlite3.Row]:
+def list_jobs(limit: int = JOBS_PAGE, status: str | None = None) -> list[sqlite3.Row]:
+    """Tâches les plus récentes ; status : celles de ce statut seulement (« failed » : les échecs…)."""
+    where, params = ("WHERE status = ?", (status,)) if status else ("", ())
     with get_conn() as conn:
         return conn.execute(
-            f"SELECT {_JOB_COLUMNS} FROM jobs ORDER BY id DESC LIMIT ?", (limit,)
+            f"SELECT {_JOB_COLUMNS} FROM jobs {where} ORDER BY id DESC LIMIT ?", (*params, limit)
         ).fetchall()
 
 
