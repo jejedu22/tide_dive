@@ -345,6 +345,40 @@
               <button type="submit" class="btn-secondary">Lancer</button>
             </form>
           </div>
+          <div class="users-filters ports-filters" role="group" aria-label="Filtrer les ports">
+            <label>Rechercher <input id="pf-search" type="search" placeholder="Nom du port…"></label>
+            <label>Niveau moyen <select id="pf-level">
+              <option value="">Tous</option>
+              <option value="set">Renseigné</option>
+              <option value="estimated">Estimé (à vérifier)</option>
+              <option value="missing">À renseigner</option>
+            </select></label>
+            <label>Années calculées <select id="pf-years">
+              <option value="">Toutes</option>
+              <option value="any">Au moins une</option>
+              <option value="none">Aucune</option>
+              <option value="missing-year">Sans l'année choisie</option>
+              <option value="has-year">Avec l'année choisie</option>
+              <option value="stale">Ancien modèle</option>
+            </select></label>
+            <label>Année <input id="pf-year" type="number" min="1990" max="2100"></label>
+            <label>api-maree.fr <select id="pf-api">
+              <option value="">Tous</option>
+              <option value="site">Avec site</option>
+              <option value="nosite">Sans site</option>
+              <option value="calibrated">Recalés</option>
+              <option value="todo">Recalage à faire</option>
+            </select></label>
+            <label>Recalcul annuel <select id="pf-auto">
+              <option value="">Tous</option>
+              <option value="on">Activé</option>
+              <option value="off">Désactivé</option>
+            </select></label>
+            <button type="button" class="btn-quiet btn-small" id="pf-reset">Réinitialiser</button>
+          </div>
+          <p class="ports-filter-bar"><span id="pf-count" class="muted" role="status"></span>
+            <button type="button" class="btn-secondary btn-small" id="pf-compute" hidden></button>
+            <span id="pf-compute-status" class="form-status" role="status"></span></p>
           <div class="table-wrap">
             <table class="users ports">
               <thead>

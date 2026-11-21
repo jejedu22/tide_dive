@@ -222,6 +222,10 @@ Le catalogue contient les **133 sites d'api-maree.fr** (liste publique `GET http
 
 Mise à jour des données : `python -m app.ram refresh` (service WFS du Shom), ou `python -m app.ram refresh fichier.json` à partir d'un GeoJSON téléchargé depuis ce service.
 
+### Filtrer les ports (onglet Ports)
+
+Au-dessus de la liste des ports enregistrés : recherche par nom (sans tenir compte des accents), niveau moyen (renseigné, estimé, à renseigner), années calculées (au moins une, aucune, avec ou sans l'année choisie, calculée avec un ancien modèle), api-maree.fr (avec ou sans site, recalés, recalage à faire) et recalcul annuel. Les filtres sont gardés le temps de la session ; le nombre de ports affichés est indiqué. Une liste filtrée propose **« Calculer <année> pour ces N ports »** : une tâche de précalcul par port affiché (les ports sans niveau moyen sont laissés de côté ; une tâche déjà en attente n'est pas dupliquée).
+
 ### Estimer les niveaux moyens manquants
 
 Le bouton **Estimer les niveaux moyens manquants** (onglet Ports, super administrateurs) renseigne `offset_zh_m` des ports qui ont un site api-maree.fr et pas de niveau moyen (`app/level_estimate.py`, `POST /api/admin/ports/estimate-levels`). Pour chaque port, une requête récupère les hauteurs d'eau horaires sur **708 h** (un cycle complet vive-eau / morte-eau) ; leur **moyenne** est le niveau moyen au-dessus du zéro des cartes, la même grandeur que le « niveau moyen de la référence » du recalage. Le navigateur traite les ports par lots de 5 (le quota d'api-maree.fr est de 360 requêtes par heure, `API_MAREE_KEY` requise) et affiche les échecs : série lacunaire, hauteurs sous −1,5 m (autre référentiel) ou niveau hors de 0,3–20 m.

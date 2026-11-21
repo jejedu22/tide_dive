@@ -1752,8 +1752,96 @@ function calibrationCell(p) {
   return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}${stale && !legacy ? `\nÉtabli pour ${esc(c.model)} : relancez le recalage.` : ""}">${label}</span>`;
 }
 
+// ---- Filtres de l'onglet Ports (gardés le temps de la session) ----
+const PF_FIELDS = ["search", "level", "years", "year", "api", "auto"];
+const pf = id => $(`pf-${id}`);
+try {
+  const saved = JSON.parse(sessionStorage.getItem("ports-filters") || "{}");
+  PF_FIELDS.forEach(k => { if (saved[k] != null && pf(k)) pf(k).value = saved[k]; });
+} catch { /* stockage indisponible */ }
+if (!pf("year").value) pf("year").value = defaultYear;
+
+function portFilters() {
+  return Object.fromEntries(PF_FIELDS.map(k => [k, pf(k).value.trim()]));
+}
+
+const normalize = v => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function portMatches(p, f) {
+  if (f.search && !normalize(p.name).includes(normalize(f.search))) return false;
+  if (f.level === "set" && (p.offset_zh_m == null || p.offset_estimated)) return false;
+  if (f.level === "estimated" && !(p.offset_zh_m != null && p.offset_estimated)) return false;
+  if (f.level === "missing" && p.offset_zh_m != null) return false;
+  const year = Number(f.year);
+  if (f.years === "any" && !p.years.length) return false;
+  if (f.years === "none" && p.years.length) return false;
+  if (f.years === "has-year" && !p.years.includes(year)) return false;
+  if (f.years === "missing-year" && p.years.includes(year)) return false;
+  if (f.years === "stale" && !p.years.some(y => p.year_models[y] && status?.fes_model && p.year_models[y] !== status.fes_model)) return false;
+  if (f.api === "site" && !p.api_maree_site) return false;
+  if (f.api === "nosite" && p.api_maree_site) return false;
+  if (f.api === "calibrated" && !p.calibration) return false;
+  if (f.api === "todo" && !(p.api_maree_site && !p.calibration)) return false;
+  if (f.auto === "on" && !p.auto_precompute) return false;
+  if (f.auto === "off" && p.auto_precompute) return false;
+  return true;
+}
+
+function visiblePorts() {
+  const f = portFilters();
+  return ports.filter(p => portMatches(p, f));
+}
+
+function onPortFilter() {
+  try { sessionStorage.setItem("ports-filters", JSON.stringify(portFilters())); } catch { /* sans stockage */ }
+  $("pf-compute-status").textContent = "";
+  renderPorts();
+}
+PF_FIELDS.forEach(k => pf(k).addEventListener(k === "search" ? "input" : "change", onPortFilter));
+pf("year").addEventListener("input", onPortFilter);
+$("pf-reset").addEventListener("click", () => {
+  PF_FIELDS.forEach(k => { pf(k).value = ""; });
+  pf("year").value = defaultYear;
+  onPortFilter();
+});
+
+// Calcul groupé : une tâche par port affiché (ceux sans niveau moyen sont laissés de côté)
+$("pf-compute").addEventListener("click", async e => {
+  const year = Number(pf("year").value);
+  const list = visiblePorts().filter(p => p.offset_zh_m != null);
+  if (!year || !list.length) return;
+  const redo = list.filter(p => p.years.includes(year)).length;
+  if (!confirm(`Mettre en file le calcul ${year} de ${list.length} port(s)${redo ? `, dont ${redo} déjà calculé(s) pour ${year}` : ""} ?\nLe worker les traite un par un.`)) return;
+  const btn = e.currentTarget, out = $("pf-compute-status");
+  btn.disabled = true;
+  let added = 0, already = 0;
+  const failed = [];
+  for (const [i, p] of list.entries()) {
+    out.textContent = `Mise en file… ${i + 1}/${list.length}`;
+    try {
+      await Session.api("/api/admin/jobs", { method: "POST", body: { kind: "precompute", params: { port_id: p.id, year } } });
+      added++;
+    } catch (err) {
+      if (/déjà en attente/.test(err.message)) already++;
+      else failed.push(`${p.name} (${err.message})`);
+    }
+  }
+  out.textContent = `${added} calcul(s) ${year} mis en file${already ? `, ${already} déjà en attente` : ""}`
+    + (failed.length ? ` ; échec : ${failed.join(" ; ")}` : "") + ".";
+  btn.disabled = false;
+  loadJobs();
+});
+
 function renderPorts() {
-  portsBody.innerHTML = ports.length ? ports.map(p => {
+  const shown = visiblePorts();
+  const filtered = shown.length !== ports.length;
+  $("pf-count").textContent = ports.length ? (filtered ? `${shown.length} port(s) sur ${ports.length}` : `${ports.length} port(s)`) : "";
+  const year = Number(pf("year").value);
+  const computable = shown.filter(p => p.offset_zh_m != null).length;
+  $("pf-compute").hidden = !filtered || !computable || !year;
+  $("pf-compute").textContent = `Calculer ${year} pour ces ${computable} port(s)`;
+  portsBody.innerHTML = !ports.length ? "" : !shown.length
+    ? `<tr><td colspan="7" class="empty">Aucun port ne correspond aux filtres.</td></tr>` : shown.map(p => {
     const years = p.years.length
       ? p.years.map(y => yearTag(y, p.year_models[y])).join(" ")
       : `<span class="muted">aucune</span>`;
@@ -1779,8 +1867,8 @@ function renderPorts() {
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
       </tr>`;
-  }).join("")
-    : `<tr><td colspan="7" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
+  }).join("");
+  if (!ports.length) portsBody.innerHTML = `<tr><td colspan="7" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
   renderPortsMap();   // la carte suit les ports et les sites
 }
 
