@@ -236,7 +236,7 @@ Source officielle : colonne « NM » des Références Altimétriques Maritimes (
 
 ### Étales parasites (estuaires)
 
-En estuaire (Rochefort, sur la Charente) ou sur les côtes à « tenue du plein », la courbe calculée peut onduler de quelques centimètres autour d'une pleine mer et faire naître une fausse paire PM/BM. `tide_model.drop_minor_swings` les retire après la détection : une paire d'étales voisines est supprimée si son écart de hauteur est inférieur à 30 cm (`MIN_SWING_M`, le même seuil que le contrôle d'amplitude) ou si elle tient en moins de 2 h ; deux PM qui se suivent alors gardent la plus haute (deux BM, la plus basse). Une marée normale n'est pas touchée.
+En estuaire (Rochefort sur la Charente, pont de Térénez sur l'Aulne) ou sur les côtes à « tenue du plein », la courbe calculée peut onduler de quelques centimètres autour d'une pleine mer et faire naître une fausse paire PM/BM. `tide_model.drop_minor_swings` les retire après la détection : une paire d'étales voisines est supprimée si son écart de hauteur est inférieur à 30 cm (`MIN_SWING_M`, le même seuil que le contrôle d'amplitude) ou si elle tient en moins de 3 h 30 (`MIN_SWING_GAP`, le seuil du contrôle de cadence) ; deux PM qui se suivent alors gardent la plus haute (deux BM, la plus basse). Une marée normale n'est pas touchée.
 
 ### Coefficients
 

@@ -205,8 +205,10 @@ def compute_heights(
         )
     if np.isnan(heights).any():
         raise RuntimeError(
-            "Hauteurs NaN : le port est à plus de "
-            f"{EXTRAPOLATION_CUTOFF_KM} km d'une maille océanique du modèle"
+            f"Hauteurs NaN : le port est à plus de {EXTRAPOLATION_CUTOFF_KM:g} km d'une maille océanique du modèle. "
+            "Le modèle FES ne couvre que la mer et l'entrée des estuaires : pour un port en amont d'un fleuve (Nantes, "
+            "Bordeaux…), placez le point vers l'embouchure (Modifier) ou supprimez ce port ; pour un point à terre, "
+            "rapprochez-le de l'eau."
         )
     return heights
 
@@ -341,13 +343,14 @@ def find_extrema(
 
 
 MIN_SWING_M = 0.3                       # = checks.MIN_RANGE_M : une marée fait au moins 30 cm entre PM et BM
-MIN_SWING_GAP = timedelta(hours=2)      # deux étales réelles sont espacées d'au moins 3 h 30
+MIN_SWING_GAP = timedelta(hours=3.5)    # = checks.MIN_GAP_H : deux étales réelles sont espacées d'au moins 3 h 30
 
 
 def drop_minor_swings(extrema: list[tuple[datetime, str, float]]) -> list[tuple[datetime, str, float]]:
     """
-    Retire les oscillations parasites : en estuaire (Rochefort, Charente) ou sur les côtes à « tenue du plein », la
-    courbe peut onduler de quelques centimètres autour d'une pleine mer et faire naître une fausse paire PM/BM.
+    Retire les oscillations parasites : en estuaire (Rochefort sur la Charente, pont de Térénez sur l'Aulne) ou sur
+    les côtes à « tenue du plein », la courbe peut onduler autour d'une pleine mer et faire naître une fausse paire
+    PM/BM, parfois à quelques dizaines de centimètres.
     Une paire d'étales voisines de kinds opposés est retirée si son écart de hauteur est inférieur à MIN_SWING_M ou
     si elle tient en moins de MIN_SWING_GAP (la plus petite d'abord) ; deux étales de même sorte qui se suivent alors
     sont fusionnées (la plus haute des PM, la plus basse des BM). L'alternance PM/BM est ainsi rétablie.
