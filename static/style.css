@@ -695,6 +695,7 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
 .jobs-more { margin: 0.6rem 0 0; text-align: center; }
 .job-log[hidden] { display: none; }
 .job-log-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
+.job-log-tools { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; }
 .job-log h3 { margin: 0; font-size: 0.95rem; color: var(--blue-deep); }
 .job-log pre {
   margin: 0;
