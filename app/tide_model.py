@@ -337,7 +337,47 @@ def find_extrema(
             t, h = refined(idx)
             extrema.append((t, kind, h))
     extrema.sort(key=lambda e: e[0])
-    return extrema
+    return drop_minor_swings(extrema)
+
+
+MIN_SWING_M = 0.3                       # = checks.MIN_RANGE_M : une marée fait au moins 30 cm entre PM et BM
+MIN_SWING_GAP = timedelta(hours=2)      # deux étales réelles sont espacées d'au moins 3 h 30
+
+
+def drop_minor_swings(extrema: list[tuple[datetime, str, float]]) -> list[tuple[datetime, str, float]]:
+    """
+    Retire les oscillations parasites : en estuaire (Rochefort, Charente) ou sur les côtes à « tenue du plein », la
+    courbe peut onduler de quelques centimètres autour d'une pleine mer et faire naître une fausse paire PM/BM.
+    Une paire d'étales voisines de kinds opposés est retirée si son écart de hauteur est inférieur à MIN_SWING_M ou
+    si elle tient en moins de MIN_SWING_GAP (la plus petite d'abord) ; deux étales de même sorte qui se suivent alors
+    sont fusionnées (la plus haute des PM, la plus basse des BM). L'alternance PM/BM est ainsi rétablie.
+    """
+    out = list(extrema)
+
+    def merge_same_kind() -> None:
+        i = 0
+        while i < len(out) - 1:
+            (_, k1, h1), (_, k2, h2) = out[i], out[i + 1]
+            if k1 == k2:
+                keep_first = (h1 >= h2) if k1 == "PM" else (h1 <= h2)
+                del out[i + 1 if keep_first else i]
+            else:
+                i += 1
+
+    merge_same_kind()
+    while len(out) > 2:
+        best = None
+        for i in range(len(out) - 1):
+            (t1, _, h1), (t2, _, h2) = out[i], out[i + 1]
+            swing = abs(h1 - h2)
+            if swing < MIN_SWING_M or t2 - t1 < MIN_SWING_GAP:
+                if best is None or swing < best[0]:
+                    best = (swing, i)
+        if best is None:
+            break
+        del out[best[1]:best[1] + 2]
+        merge_same_kind()
+    return out
 
 
 U_BREST = 3.05  # unité de hauteur à Brest (m) : coef 100 ≈ PM à 3,05 m au-dessus du niveau moyen
