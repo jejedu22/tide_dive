@@ -234,6 +234,10 @@ La valeur est une **estimation** (quelques centimètres d'écart avec le Shom, d
 
 Source officielle : colonne « NM » des Références Altimétriques Maritimes (RAM) du Shom, sur [data.shom.fr](https://data.shom.fr) ou [data.gouv.fr](https://www.data.gouv.fr).
 
+### Étales parasites (estuaires)
+
+En estuaire (Rochefort sur la Charente, pont de Térénez sur l'Aulne) ou sur les côtes à « tenue du plein », la courbe calculée peut onduler de quelques centimètres autour d'une pleine mer et faire naître une fausse paire PM/BM. `tide_model.drop_minor_swings` les retire après la détection : une paire d'étales voisines est supprimée si son écart de hauteur est inférieur à 30 cm (`MIN_SWING_M`, le même seuil que le contrôle d'amplitude) ou si elle tient en moins de 3 h 30 (`MIN_SWING_GAP`, le seuil du contrôle de cadence) ; deux PM qui se suivent alors gardent la plus haute (deux BM, la plus basse). Une marée normale n'est pas touchée.
+
 ### Coefficients
 
 Le coefficient (échelle 20–120) est une notion française définie à Brest. Il n'est pas fourni par pyTMD : il est estimé à partir de la hauteur de chaque PM de Brest au-dessus du niveau moyen, divisée par l'unité de hauteur (`U_BREST = 3,05 m`), **sans** offset. Chaque PM d'un autre port reçoit le coefficient de la PM de Brest la plus proche ; dans l'API, une BM reçoit celui de la PM voisine. Ces coefficients sont **indicatifs**.
