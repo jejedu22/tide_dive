@@ -20,8 +20,9 @@ Ce script :
   2. en déduit les pleines mers / basses mers (extrema locaux), affinées
      par interpolation parabolique entre deux pas de temps ;
   3. attribue à chaque pleine mer le coefficient de marée de la pleine mer
-     de BREST la plus proche dans le temps (le coefficient est défini à
-     Brest pour toutes les côtes françaises). La série de Brest est
+     de BREST correspondante : la plus proche une fois retiré le décalage
+     moyen du port sur Brest (le coefficient est défini à Brest pour
+     toutes les côtes françaises). La série de Brest est
      calculée en mémoire dans le même run : aucun ordre de précalcul
      entre ports n'est nécessaire ;
   4. calcule le crépuscule nautique et le lever/coucher civil jour par
@@ -48,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import math
 import sys
 
 import pandas as pd
@@ -61,6 +63,7 @@ BREST_FALLBACK_COORDS = (48.3833, -4.4931)
 # Couvre largement le décalage Brest → baie de Saint-Brieuc sans accrocher
 # la marée suivante (~12 h 25 min plus tard).
 COEF_MATCH_TOLERANCE = pd.Timedelta(hours=6)
+SEMIDIURNAL_PERIOD_S = 12.4206 * 3600       # période de l'onde M2
 
 
 def find_catalog_port(name: str) -> dict | None:
@@ -208,9 +211,36 @@ def brest_corrected(model: str | None) -> bool:
     return cal is not None and cal["model"] == model and calib.applies_to_current(cal)
 
 
-def nearest_coefficient(t, brest_times: list[pd.Timestamp], brest_coefs: list[float]) -> float | None:
-    """Coefficient de la PM de Brest la plus proche de t, ou None si aucune dans la tolérance."""
-    ts = pd.Timestamp(t)
+def brest_lag(pm_times, brest_times: list[pd.Timestamp]) -> pd.Timedelta:
+    """Décalage moyen des PM du port sur celles de Brest (moyenne circulaire sur la période semi-diurne, ramenée dans
+    [−3 h, +9 h 25[). Indispensable loin de Brest : en Baie de Seine, la marée arrive environ 6 h après ; la PM de
+    Brest « la plus proche » est alors tantôt la bonne, tantôt la précédente ou la suivante, souvent à plus de 6 h."""
+    sins = coss = 0.0
+    for t in pm_times:
+        ts = pd.Timestamp(t)
+        i = bisect.bisect_left(brest_times, ts)
+        candidates = [j for j in (i - 1, i) if 0 <= j < len(brest_times)]
+        if not candidates:
+            continue
+        j = min(candidates, key=lambda k: abs(brest_times[k] - ts))
+        angle = 2 * math.pi * (ts - brest_times[j]).total_seconds() / SEMIDIURNAL_PERIOD_S
+        sins += math.sin(angle)
+        coss += math.cos(angle)
+    if sins == coss == 0.0:
+        return pd.Timedelta(0)
+    seconds = math.atan2(sins, coss) * SEMIDIURNAL_PERIOD_S / (2 * math.pi)
+    # côtes françaises : la marée remonte la Manche d'ouest en est (ports en RETARD sur Brest, jusqu'à 8 h et plus),
+    # la côte atlantique n'est que peu en avance : décalage ramené dans [−3 h, +9 h 25[
+    if seconds < -3 * 3600:
+        seconds += SEMIDIURNAL_PERIOD_S
+    return pd.Timedelta(seconds=seconds)
+
+
+def nearest_coefficient(t, brest_times: list[pd.Timestamp], brest_coefs: list[float],
+                        lag: pd.Timedelta = pd.Timedelta(0)) -> float | None:
+    """Coefficient de la PM de Brest correspondant à la PM du port à t : la plus proche de t − lag (décalage moyen du
+    port sur Brest, brest_lag), ou None si aucune dans la tolérance."""
+    ts = pd.Timestamp(t) - lag
     i = bisect.bisect_left(brest_times, ts)
     candidates = [j for j in (i - 1, i) if 0 <= j < len(brest_times)]
     if not candidates:
@@ -273,13 +303,16 @@ def main() -> None:
     rows = {}
     for v, heights in variants.items():
         brest_times, coefs = brest[v]
+        lag = brest_lag([t for t, kind, _ in extrema[v] if kind == "PM"], brest_times)
+        if v == next(iter(variants)):
+            print(f"[{name}] décalage moyen des pleines mers sur Brest : {lag.total_seconds() / 3600:+.1f} h")
         height_rows = [(t.isoformat(), float(h) + offset_zh) for t, h in zip(timestamps, heights)]  # zéro des cartes
         extrema_rows = [
             (
                 t.isoformat(),
                 kind,
                 float(h) + offset_zh,  # hauteur au-dessus du zéro des cartes
-                nearest_coefficient(t, brest_times, coefs) if kind == "PM" else None,
+                nearest_coefficient(t, brest_times, coefs, lag) if kind == "PM" else None,
             )
             for t, kind, h in extrema[v]
         ]
@@ -289,7 +322,7 @@ def main() -> None:
     missing = sum(1 for _, k, _, c in extrema_rows if k == "PM" and c is None)
     print(f"[{name}] {len(extrema_rows)} extrema détectés.")
     if missing:
-        print(f"[{name}] {missing} PM sans coefficient (pas de PM de Brest à moins de 6 h, bords d'année).")
+        print(f"[{name}] {missing} PM sans coefficient (pas de PM de Brest correspondante : bords d'année).")
 
     lowest = min(h for _, _, h, _ in extrema_rows)
     if lowest < -0.3:
