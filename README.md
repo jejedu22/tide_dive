@@ -238,6 +238,15 @@ Source officielle : colonne « NM » des Références Altimétriques Maritimes (
 
 En estuaire (Rochefort sur la Charente, pont de Térénez sur l'Aulne) ou sur les côtes à « tenue du plein », la courbe calculée peut onduler de quelques centimètres autour d'une pleine mer et faire naître une fausse paire PM/BM. `tide_model.drop_minor_swings` les retire après la détection : une paire d'étales voisines est supprimée si son écart de hauteur est inférieur à 30 cm (`MIN_SWING_M`, le même seuil que le contrôle d'amplitude) ou si elle tient en moins de 3 h 30 (`MIN_SWING_GAP`, le seuil du contrôle de cadence) ; deux PM qui se suivent alors gardent la plus haute (deux BM, la plus basse). Une marée normale n'est pas touchée.
 
+### Vacances scolaires par académie
+
+Les vacances viennent de l'open data de l'Éducation nationale (jeu « fr-en-calendrier-scolaire »), **par académie** (le découpage en zones A, B, C change, pas l'académie ; la zone est gardée pour l'affichage).
+
+- **Port** : académie déduite de sa position (`app/academies.py`, sans réseau, points en mer compris) sur la côte Manche-Atlantique — Lille jusqu'à l'Authie, Amiens jusqu'à la Bresle, Normandie jusqu'au Couesnon (îles Chausey comprises), Rennes jusqu'à la Vilaine (Houat, Hoëdic, Belle-Île comprises), Nantes jusqu'à la baie de l'Aiguillon (pointe de l'Aiguillon comprise), Poitiers (Charente-Maritime, rive droite de la Gironde jusqu'à 45,33°), Bordeaux (Médoc, Gironde, Landes, Pyrénées-Atlantiques). Ailleurs (Méditerranée…), ou pour corriger : onglet Ports → Modifier → *Académie des vacances scolaires* (colonne `ports.academy`, vide = d'après la position). L'académie s'affiche sous les coordonnées (✎ : choisie à la main).
+- **Structure** : *Créneaux → Vacances scolaires du calendrier* — par défaut celle de son port d'attache, ou une autre académie (`structures.school_academy`, migration 40).
+- **Affichage** : recherche par étale et par hauteur d'eau → académie **du port choisi** (indiquée dans la légende, avec sa zone) ; calendrier des créneaux choisis → académie **de la structure** ; visiteur sans structure → `SCHOOL_ACADEMY` (Rennes par défaut), qui sert aussi aux ports hors Manche-Atlantique sans académie choisie.
+- **Synchronisation** : chaque mois et par le bouton de l'administration (`python -m app.calendar_fr`, ou `--academy X` pour une seule), pour **toutes les académies utilisées** (ports, structures, valeur par défaut) ; un échec sur l'une n'empêche pas les autres. Le précalcul d'un port met à jour son académie, et le choix d'une nouvelle académie pour une structure la télécharge aussitôt. L'administration (Données et tâches) et le contrôle de santé donnent l'état par académie.
+
 ### Coefficients
 
 Le coefficient (échelle 20–120) est une notion française définie à Brest. Il n'est pas fourni par pyTMD : il est estimé à partir de la hauteur de chaque PM de Brest au-dessus du niveau moyen, divisée par l'unité de hauteur (`U_BREST = 3,05 m`), **sans** offset. Chaque PM d'un autre port reçoit le coefficient de la PM de Brest la plus proche ; dans l'API, une BM reçoit celui de la PM voisine. Ces coefficients sont **indicatifs**.
@@ -835,7 +844,7 @@ Les membres en visualisation voient les créneaux déjà choisis grisés, avec l
 
 La page **`/mes-creneaux.html`** (lien « Créneaux choisis » dans l'en-tête) liste les créneaux de la structure par date, avec qui les a choisis : filtre par type, créneaux passés masqués par défaut ; en administration, changement de type et retrait (le créneau redevient disponible dans la recherche).
 
-Le **calendrier** de cette page montre aussi les **jours fériés** (numéro et nom en corail ; nom masqué sur petit écran) et les **vacances scolaires** de l'académie configurée (`SCHOOL_ACADEMY`, filet violet horizontal en haut de la case, sans changer sa couleur), avec une légende ; le détail du jour les nomme. Ils viennent de `GET /api/calendar-days?start=…&end=…` (62 jours au plus, sans connexion).
+Le **calendrier** de cette page montre aussi les **jours fériés** (numéro et nom en corail ; nom masqué sur petit écran) et les **vacances scolaires** de l'académie de la structure (voir « Vacances scolaires par académie », filet violet horizontal en haut de la case, sans changer sa couleur), avec une légende ; le détail du jour les nomme. Ils viennent de `GET /api/calendar-days?start=…&end=…[&port_id=…]` (62 jours au plus, sans connexion).
 
 ### Indisponibilités
 

@@ -186,7 +186,7 @@ const LEGEND = `
     <span><span class="coef me">ME</span> coef ≤ 50</span>
     <span><span class="swatch swatch-weekend"></span>samedi/dimanche</span>
     <span><span class="swatch swatch-ferie"></span>jour férié</span>
-    <span><span class="swatch swatch-vacances"></span>vacances scolaires</span>
+    <span><span class="swatch swatch-vacances"></span><span class="legend-vacances">vacances scolaires</span></span>
     <span><span class="swatch swatch-picked"></span>créneau déjà choisi</span>
   </p>`;
 
@@ -310,8 +310,16 @@ function schoolHolidaysWarning(data) {
     : ` Vacances scolaires non chargées : lance « python -m app.calendar_fr ».`;
 }
 
+// Légende : académie (et zone) dont les vacances sont affichées, celle du port choisi
+function academyText(sh) {
+  if (!sh?.academy) return "vacances scolaires";
+  return `vacances scolaires : académie de ${sh.academy}${sh.zone ? ` (${sh.zone.replace(/^Zone /, "zone ")})` : ""}`;
+}
+
 function renderRows() {
   if (!lastData || !tableEl) return;
+  const legend = resultsEl.querySelector(".legend-vacances");
+  if (legend) legend.textContent = academyText(lastData.school_holidays);
   const f = readFilters();
   const active = Object.values(f).some(v => v !== "");
   const all = lastData.results;

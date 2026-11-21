@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from . import accounts, db, selections
+from . import academies, accounts, calendar_fr, db, selections
 from .auth import CurrentManager, CurrentSuperAdmin, can_manage_structure
 from .slots import describe_extremum, rdv_time
 
@@ -46,6 +46,8 @@ class StructureSettingsIn(BaseModel):
     rdv_offset_minutes: int | None = Field(None, ge=0, le=720)
     # Port proposé d'office dans la recherche ; None : aucun (le premier de la liste)
     default_port_id: int | None = None
+    # Académie des vacances scolaires du calendrier des créneaux ; None ou "" : celle du port d'attache
+    school_academy: str | None = Field(None, max_length=40)
     # Nombre de places proposé aux NOUVEAUX créneaux (copié sur chacun à sa création : le modifier ne touche pas
     # les créneaux existants). null ou 0 : illimité
     default_max_registrations: int | None = Field(None, ge=0, le=500)
@@ -79,6 +81,8 @@ def _out(row: sqlite3.Row) -> dict:
         "unregister_lock_days": row["unregister_lock_days"],
         "rdv_offset_minutes": row["rdv_offset_minutes"],
         "default_port_id": row["default_port_id"],
+        "school_academy": row["school_academy"],                                   # None : automatique
+        "school_academy_effective": calendar_fr.structure_academy(row["id"]),
         "default_max_registrations": row["default_max_registrations"],
         "use_api_maree": bool(row["use_api_maree"]),
         "use_calibration": bool(row["use_calibration"]),
@@ -139,6 +143,10 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
         del fields["rdv_offset_minutes"]  # pas de « sans délai » : null = inchangé
     if fields.get("default_port_id") is not None and db.get_port(fields["default_port_id"]) is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Port inconnu")
+    if "school_academy" in fields:
+        fields["school_academy"] = fields["school_academy"] or None                # "" : automatique
+        if fields["school_academy"] is not None and fields["school_academy"] not in academies.ACADEMIES:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Académie inconnue")
     if "default_max_registrations" in fields:
         fields["default_max_registrations"] = fields["default_max_registrations"] or None   # 0 : illimité
     if "search_modes" in fields:
@@ -164,6 +172,8 @@ def update_settings(structure_id: int, body: StructureSettingsIn, actor: Current
             else:
                 fields[flag] = int(fields[flag])
     db.update_structure_settings(structure_id, **fields)
+    if "school_academy" in fields or "default_port_id" in fields:          # académie du calendrier peut-être nouvelle
+        background.add_task(calendar_fr.ensure_school_holidays, calendar_fr.structure_academy(structure_id))
     offset = fields.get("rdv_offset_minutes")
     if offset is not None and offset != before["rdv_offset_minutes"]:
         messages = _shift_upcoming_rdvs(structure_id, offset)

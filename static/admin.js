@@ -217,10 +217,11 @@ function renderSources() {
     sel.innerHTML = status.fes_models.map(f => `<option${f.model === status.fes_model ? " selected" : ""}>${esc(f.model)}</option>`).join("");
   }
 
-  const h = status.school_holidays;
-  $("holidays-summary").innerHTML = h.periods
-    ? `<p>${h.periods} périodes pour l'académie de ${esc(h.academy)}, jusqu'au ${fmtDate.format(new Date(h.last_end + "T12:00:00"))}.</p>`
-    : `<p><strong>Aucune période chargée</strong> pour l'académie de ${esc(h.academy)}.</p>`;
+  // une ligne par académie utilisée (ports, structures, valeur par défaut)
+  $("holidays-summary").innerHTML = `<ul class="holidays-list">${(status.school_holidays || []).map(h => `<li>
+      <strong>${esc(h.academy)}</strong>${h.zone ? ` <span class="muted">(${esc(h.zone)})</span>` : ""} : ${h.periods
+        ? `${h.periods} périodes, jusqu'au ${fmtDate.format(new Date(h.last_end + "T12:00:00"))}`
+        : `<strong>aucune période chargée</strong> (lancez la synchronisation)`}</li>`).join("")}</ul>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1883,7 +1884,7 @@ function renderPorts() {
     return `
       <tr data-id="${p.id}">
         <th scope="row">${esc(p.name)}</th>
-        <td class="muted" data-label="Coordonnées">${fmtNum(p.latitude, 4)}, ${fmtNum(p.longitude, 4)}</td>
+        <td class="muted" data-label="Coordonnées">${fmtNum(p.latitude, 4)}, ${fmtNum(p.longitude, 4)}<br><span title="Académie des vacances scolaires${p.academy ? " (choisie)" : " (d'après la position)"}">${esc(p.academy_effective)}${p.academy ? " ✎" : ""}</span></td>
         <td class="num" data-label="NM / ZH">${offset}</td>
         <td data-label="api-maree.fr">${shortTermCell(p)} ${calib}</td>
         <td data-label="Années calculées">${years}</td>
@@ -2453,6 +2454,9 @@ function editPort(port) {
       <label>Site api-maree.fr (recalage)
         <input name="api_maree_site" maxlength="80" pattern="[a-z0-9][a-z0-9\\-]*" value="${esc(port.api_maree_site ?? "")}">
       </label>
+      <label>Académie des vacances scolaires
+        <select name="academy">${academyOptions(port.academy, `D'après la position : ${port.academy_auto || "hors Manche-Atlantique, académie par défaut"}`)}</select>
+      </label>
       ${port.calibration ? `<label class="check"><input type="checkbox" name="drop_calibration"> Abandonner le recalage actuel (prochains calculs en FES brut)</label>` : ""}
       <p class="dialog-hint">${port.years.length ? `Les années déjà calculées (${port.years.join(", ")}) ne sont pas recalculées automatiquement.` : ""}</p>
       <p class="dialog-error" role="alert"></p>
@@ -2476,6 +2480,7 @@ function editPort(port) {
           longitude: Number(form.longitude.value),
           offset_zh_m: numOrNull(form.offset_zh_m.value),
           api_maree_site: form.api_maree_site.value.trim() || null,
+          academy: form.academy.value || null,
         },
       });
       if (form.drop_calibration?.checked) {
@@ -2602,6 +2607,12 @@ for (const input of Object.values(rdvInputs)) input.addEventListener("input", re
 
 // Port affiché par défaut dans la recherche (ports ayant des marées précalculées)
 const defaultPortSelect = $("default-port");
+// Académies de l'open data de l'Éducation nationale (= app/academies.py)
+const ACADEMIES = ["Aix-Marseille", "Amiens", "Besançon", "Bordeaux", "Clermont-Ferrand", "Corse", "Créteil", "Dijon",
+  "Grenoble", "Lille", "Limoges", "Lyon", "Montpellier", "Nancy-Metz", "Nantes", "Nice", "Normandie", "Orléans-Tours",
+  "Paris", "Poitiers", "Reims", "Rennes", "Strasbourg", "Toulouse", "Versailles"];
+const academyOptions = (current, autoLabel) => `<option value="">${esc(autoLabel)}</option>` +
+  ACADEMIES.map(a => `<option${a === current ? " selected" : ""}>${esc(a)}</option>`).join("");
 let searchPorts = null;  // null : pas encore chargés
 
 async function loadSearchPorts() {
@@ -2610,6 +2621,11 @@ async function loadSearchPorts() {
   } catch (e) {
     searchPorts = [];
   }
+}
+
+function renderSchoolAcademy(st) {
+  const auto = "Automatique : académie du port d'attache" + (!st.school_academy && st.school_academy_effective ? ` (${st.school_academy_effective})` : "");
+  $("school-academy").innerHTML = academyOptions(st.school_academy, auto);
 }
 
 function renderDefaultPort(st) {
@@ -2647,6 +2663,7 @@ function loadSettings() {
   renderLockPreview();
   if (searchPorts === null) loadSearchPorts().then(() => { if (scopedStructure() === st) renderDefaultPort(st); });
   renderDefaultPort(st);
+  renderSchoolAcademy(st);
 }
 
 for (const input of Object.values(lockInputs)) input.addEventListener("input", renderLockPreview);
@@ -2682,6 +2699,7 @@ settingsForm.addEventListener("submit", async e => {
   body.default_max_registrations = maxRegistrations;
   body.rdv_offset_minutes = offset;
   body.default_port_id = defaultPortSelect.value ? Number(defaultPortSelect.value) : null;
+  body.school_academy = $("school-academy").value || null;
   body.use_api_maree = $("use-api-maree").checked;
   body.use_calibration = $("use-calibration").checked;
   body.caci_check = $("caci-check").checked;

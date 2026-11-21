@@ -424,7 +424,7 @@ function calendarDays(m) {
     calDaysPending.add(m);
     // la grille commence au plus 6 jours avant le 1er et compte au plus 42 cases
     Session.api(`/api/calendar-days?start=${addDays(m, -6)}&end=${addDays(m, 41)}`)
-      .then(r => { calDays.set(m, r.days); schoolAcademy = r.academy; })
+      .then(r => { calDays.set(m, r.days); schoolAcademy = r.academy ? `${r.academy}${r.zone ? `, ${r.zone.replace(/^Zone /, "zone ")}` : ""}` : null; })
       .catch(() => calDays.set(m, {}))   // non bloquant : le calendrier s'affiche sans
       .finally(() => {
         calDaysPending.delete(m);

@@ -19,7 +19,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from . import calendar_fr, db, health, jobs, level_estimate, ram, tide_model, tide_reference
+from . import academies, calendar_fr, db, health, jobs, level_estimate, ram, tide_model, tide_reference
 from .auth import CurrentSuperAdmin as CurrentAdmin
 from .ports_catalog import PORTS
 
@@ -83,13 +83,17 @@ def _fes_files(model: str) -> dict:
 
 @router.get("/status")
 def admin_status(admin: CurrentAdmin):
-    n_periods, last_end = db.school_holidays_coverage(calendar_fr.SCHOOL_ACADEMY)
+    holidays = []
+    for academy in calendar_fr.academies_in_use():
+        n_periods, last_end = db.school_holidays_coverage(academy)
+        holidays.append({**calendar_fr.academy_label(academy), "periods": n_periods, "last_end": last_end})
     return {
         "models": _models_summary(),
         "fes_models": [_fes_files(m) for m in jobs.FES_MODELS],
         "fes_model": jobs.current_fes_model(),
         "worker": _worker_summary(),
-        "school_holidays": {"academy": calendar_fr.SCHOOL_ACADEMY, "periods": n_periods, "last_end": last_end},
+        "school_holidays": holidays,          # une entrée par académie utilisée (ports, structures, défaut)
+        "academies": list(academies.ACADEMIES),
         "api_maree_configured": tide_reference.configured(),
     }
 
@@ -127,6 +131,13 @@ def _check_tz(v: str) -> str:
 SITE_PATTERN = r"^[a-z0-9][a-z0-9-]{0,79}$"
 
 
+def _check_academy(v: str | None) -> str | None:
+    v = (v or "").strip() or None
+    if v is not None and v not in academies.ACADEMIES:
+        raise ValueError(f"académie inconnue : {v}")
+    return v
+
+
 class PortIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     latitude: float = Field(ge=-90, le=90)
@@ -135,6 +146,12 @@ class PortIn(BaseModel):
     timezone: str = "Europe/Paris"
     auto_precompute: bool = True
     api_maree_site: str | None = Field(None, pattern=SITE_PATTERN, description="Identifiant du site api-maree.fr")
+    academy: str | None = Field(None, description="Académie des vacances scolaires ; vide : d'après la position")
+
+    @field_validator("academy")
+    @classmethod
+    def _academy(cls, v: str | None) -> str | None:
+        return _check_academy(v)
 
     @field_validator("name")
     @classmethod
@@ -158,11 +175,17 @@ class PortPatch(BaseModel):
     timezone: str | None = None
     auto_precompute: bool | None = None
     api_maree_site: str | None = Field(None, pattern=SITE_PATTERN)
+    academy: str | None = None          # null ou "" : d'après la position
 
     @field_validator("timezone")
     @classmethod
     def _tz(cls, v: str | None) -> str | None:
         return v if v is None else _check_tz(v)
+
+    @field_validator("academy")
+    @classmethod
+    def _academy(cls, v: str | None) -> str | None:
+        return _check_academy(v)
 
 
 def _calibration_out(cal: sqlite3.Row | None) -> dict | None:
@@ -195,6 +218,9 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, d
         "auto_precompute": bool(row["auto_precompute"]),
         "api_maree_site": row["api_maree_site"],
         "offset_estimated": bool(row["offset_estimated"]),
+        "academy": row["academy"],                                     # choisie ; None : d'après la position
+        "academy_auto": academies.academy_for(row["latitude"], row["longitude"]),
+        "academy_effective": calendar_fr.port_academy(row),
         "calibration": _calibration_out((calibrations or {}).get(row["id"])),
         "short_term": _short_term_out((short_terms or {}).get(row["id"])),
         "years": years.get(row["id"], []),
@@ -303,7 +329,7 @@ def admin_update_port(port_id: int, body: PortPatch, admin: CurrentAdmin):
     current = _get_port_or_404(port_id)
     fields = body.model_dump(exclude_unset=True)
     # seuls l'offset et le site api-maree.fr peuvent être effacés ; un null ailleurs est ignoré
-    fields = {k: v for k, v in fields.items() if v is not None or k in ("offset_zh_m", "api_maree_site")}
+    fields = {k: v for k, v in fields.items() if v is not None or k in ("offset_zh_m", "api_maree_site", "academy")}
     if "offset_zh_m" in fields and fields["offset_zh_m"] != current["offset_zh_m"]:
         fields["offset_estimated"] = False       # saisi à la main : n'est plus une estimation
     if "name" in fields:

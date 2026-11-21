@@ -187,20 +187,28 @@ MAX_CALENDAR_DAYS = 62   # un mois affiché (6 semaines) avec de la marge
 def api_calendar_days(
     start: date = Query(..., description="Premier jour (inclus), YYYY-MM-DD"),
     end: date = Query(..., description="Dernier jour (inclus), YYYY-MM-DD"),
+    port_id: int | None = Query(None, description="Vacances de l'académie de ce port (sinon : celle de la structure)"),
+    user: Annotated[sqlite3.Row | None, Depends(auth.optional_user)] = None,
 ):
     """Jours fériés et vacances scolaires de la période, pour le calendrier des créneaux choisis :
-    {jour: {holiday, school_holiday}}, jours ordinaires omis. Données publiques : pas de connexion requise."""
+    {jour: {holiday, school_holiday}}, jours ordinaires omis. Vacances de l'académie de la structure du compte (ou du
+    port demandé ; visiteur : académie par défaut). Données publiques : pas de connexion requise."""
     if end < start:
         raise HTTPException(422, "La date de fin précède la date de début")
     if (end - start).days + 1 > MAX_CALENDAR_DAYS:
         raise HTTPException(422, f"Période trop longue : {MAX_CALENDAR_DAYS} jours au plus")
+    port = db.get_port(port_id) if port_id is not None else None
+    if port_id is not None and port is None:
+        raise HTTPException(404, "Port inconnu")
+    academy = calendar_fr.port_academy(port) if port is not None else \
+        calendar_fr.structure_academy(user["structure_id"] if user is not None else None)
     holidays = calendar_fr.public_holidays_range(start, end)
-    vacations = calendar_fr.school_holidays_by_day(start, end)
+    vacations = calendar_fr.school_holidays_by_day(start, end, academy)
     days = {
         d.isoformat(): {"holiday": holidays.get(d), "school_holiday": vacations.get(d)}
         for d in sorted(set(holidays) | set(vacations))
     }
-    return {"academy": calendar_fr.SCHOOL_ACADEMY, "days": days}
+    return {**calendar_fr.academy_label(academy), "days": days}
 
 
 MAX_SEARCH_DAYS = 400   # un précalcul couvre une année ; au-delà, la requête ne renverrait presque rien et coûterait cher
@@ -253,9 +261,10 @@ def api_dive_windows(
         if e["kind"] == "PM" and e["coefficient"] is not None
     ]
 
-    # Calendrier du jour de l'étale (date affichée dans le tableau)
+    # Calendrier du jour de l'étale (date affichée dans le tableau) ; vacances de l'académie du port choisi
+    academy = calendar_fr.port_academy(port)
     holidays = calendar_fr.public_holidays_range(start, end)
-    vacations = calendar_fr.school_holidays_by_day(start, end)
+    vacations = calendar_fr.school_holidays_by_day(start, end, academy)
 
     results = []
     for ex in extrema:
@@ -332,9 +341,9 @@ def api_dive_windows(
 
     # Vacances : la table peut être vide (synchro jamais faite ou échouée) —
     # on le signale au front plutôt que d'afficher silencieusement « aucune vacance ».
-    n_periods, last_end = db.school_holidays_coverage(calendar_fr.SCHOOL_ACADEMY)
+    n_periods, last_end = db.school_holidays_coverage(academy)
     school_holidays_status = {
-        "academy": calendar_fr.SCHOOL_ACADEMY,
+        **calendar_fr.academy_label(academy),
         "periods": n_periods,
         "covered": bool(n_periods) and last_end is not None and last_end > end.isoformat(),
     }

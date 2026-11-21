@@ -13,8 +13,12 @@ Récupérées depuis l'open data de l'Éducation nationale
 (jeu « fr-en-calendrier-scolaire ») puis stockées en base, comme le reste
 des données : l'API web ne fait aucun appel réseau.
 
-On filtre par ACADÉMIE (Rennes pour les Côtes-d'Armor) plutôt que par zone :
-le découpage en zones change (réforme 2026-2027), pas l'académie.
+On filtre par ACADÉMIE plutôt que par zone : le découpage en zones change
+(réforme 2026-2027), pas l'académie. Chaque port a la sienne (déduite de sa
+position, academies.py, ou choisie dans l'onglet Ports) ; chaque structure
+aussi (choisie dans Ma structure, sinon celle de son port d'attache).
+SCHOOL_ACADEMY n'est plus qu'une valeur par défaut (visiteur, port hors
+Manche-Atlantique). Toutes les académies utilisées sont synchronisées.
 
 Synchronisation manuelle :
     python -m app.calendar_fr
@@ -92,12 +96,12 @@ def _to_local_date(value: str) -> date:
     return dt.astimezone(_PARIS).date()
 
 
-def parse_records(records: list[dict]) -> list[tuple[str, str, str]]:
+def parse_records(records: list[dict]) -> list[tuple[str, str, str, str | None]]:
     """
-    Transforme les enregistrements de l'API en (start_date, end_date, description).
+    Transforme les enregistrements de l'API en (start_date, end_date, description, zone).
     Ignore les lignes réservées aux enseignants et les doublons.
     """
-    rows: set[tuple[str, str, str]] = set()
+    rows: set[tuple[str, str, str, str | None]] = set()
     for r in records:
         if "enseignant" in str(r.get("population") or "").lower():
             continue
@@ -107,11 +111,12 @@ def parse_records(records: list[dict]) -> list[tuple[str, str, str]]:
         end = _to_local_date(r["end_date"])
         if end <= start:
             continue
-        rows.add((start.isoformat(), end.isoformat(), (r.get("description") or "Vacances").strip()))
+        rows.add((start.isoformat(), end.isoformat(), (r.get("description") or "Vacances").strip(),
+                  (r.get("zones") or "").strip() or None))
     return sorted(rows)
 
 
-def fetch_school_holidays(academy: str = SCHOOL_ACADEMY, timeout: float = 20) -> list[tuple[str, str, str]]:
+def fetch_school_holidays(academy: str = SCHOOL_ACADEMY, timeout: float = 20) -> list[tuple]:
     """Télécharge toutes les périodes de vacances connues pour une académie."""
     records: list[dict] = []
     offset = 0
@@ -141,6 +146,62 @@ def sync_school_holidays(academy: str = SCHOOL_ACADEMY) -> int:
     return len(rows)
 
 
+def port_academy(port) -> str:
+    """Académie d'un port : choisie dans l'onglet Ports, sinon déduite de sa position, sinon SCHOOL_ACADEMY."""
+    from .academies import academy_for
+    return (port["academy"] if "academy" in port.keys() else None) or \
+        academy_for(port["latitude"], port["longitude"]) or SCHOOL_ACADEMY
+
+
+def structure_academy(structure_id: int | None) -> str:
+    """Académie du calendrier d'une structure : choisie dans Ma structure, sinon celle de son port d'attache,
+    sinon SCHOOL_ACADEMY (aussi pour un visiteur sans structure)."""
+    st = db.get_structure(structure_id) if structure_id is not None else None
+    if st is None:
+        return SCHOOL_ACADEMY
+    if "school_academy" in st.keys() and st["school_academy"]:
+        return st["school_academy"]
+    port = db.get_port(st["default_port_id"]) if st["default_port_id"] else None
+    return port_academy(port) if port is not None else SCHOOL_ACADEMY
+
+
+def academies_in_use() -> list[str]:
+    """Académies dont l'application affiche les vacances : celles des ports, des structures, et la valeur par défaut."""
+    used = {SCHOOL_ACADEMY} | {port_academy(p) for p in db.list_ports()}
+    used |= {structure_academy(st["id"]) for st in db.list_structures()}
+    return sorted(used)
+
+
+def ensure_school_holidays(academy: str) -> None:
+    """Télécharge les vacances d'une académie qui n'en a encore aucune en base (nouvelle académie d'un port ou d'une
+    structure) ; ne lève jamais : la synchronisation mensuelle rattrapera un échec."""
+    try:
+        if not db.school_holidays_coverage(academy)[0]:
+            sync_school_holidays(academy)
+    except Exception as exc:
+        print(f"[vacances] académie de {academy} non synchronisée : {exc}", file=sys.stderr)
+
+
+def academy_label(academy: str) -> dict:
+    """{academy, zone} pour l'affichage (« académie de Poitiers (zone A) »)."""
+    zone = db.school_holidays_zone(academy)
+    return {"academy": academy, "zone": zone}
+
+
+def sync_all_school_holidays() -> dict[str, int | str]:
+    """Synchronise toutes les académies utilisées : {académie: nombre de périodes, ou message d'erreur}. Lève
+    RuntimeError si aucune n'a pu l'être."""
+    out: dict[str, int | str] = {}
+    for academy in academies_in_use():
+        try:
+            out[academy] = sync_school_holidays(academy)
+        except Exception as exc:          # réseau, académie inconnue… : les autres sont tout de même mises à jour
+            out[academy] = f"échec : {exc}"
+    if out and all(isinstance(v, str) for v in out.values()):
+        raise RuntimeError("; ".join(f"{a} : {v}" for a, v in out.items()))
+    return out
+
+
 def school_holidays_by_day(start: date, end: date, academy: str = SCHOOL_ACADEMY) -> dict[date, str]:
     """{jour: libellé des vacances} pour chaque jour de [start, end] en vacances."""
     out: dict[date, str] = {}
@@ -155,14 +216,20 @@ def school_holidays_by_day(start: date, end: date, academy: str = SCHOOL_ACADEMY
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Synchronise les vacances scolaires en base.")
-    parser.add_argument("--academy", default=SCHOOL_ACADEMY, help="Académie (défaut : SCHOOL_ACADEMY ou Rennes)")
+    parser.add_argument("--academy", default=None,
+                        help="Une seule académie (défaut : toutes celles des ports et des structures)")
     args = parser.parse_args()
+    db.init_db()
     try:
-        n = sync_school_holidays(args.academy)
+        results = {args.academy: sync_school_holidays(args.academy)} if args.academy else sync_all_school_holidays()
     except Exception as exc:  # réseau, JSON, académie inconnue…
         print(f"[vacances] échec de la synchronisation : {exc}. Base inchangée.", file=sys.stderr)
         raise SystemExit(1) from exc
-    print(f"[vacances] {n} périodes enregistrées pour l'académie de {args.academy}.")
+    for academy, n in results.items():
+        if isinstance(n, int):
+            print(f"[vacances] {n} périodes enregistrées pour l'académie de {academy}.")
+        else:
+            print(f"[vacances] académie de {academy} : {n}", file=sys.stderr)
 
 
 if __name__ == "__main__":
