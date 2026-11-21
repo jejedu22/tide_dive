@@ -375,9 +375,10 @@ def _port_names() -> dict[int, str]:
 
 
 @router.get("/jobs")
-def admin_list_jobs(admin: CurrentAdmin, limit: int = db.JOBS_KEPT):
+def admin_list_jobs(admin: CurrentAdmin, limit: int = db.JOBS_PAGE,
+                    status: Literal["queued", "running", "succeeded", "failed", "cancelled"] | None = None):
     names = _port_names()
-    return [_job_out(j, names) for j in db.list_jobs(max(1, min(limit, db.JOBS_KEPT)))]
+    return [_job_out(j, names) for j in db.list_jobs(max(1, min(limit, db.JOBS_KEPT)), status)]
 
 
 @router.get("/jobs/{job_id}")

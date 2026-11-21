@@ -690,7 +690,9 @@ ul.plain { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; display:
 
 .jobs tr.is-open { background: var(--weekend-bg); }
 
-.job-log { margin-top: 1rem; }
+.job-log { margin: 0.2rem 0 0.6rem; text-align: left; }
+.job-log-row > td { padding-top: 0; background: var(--surface-2, transparent); }
+.jobs-more { margin: 0.6rem 0 0; text-align: center; }
 .job-log[hidden] { display: none; }
 .job-log-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
 .job-log h3 { margin: 0; font-size: 0.95rem; color: var(--blue-deep); }
@@ -2303,3 +2305,7 @@ code.cron { font-size: 0.72rem; font-weight: 400; }
 .ram-zones > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0.2rem 1rem; }
 .ram-plan ul { margin: 0.6rem 0; padding-left: 1.2rem; }
 .ram-plan .warn { color: var(--warn-text, #8a5300); }
+.ports-filters input { padding: 0.5rem; border-radius: 8px; border: 1px solid var(--line); font-size: 0.95rem; background: var(--input-bg, var(--surface)); color: var(--text); }
+.ports-filters #pf-search { min-width: 12rem; }
+.ports-filters #pf-year { width: 6rem; }
+.ports-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin: 0 0 0.6rem; }

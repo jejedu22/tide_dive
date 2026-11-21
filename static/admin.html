@@ -345,6 +345,40 @@
               <button type="submit" class="btn-secondary">Lancer</button>
             </form>
           </div>
+          <div class="users-filters ports-filters" role="group" aria-label="Filtrer les ports">
+            <label>Rechercher <input id="pf-search" type="search" placeholder="Nom du port…"></label>
+            <label>Niveau moyen <select id="pf-level">
+              <option value="">Tous</option>
+              <option value="set">Renseigné</option>
+              <option value="estimated">Estimé (à vérifier)</option>
+              <option value="missing">À renseigner</option>
+            </select></label>
+            <label>Années calculées <select id="pf-years">
+              <option value="">Toutes</option>
+              <option value="any">Au moins une</option>
+              <option value="none">Aucune</option>
+              <option value="missing-year">Sans l'année choisie</option>
+              <option value="has-year">Avec l'année choisie</option>
+              <option value="stale">Ancien modèle</option>
+            </select></label>
+            <label>Année <input id="pf-year" type="number" min="1990" max="2100"></label>
+            <label>api-maree.fr <select id="pf-api">
+              <option value="">Tous</option>
+              <option value="site">Avec site</option>
+              <option value="nosite">Sans site</option>
+              <option value="calibrated">Recalés</option>
+              <option value="todo">Recalage à faire</option>
+            </select></label>
+            <label>Recalcul annuel <select id="pf-auto">
+              <option value="">Tous</option>
+              <option value="on">Activé</option>
+              <option value="off">Désactivé</option>
+            </select></label>
+            <button type="button" class="btn-quiet btn-small" id="pf-reset">Réinitialiser</button>
+          </div>
+          <p class="ports-filter-bar"><span id="pf-count" class="muted" role="status"></span>
+            <button type="button" class="btn-secondary btn-small" id="pf-compute" hidden></button>
+            <span id="pf-compute-status" class="form-status" role="status"></span></p>
           <div class="table-wrap">
             <table class="users ports">
               <thead>
@@ -412,8 +446,21 @@
         </div>
 
         <div class="panel">
-          <h2>Tâches</h2>
-          <p class="hint">Seules les 20 dernières tâches et leurs journaux sont conservés.</p>
+          <div class="panel-head">
+            <h2>Tâches</h2>
+            <p class="inline-form">
+              <label for="jobs-status">Afficher</label>
+              <select id="jobs-status">
+                <option value="">Toutes les tâches</option>
+                <option value="failed">Échecs</option>
+                <option value="running">En cours</option>
+                <option value="queued">En attente</option>
+                <option value="succeeded">Terminées</option>
+                <option value="cancelled">Annulées</option>
+              </select>
+            </p>
+          </div>
+          <p class="hint">Les tâches et leurs journaux sont conservés 30 jours (1 000 au plus). « Journal » l'ouvre juste sous la tâche.</p>
           <div class="table-wrap">
             <table class="users jobs">
               <thead>
@@ -430,13 +477,7 @@
               <tbody id="jobs-body"></tbody>
             </table>
           </div>
-          <div id="job-log" class="job-log" hidden>
-            <div class="job-log-head">
-              <h3 id="job-log-title"></h3>
-              <button type="button" id="job-log-close" class="btn-quiet">Fermer le journal</button>
-            </div>
-            <pre id="job-log-text" tabindex="0"></pre>
-          </div>
+          <p class="jobs-more"><button type="button" id="jobs-more" class="btn-quiet btn-small" hidden>Afficher plus de tâches</button></p>
         </div>
       </section>
 

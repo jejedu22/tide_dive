@@ -244,6 +244,21 @@ function statusTag(j) {
   return `<span class="tag job-${j.status}">${label}</span>`;
 }
 
+const JOBS_PAGE = 50;
+let jobsLimit = JOBS_PAGE;
+let openLog = null;   // journal ouvert : {text, scrollTop, atBottom} (garde sa position quand la liste se rafraîchit)
+
+function jobLogRow(j) {
+  return `<tr class="job-log-row"><td colspan="7">
+      <div class="job-log">
+        <div class="job-log-head">
+          <h3>Journal · #${j.id} · ${esc(j.label)} · ${STATUS_LABELS[j.status]}</h3>
+          <button type="button" class="btn-quiet btn-small" data-act="close-log">Fermer le journal</button>
+        </div>
+        <pre id="job-log-text" tabindex="0"></pre>
+      </div></td></tr>`;
+}
+
 function renderJobs() {
   jobsBody.innerHTML = jobs.length ? jobs.map(j => `
     <tr data-id="${j.id}" class="${j.id === openJobId ? "is-open" : ""}">
@@ -254,24 +269,38 @@ function renderJobs() {
       <td data-label="Créée">${stamp(j.created_at)}</td>
       <td class="num" data-label="Durée">${fmtDuration(j.duration_s)}</td>
       <td class="actions">
-        <button type="button" class="btn-quiet" data-act="log">Journal</button>
+        <button type="button" class="btn-quiet" data-act="log" aria-expanded="${j.id === openJobId}">${j.id === openJobId ? "Fermer" : "Journal"}</button>
         ${["queued", "running"].includes(j.status) && !j.cancel_requested
           ? `<button type="button" class="btn-danger" data-act="cancel">Annuler</button>` : ""}
       </td>
-    </tr>`).join("")
-    : `<tr><td colspan="7" class="empty">Aucune tâche pour l'instant.</td></tr>`;
+    </tr>${j.id === openJobId ? jobLogRow(j) : ""}`).join("")
+    : `<tr><td colspan="7" class="empty">${$("jobs-status").value ? "Aucune tâche de ce statut." : "Aucune tâche pour l'instant."}</td></tr>`;
+  const pre = $("job-log-text");
+  if (pre && openLog) {
+    pre.textContent = openLog.text;
+    pre.scrollTop = openLog.atBottom ? pre.scrollHeight : openLog.scrollTop;
+  }
+  $("jobs-more").hidden = jobs.length < jobsLimit;
 
-  const active = jobs.filter(j => ["queued", "running"].includes(j.status)).length;
-  const badge = $("active-count");
-  badge.hidden = !active;
-  badge.textContent = active;
+  if (!$("jobs-status").value) {
+    const active = jobs.filter(j => ["queued", "running"].includes(j.status)).length;
+    const badge = $("active-count");
+    badge.hidden = !active;
+    badge.textContent = active;
+  }
 }
 
 let previousStatuses = new Map();
 
 async function loadJobs() {
+  const pre = $("job-log-text");
+  if (pre && openLog) {           // position de lecture du journal ouvert, avant de tout redessiner
+    openLog.scrollTop = pre.scrollTop;
+    openLog.atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+  }
   try {
-    jobs = await Session.api("/api/admin/jobs");
+    const statusFilter = $("jobs-status").value;
+    jobs = await Session.api(`/api/admin/jobs?limit=${jobsLimit}${statusFilter ? `&status=${statusFilter}` : ""}`);
   } catch (e) {
     return;
   }
@@ -286,6 +315,7 @@ async function loadJobs() {
     }
   }
   previousStatuses = new Map(jobs.map(j => [j.id, j.status]));
+  if (openJobId && !jobs.some(j => j.id === openJobId)) { openJobId = null; openLog = null; }
   renderJobs();
   if (refreshPorts) loadPorts();
   if (refreshStatus) loadStatus();
@@ -293,28 +323,41 @@ async function loadJobs() {
 }
 
 async function loadJobLog(id, { quiet = false } = {}) {
-  const pre = $("job-log-text");
   try {
     const j = await Session.api(`/api/admin/jobs/${id}`);
-    $("job-log-title").textContent = `#${j.id} · ${j.label} · ${STATUS_LABELS[j.status]}`;
-    // colle en bas si l'utilisateur y était déjà (suivi en direct)
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-    pre.textContent = j.log || (j.status === "queued" ? "En attente du worker…" : "(journal vide)");
-    if (atBottom || !quiet) pre.scrollTop = pre.scrollHeight;
-    $("job-log").hidden = false;
+    if (id !== openJobId) return;                       // fermé (ou un autre ouvert) entre-temps
+    const pre = $("job-log-text");
+    const atBottom = !pre || !quiet || pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    openLog = { text: j.log || (j.status === "queued" ? "En attente du worker…" : "(journal vide)"),
+      scrollTop: pre ? pre.scrollTop : 0, atBottom };
+    if (pre) {
+      pre.textContent = openLog.text;
+      if (atBottom) pre.scrollTop = pre.scrollHeight;  // suivi en direct si l'on était en bas
+    }
   } catch (e) {
-    if (!quiet) pre.textContent = e.message;
+    if (!quiet && $("job-log-text")) $("job-log-text").textContent = e.message;
   }
 }
 
 jobsBody.addEventListener("click", async e => {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
+  if (btn.dataset.act === "close-log") {
+    openJobId = null;
+    openLog = null;
+    renderJobs();
+    return;
+  }
   const id = Number(btn.closest("tr").dataset.id);
   if (btn.dataset.act === "log") {
-    openJobId = id;
+    const closing = openJobId === id;
+    openJobId = closing ? null : id;
+    openLog = closing ? null : { text: "Chargement…", scrollTop: 0, atBottom: true };
     renderJobs();
-    loadJobLog(id);
+    if (!closing) {
+      loadJobLog(id);
+      btn.closest("tr").nextElementSibling?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   } else if (btn.dataset.act === "cancel") {
     const j = jobs.find(x => x.id === id);
     if (!confirm(`Annuler « ${j.label} » ?`)) return;
@@ -327,10 +370,13 @@ jobsBody.addEventListener("click", async e => {
   }
 });
 
-$("job-log-close").addEventListener("click", () => {
-  openJobId = null;
-  $("job-log").hidden = true;
-  renderJobs();
+$("jobs-status").addEventListener("change", () => {
+  jobsLimit = JOBS_PAGE;
+  loadJobs();
+});
+$("jobs-more").addEventListener("click", () => {
+  jobsLimit += JOBS_PAGE;
+  loadJobs();
 });
 
 async function enqueue(kind, params) {
@@ -1706,8 +1752,96 @@ function calibrationCell(p) {
   return `<span class="tag${stale ? " tag-stale" : ""}" title="${esc(title)}${stale && !legacy ? `\nÉtabli pour ${esc(c.model)} : relancez le recalage.` : ""}">${label}</span>`;
 }
 
+// ---- Filtres de l'onglet Ports (gardés le temps de la session) ----
+const PF_FIELDS = ["search", "level", "years", "year", "api", "auto"];
+const pf = id => $(`pf-${id}`);
+try {
+  const saved = JSON.parse(sessionStorage.getItem("ports-filters") || "{}");
+  PF_FIELDS.forEach(k => { if (saved[k] != null && pf(k)) pf(k).value = saved[k]; });
+} catch { /* stockage indisponible */ }
+if (!pf("year").value) pf("year").value = defaultYear;
+
+function portFilters() {
+  return Object.fromEntries(PF_FIELDS.map(k => [k, pf(k).value.trim()]));
+}
+
+const normalize = v => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function portMatches(p, f) {
+  if (f.search && !normalize(p.name).includes(normalize(f.search))) return false;
+  if (f.level === "set" && (p.offset_zh_m == null || p.offset_estimated)) return false;
+  if (f.level === "estimated" && !(p.offset_zh_m != null && p.offset_estimated)) return false;
+  if (f.level === "missing" && p.offset_zh_m != null) return false;
+  const year = Number(f.year);
+  if (f.years === "any" && !p.years.length) return false;
+  if (f.years === "none" && p.years.length) return false;
+  if (f.years === "has-year" && !p.years.includes(year)) return false;
+  if (f.years === "missing-year" && p.years.includes(year)) return false;
+  if (f.years === "stale" && !p.years.some(y => p.year_models[y] && status?.fes_model && p.year_models[y] !== status.fes_model)) return false;
+  if (f.api === "site" && !p.api_maree_site) return false;
+  if (f.api === "nosite" && p.api_maree_site) return false;
+  if (f.api === "calibrated" && !p.calibration) return false;
+  if (f.api === "todo" && !(p.api_maree_site && !p.calibration)) return false;
+  if (f.auto === "on" && !p.auto_precompute) return false;
+  if (f.auto === "off" && p.auto_precompute) return false;
+  return true;
+}
+
+function visiblePorts() {
+  const f = portFilters();
+  return ports.filter(p => portMatches(p, f));
+}
+
+function onPortFilter() {
+  try { sessionStorage.setItem("ports-filters", JSON.stringify(portFilters())); } catch { /* sans stockage */ }
+  $("pf-compute-status").textContent = "";
+  renderPorts();
+}
+PF_FIELDS.forEach(k => pf(k).addEventListener(k === "search" ? "input" : "change", onPortFilter));
+pf("year").addEventListener("input", onPortFilter);
+$("pf-reset").addEventListener("click", () => {
+  PF_FIELDS.forEach(k => { pf(k).value = ""; });
+  pf("year").value = defaultYear;
+  onPortFilter();
+});
+
+// Calcul groupé : une tâche par port affiché (ceux sans niveau moyen sont laissés de côté)
+$("pf-compute").addEventListener("click", async e => {
+  const year = Number(pf("year").value);
+  const list = visiblePorts().filter(p => p.offset_zh_m != null);
+  if (!year || !list.length) return;
+  const redo = list.filter(p => p.years.includes(year)).length;
+  if (!confirm(`Mettre en file le calcul ${year} de ${list.length} port(s)${redo ? `, dont ${redo} déjà calculé(s) pour ${year}` : ""} ?\nLe worker les traite un par un.`)) return;
+  const btn = e.currentTarget, out = $("pf-compute-status");
+  btn.disabled = true;
+  let added = 0, already = 0;
+  const failed = [];
+  for (const [i, p] of list.entries()) {
+    out.textContent = `Mise en file… ${i + 1}/${list.length}`;
+    try {
+      await Session.api("/api/admin/jobs", { method: "POST", body: { kind: "precompute", params: { port_id: p.id, year } } });
+      added++;
+    } catch (err) {
+      if (/déjà en attente/.test(err.message)) already++;
+      else failed.push(`${p.name} (${err.message})`);
+    }
+  }
+  out.textContent = `${added} calcul(s) ${year} mis en file${already ? `, ${already} déjà en attente` : ""}`
+    + (failed.length ? ` ; échec : ${failed.join(" ; ")}` : "") + ".";
+  btn.disabled = false;
+  loadJobs();
+});
+
 function renderPorts() {
-  portsBody.innerHTML = ports.length ? ports.map(p => {
+  const shown = visiblePorts();
+  const filtered = shown.length !== ports.length;
+  $("pf-count").textContent = ports.length ? (filtered ? `${shown.length} port(s) sur ${ports.length}` : `${ports.length} port(s)`) : "";
+  const year = Number(pf("year").value);
+  const computable = shown.filter(p => p.offset_zh_m != null).length;
+  $("pf-compute").hidden = !filtered || !computable || !year;
+  $("pf-compute").textContent = `Calculer ${year} pour ces ${computable} port(s)`;
+  portsBody.innerHTML = !ports.length ? "" : !shown.length
+    ? `<tr><td colspan="7" class="empty">Aucun port ne correspond aux filtres.</td></tr>` : shown.map(p => {
     const years = p.years.length
       ? p.years.map(y => yearTag(y, p.year_models[y])).join(" ")
       : `<span class="muted">aucune</span>`;
@@ -1733,8 +1867,8 @@ function renderPorts() {
           <button type="button" class="btn-danger" data-act="delete">Supprimer</button>
         </td>
       </tr>`;
-  }).join("")
-    : `<tr><td colspan="7" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
+  }).join("");
+  if (!ports.length) portsBody.innerHTML = `<tr><td colspan="7" class="empty">Aucun port. Ajoutez-en un depuis le catalogue ci-dessus.</td></tr>`;
   renderPortsMap();   // la carte suit les ports et les sites
 }
 
