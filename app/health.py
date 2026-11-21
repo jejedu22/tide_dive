@@ -124,11 +124,14 @@ def _freshness_problems(now: datetime) -> list[Problem]:
             if cal is not None and _age_days(cal["computed_at"], now) > CALIBRATION_WARN_DAYS:
                 out.append(Problem(WARNING, f"calibration-stale:{p['id']}",
                                    f"{p['name']} : recalage sur api-maree.fr vieux de {int(_age_days(cal['computed_at'], now))} jours."))
-    n_periods, last_end = db.school_holidays_coverage(calendar_fr.SCHOOL_ACADEMY)
-    if not n_periods:
-        out.append(Problem(WARNING, "holidays-empty", "Vacances scolaires : aucune période en base."))
-    elif last_end and last_end < (now.date() + timedelta(days=30)).isoformat():
-        out.append(Problem(WARNING, "holidays-stale", f"Vacances scolaires : données jusqu'au {last_end} seulement."))
+    for academy in calendar_fr.academies_in_use():
+        n_periods, last_end = db.school_holidays_coverage(academy)
+        if not n_periods:
+            out.append(Problem(WARNING, f"holidays-empty:{academy}",
+                               f"Vacances scolaires de l'académie de {academy} : aucune période en base."))
+        elif last_end and last_end < (now.date() + timedelta(days=30)).isoformat():
+            out.append(Problem(WARNING, f"holidays-stale:{academy}",
+                               f"Vacances scolaires de l'académie de {academy} : données jusqu'au {last_end} seulement."))
     return out
 
 

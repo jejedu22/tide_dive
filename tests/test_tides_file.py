@@ -81,7 +81,7 @@ def test_migration_39(tmp_db):
         PRAGMA user_version = 38;
     """)
     conn.close()
-    assert migrations.run() == [39]
+    assert migrations.run()[:1] == [39]          # (et les suivantes)
     with db.get_conn() as c:
         assert c.execute("SELECT COUNT(*) FROM main.sqlite_master WHERE name IN ('tide_heights', 'tide_extrema', "
                          "'computed_years')").fetchone()[0] == 0
@@ -129,7 +129,8 @@ def test_un_seul_processus_migre(tmp_db, monkeypatch):
         t.start()
     for t in threads:
         t.join()
-    assert sorted(results.values()) == [[], [39]] and len(calls) == 1
+    assert sorted(results.values(), key=len)[0] == [] and sorted(results.values(), key=len)[1][:1] == [39]
+    assert len(calls) == 1
     assert not leftover.exists()                                           # reste d'une sauvegarde interrompue
 
 
@@ -141,7 +142,7 @@ def test_migration_sans_sauvegarde(tmp_db, monkeypatch):
     with sqlite3.connect(tmp_db) as conn:
         conn.execute("PRAGMA user_version = 38")
     assert migrations.main(["run", "--no-backup"]) == 0
-    assert migrations.schema_version() == 39
+    assert migrations.schema_version() == migrations.latest_version()
 
 
 def test_le_demarrage_attend_la_migration_en_cours(tmp_db):
@@ -192,7 +193,7 @@ def test_separation_rapide(tmp_db):
         _local.cached = None
     assert split_tides.split() is True
     db.init_db()
-    assert migrations.schema_version() == 39 and db.years_by_port() == {port: [YEAR]}
+    assert migrations.schema_version() == migrations.latest_version() and db.years_by_port() == {port: [YEAR]}
     h, e, sun = _series(30, 2.0)
     db.replace_year(port, YEAR + 1, h, e, sun, model="FES2014")   # écriture possible (clé étrangère retirée)
     db.delete_port(port)

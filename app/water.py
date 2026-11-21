@@ -182,7 +182,7 @@ def search_windows(
     bounds = _day_bounds(port["id"], start - timedelta(days=1), end + timedelta(days=2), daylight)
     sun = {r["date"]: r for r in db.get_sun_times_range(port["id"], start.isoformat(), end.isoformat())}
     holidays = calendar_fr.public_holidays_range(start, end)
-    vacations = calendar_fr.school_holidays_by_day(start, end)
+    vacations = calendar_fr.school_holidays_by_day(start, end, calendar_fr.port_academy(port))   # académie du port
     unavailable = db.list_unavailabilities(sid, (start - timedelta(days=1)).isoformat()) if sid is not None else []
 
     results = []
@@ -221,6 +221,7 @@ def search_windows(
 
     return {
         "port": port["name"], "threshold": _threshold_out(threshold), "results": results,
+        "school_holidays": calendar_fr.academy_label(calendar_fr.port_academy(port)),
         "tide_sources": {"api_maree": sources[0] == "api", "calibration": sources.index("cal") < sources.index("fes")},
         "criteria": {"daylight": daylight, "min_minutes": min_minutes},
     }

@@ -362,8 +362,9 @@ def main() -> None:
 
     # 5. Vacances scolaires : non bloquant, les marées sont déjà enregistrées.
     try:
-        n = calendar_fr.sync_school_holidays()
-        print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {calendar_fr.SCHOOL_ACADEMY}).")
+        academy = calendar_fr.port_academy(db.get_port(port_id))
+        n = calendar_fr.sync_school_holidays(academy)
+        print(f"[{name}] vacances scolaires à jour ({n} périodes, académie de {academy}).")
     except Exception as exc:
         print(f"[{name}] vacances scolaires non mises à jour : {exc}", file=sys.stderr)
 

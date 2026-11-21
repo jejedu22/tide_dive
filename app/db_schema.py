@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS ports (
     offset_zh_m REAL,                         -- niveau moyen au-dessus du zéro des cartes (NULL = inconnu)
     auto_precompute INTEGER NOT NULL DEFAULT 1, -- inclus dans le précalcul annuel automatique
     api_maree_site TEXT,                      -- identifiant du site api-maree.fr (recalage), NULL = aucun
+    academy TEXT,                             -- académie des vacances scolaires ; NULL = d'après la position (academies.py)
     offset_estimated INTEGER NOT NULL DEFAULT 0 -- 1 : offset_zh_m estimé depuis api-maree.fr (level_estimate.py), pas saisi
 );
 
@@ -217,6 +218,7 @@ CREATE TABLE IF NOT EXISTS school_holidays (
     start_date TEXT NOT NULL,       -- YYYY-MM-DD, premier jour de vacances
     end_date TEXT NOT NULL,         -- YYYY-MM-DD, jour de reprise (exclu)
     description TEXT NOT NULL,
+    zone TEXT,                      -- « Zone B »… (open data), pour l'affichage
     PRIMARY KEY (academy, start_date, description)
 );
 
@@ -232,6 +234,7 @@ CREATE TABLE IF NOT EXISTS structures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     created_at TEXT NOT NULL,
+    school_academy TEXT,            -- académie des vacances du calendrier ; NULL = celle du port d'attache
     unregister_lock_days INTEGER CHECK (unregister_lock_days BETWEEN 0 AND 365),
     register_lock_days INTEGER CHECK (register_lock_days BETWEEN 0 AND 365),
     rdv_offset_minutes INTEGER NOT NULL DEFAULT 120 CHECK (rdv_offset_minutes BETWEEN 0 AND 720),

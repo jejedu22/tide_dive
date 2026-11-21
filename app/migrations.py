@@ -782,6 +782,14 @@ def _m039_tides_file(conn: sqlite3.Connection) -> None:
         conn.execute(f"DROP TABLE main.{table}")
 
 
+def _m040_academies(conn: sqlite3.Connection) -> None:
+    """Académie des vacances par port (NULL : déduite de la position) et par structure (NULL : celle du port
+    d'attache), zone (A, B, C) des périodes de vacances."""
+    for table, column in (("ports", "academy"), ("structures", "school_academy"), ("school_holidays", "zone")):
+        if column not in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
     Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
@@ -821,6 +829,7 @@ MIGRATIONS: list[Migration] = [
     Migration(37, "page vitrine des structures", _m037_structure_sites),
     Migration(38, "noms de domaine des pages vitrines", _m038_site_domains),
     Migration(39, "marées précalculées dans un fichier à part", _m039_tides_file),
+    Migration(40, "vacances scolaires par académie (ports, structures)", _m040_academies),
 ]
 
 

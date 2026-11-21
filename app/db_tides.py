@@ -177,19 +177,19 @@ def list_ports(with_data_only: bool = False) -> list[sqlite3.Row]:
 
 def create_port(name: str, latitude: float, longitude: float, timezone: str,
                 offset_zh_m: float | None, auto_precompute: bool,
-                api_maree_site: str | None = None) -> int:
-    """Lève sqlite3.IntegrityError si le nom existe déjà."""
+                api_maree_site: str | None = None, academy: str | None = None) -> int:
+    """Lève sqlite3.IntegrityError si le nom existe déjà. academy None : d'après la position."""
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO ports (name, latitude, longitude, timezone, offset_zh_m, auto_precompute, api_maree_site) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, latitude, longitude, timezone, offset_zh_m, int(auto_precompute), api_maree_site),
+            "INSERT INTO ports (name, latitude, longitude, timezone, offset_zh_m, auto_precompute, api_maree_site, "
+            "academy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, latitude, longitude, timezone, offset_zh_m, int(auto_precompute), api_maree_site, academy),
         )
         return cur.lastrowid
 
 
 _PORT_FIELDS = {"name", "latitude", "longitude", "timezone", "offset_zh_m", "auto_precompute", "api_maree_site",
-                "offset_estimated"}
+                "offset_estimated", "academy"}
 
 
 def update_port(port_id: int, **fields) -> None:
@@ -594,15 +594,23 @@ def get_sun_times_range(port_id: int, start_date: str, end_date: str) -> list[sq
         ).fetchall()
 
 
-def replace_school_holidays(academy: str, rows: Iterable[tuple[str, str, str]]) -> None:
-    """Remplace toutes les vacances d'une académie. rows : (start_date, end_date, description)."""
+def replace_school_holidays(academy: str, rows: Iterable[tuple]) -> None:
+    """Remplace toutes les vacances d'une académie. rows : (start_date, end_date, description[, zone])."""
     with get_conn() as conn:
         conn.execute("DELETE FROM school_holidays WHERE academy = ?", (academy,))
         conn.executemany(
-            "INSERT OR REPLACE INTO school_holidays (academy, start_date, end_date, description) "
-            "VALUES (?, ?, ?, ?)",
-            [(academy, *r) for r in rows],
+            "INSERT OR REPLACE INTO school_holidays (academy, start_date, end_date, description, zone) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(academy, *r[:3], r[3] if len(r) > 3 else None) for r in rows],
         )
+
+
+def school_holidays_zone(academy: str) -> str | None:
+    """Zone (« Zone B »…) de l'académie d'après sa dernière période connue."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT zone FROM school_holidays WHERE academy = ? AND zone IS NOT NULL "
+                           "ORDER BY start_date DESC LIMIT 1", (academy,)).fetchone()
+    return row["zone"] if row else None
 
 
 def get_school_holidays_range(academy: str, start_date: str, end_date: str) -> list[sqlite3.Row]:

@@ -132,6 +132,7 @@ from .db_tides import (  # noqa: F401
     replace_school_holidays,
     get_school_holidays_range,
     school_holidays_coverage,
+    school_holidays_zone,
 )
 from .db_structures import (  # noqa: F401
     _STRUCTURE_SELECT,
