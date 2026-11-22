@@ -95,6 +95,7 @@ def admin_status(admin: CurrentAdmin):
         "school_holidays": holidays,          # une entrée par académie utilisée (ports, structures, défaut)
         "academies": list(academies.ACADEMIES),
         "api_maree_configured": tide_reference.configured(),
+        "api_maree_usage": tide_reference.usage(),        # requêtes de l'heure, budget, blocage éventuel
     }
 
 
@@ -207,7 +208,7 @@ def _short_term_out(win: sqlite3.Row | None) -> dict | None:
 
 def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, dict[int, str]] | None = None,
               calibrations: dict[int, sqlite3.Row] | None = None,
-              short_terms: dict[int, sqlite3.Row] | None = None) -> dict:
+              short_terms: dict[int, sqlite3.Row] | None = None, used: set[int] | None = None) -> dict:
     return {
         "id": row["id"],
         "name": row["name"],
@@ -223,6 +224,8 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, d
         "academy_effective": calendar_fr.port_academy(row),
         "calibration": _calibration_out((calibrations or {}).get(row["id"])),
         "short_term": _short_term_out((short_terms or {}).get(row["id"])),
+        # mois glissant api-maree.fr : chaque jour pour un port utilisé, sinon chaque semaine (quota)
+        "short_term_daily": used is not None and row["id"] in used,
         "years": years.get(row["id"], []),
         # modèle de chaque année (absent pour une année calculée avant son enregistrement)
         "year_models": {str(y): m for y, m in (models or {}).get(row["id"], {}).items()},
@@ -232,7 +235,8 @@ def _port_out(row: sqlite3.Row, years: dict[int, list[int]], models: dict[int, d
 @router.get("/ports")
 def admin_list_ports(admin: CurrentAdmin):
     years, models, cals, shorts = db.years_by_port(), db.models_by_port_year(), db.calibrations_by_port(), db.short_term_windows()
-    return [_port_out(p, years, models, cals, shorts) for p in db.list_ports()]
+    used = jobs.used_port_ids()
+    return [_port_out(p, years, models, cals, shorts, used) for p in db.list_ports()]
 
 
 @router.get("/ports/catalog")
@@ -404,7 +408,12 @@ def _port_names() -> dict[int, str]:
 def admin_list_jobs(admin: CurrentAdmin, limit: int = db.JOBS_PAGE,
                     status: Literal["queued", "running", "succeeded", "failed", "cancelled"] | None = None):
     names = _port_names()
-    return [_job_out(j, names) for j in db.list_jobs(max(1, min(limit, db.JOBS_KEPT)), status)]
+    blocked = tide_reference.blocked_until()
+    out = [_job_out(j, names) for j in db.list_jobs(max(1, min(limit, db.JOBS_KEPT)), status)]
+    for j in out:          # tâches api-maree.fr en attente pendant que le quota est atteint
+        if blocked and j["status"] == "queued" and j["kind"] in jobs.API_MAREE_KINDS:
+            j["waiting_quota_until"] = blocked.isoformat()
+    return out
 
 
 @router.get("/jobs/{job_id}")

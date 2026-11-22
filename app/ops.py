@@ -130,8 +130,11 @@ class Scheduled:
 SCHEDULE: list[Scheduled] = [
     Scheduled("newsletters", "*/5 * * * *", "python -m app.jobs enqueue newsletters-due",
               "Newsletters programmées dont l'heure est venue", "newsletter_send", "toutes les 5 minutes"),
-    Scheduled("short_term", "10 5 * * *", "python -m app.jobs enqueue short-term --all",
-              "Mois glissant depuis api-maree.fr (ports dotés d'un site)", "short_term", "chaque jour à 5 h 10"),
+    Scheduled("short_term", "10 5 * * 1-6", "python -m app.jobs enqueue short-term --used",
+              "Mois glissant depuis api-maree.fr (ports utilisés, jours nouveaux)", "short_term",
+              "du lundi au samedi à 5 h 10"),
+    Scheduled("short_term_all", "10 5 * * 0", "python -m app.jobs enqueue short-term --all",
+              "Mois glissant depuis api-maree.fr (tous les ports dotés d'un site)", "short_term", "le dimanche à 5 h 10"),
     Scheduled("backup", "30 3 * * *", "python -m app.backup", "Sauvegarde de la base", "backup", "chaque jour à 3 h 30"),
     Scheduled("health", "5 7 * * *", "python -m app.health --notify",
               "Contrôle de santé (e-mail aux administrateurs si nouvelle erreur)", "health", "chaque jour à 7 h 05"),
@@ -222,6 +225,8 @@ def run_now(key: str, admin: CurrentSuperAdmin):
     elif key == "calibrate":
         ids = jobs.enqueue_calibrations(who)
     elif key == "short_term":
+        ids = jobs.enqueue_calibrations(who, "short_term", only_used=True)
+    elif key == "short_term_all":
         ids = jobs.enqueue_calibrations(who, "short_term")
     elif key == "newsletters":
         from . import newsletter_send

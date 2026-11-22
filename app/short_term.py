@@ -21,6 +21,13 @@ Pour chaque port doté d'un identifiant api-maree.fr :
      les créneaux déjà choisis des structures qui l'utilisent sont recalés sur
      les nouvelles heures, comme lors d'un recalcul.
 
+Quota d'api-maree.fr (360 requêtes par heure) : les prédictions ne changent pas
+d'un jour à l'autre, donc un passage quotidien ne demande que les jours nouveaux
+(depuis la fin de la fenêtre précédente, moins OVERLAP) : 2 requêtes au lieu de 6.
+La fenêtre entière est retéléchargée tous les FULL_REFRESH_EVERY, pour un nouveau
+site, ou avec --full. Quota atteint : sortie EXIT_QUOTA, la tâche est remise en
+file jusqu'à l'heure de reprise (jobs.py).
+
 Seules les années déjà précalculées sont touchées : on ne crée pas d'année
 partielle. Les hauteurs api-maree.fr sont au-dessus du zéro des cartes,
 comme celles stockées (FES + offset_zh_m) : si leurs moyennes diffèrent de
@@ -41,7 +48,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import db, jobs, tide_model, tide_reference
+from . import db, tide_model, tide_reference
 
 STEP_MINUTES = 10                       # = pas de tide_heights
 PAST = timedelta(days=1)                # début de la fenêtre remplacée : J−1
@@ -49,6 +56,9 @@ AHEAD = timedelta(days=29)              # fin : J+29 (api-maree.fr publie jusqu'
 MARGIN = timedelta(hours=6)             # étales des bords détectées sans bord de série
 COEF_MATCH = timedelta(hours=3)         # PM FES remplacée, pour reprendre son coefficient
 API_PM_MATCH = timedelta(minutes=30)    # PM /tide-extrema correspondant à une PM de la série
+FULL_REFRESH_EVERY = timedelta(days=7)  # fenêtre entière retéléchargée ; sinon seuls les jours nouveaux (quota)
+OVERLAP = timedelta(days=1)             # jours nouveaux : on reprend aussi la veille de la fin précédente
+EXIT_QUOTA = 75                         # code de sortie « quota api-maree.fr atteint » : la tâche attendra (jobs.py)
 MAX_LEVEL_DIFF_M = 0.5
 FES_SOURCES = ("cal", "fes")            # calcul FES (corrigé de préférence), pour comparer et compléter
 WARN_LEVEL_DIFF_M = 0.15
@@ -123,15 +133,42 @@ def max_shift(new_extrema, old_rows) -> float | None:
     return max(shifts) if shifts else None
 
 
-def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
-    """Remplace le mois glissant du port par les valeurs api-maree.fr ; None si aucune année concernée."""
+def _fetch_start(port: dict, site: str, start: datetime, end: datetime, now: datetime, full: bool) -> datetime:
+    """Début des données à demander : start (fenêtre entière) ou la fin de la fenêtre précédente moins OVERLAP."""
+    prev = db.short_term_windows().get(port["id"])
+    if full or prev is None or prev["site"] != site:
+        return start
+    last_full = prev["full_refreshed_at"] if "full_refreshed_at" in prev.keys() else None
+    if not last_full or now - datetime.fromisoformat(last_full) >= FULL_REFRESH_EVERY:
+        return start
+    prev_start, prev_end = datetime.fromisoformat(prev["window_start"]), datetime.fromisoformat(prev["window_end"])
+    if prev_start > start or prev_end < start + OVERLAP:            # trou entre les deux fenêtres
+        return start
+    return max(start, prev_end - OVERLAP)
+
+
+def refresh(port: dict, now: datetime | None = None, log=print, full: bool = False) -> dict | None:
+    """Remplace le mois glissant du port par les valeurs api-maree.fr ; None si aucune année concernée.
+    full : toute la fenêtre ; sinon, si la fenêtre précédente est récente, seuls les jours nouveaux."""
     name, site = port["name"], port["api_maree_site"]
-    start, end = window(now or datetime.now(timezone.utc))
+    now = now or datetime.now(timezone.utc)
+    start, end = window(now)
     segments = year_segments(start, end, set(db.years_by_port().get(port["id"], [])))
     if not segments:
         log(f"[{name}] aucune année précalculée entre le {start:%d/%m/%Y} et le {end:%d/%m/%Y} : rien à remplacer.")
         return None
     start, end = segments[0][0], segments[-1][1]
+    window_start = start
+    prev = db.short_term_windows().get(port["id"])
+    fetch_from = _fetch_start(port, site, start, end, now, full)
+    is_full = fetch_from == start
+    if fetch_from >= end - timedelta(minutes=STEP_MINUTES):
+        log(f"[{name}] mois glissant déjà à jour (jusqu'au {end:%d/%m/%Y}) : aucune requête.")
+        return None
+    if not is_full:
+        segments = [(max(a, fetch_from), b) for a, b in segments if b > fetch_from]
+        start = fetch_from
+        log(f"[{name}] jours nouveaux seulement (fenêtre complète le {prev['full_refreshed_at'][:10]}).")
 
     log(f"[{name}] hauteurs api-maree.fr « {site} » du {start:%d/%m/%Y} au {end:%d/%m/%Y} (UTC)…")
     ref = tide_reference.water_levels(site, start - MARGIN, end + MARGIN, STEP_MINUTES)
@@ -179,9 +216,15 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
     biggest = max(shifts) if shifts else None
     log(f"[{name}] {total} pleines / basses mers api-maree.fr enregistrées"
         + (f" ; plus grand écart avec le calcul précédent : {biggest:.0f} min." if biggest is not None else "."))
+    refreshed = now.astimezone(timezone.utc).isoformat(timespec="seconds")
+    if not is_full and prev is not None:          # chiffres de toute la fenêtre, pas seulement des jours nouveaux
+        total = len(db.get_extrema_range(port["id"], _iso(window_start), _iso(end), ("api",)))
+        biggest = biggest if biggest is not None else prev["max_shift_min"]
+        level_diff = level_diff if level_diff is not None else prev["level_diff_m"]
     result = {
-        "site": site, "window_start": _iso(start), "window_end": _iso(end), "n_extrema": total,
-        "max_shift_min": biggest, "level_diff_m": level_diff, "refreshed_at": jobs.now_iso(),
+        "site": site, "window_start": _iso(window_start), "window_end": _iso(end), "n_extrema": total,
+        "max_shift_min": biggest, "level_diff_m": level_diff, "refreshed_at": refreshed,
+        "full_refreshed_at": refreshed if is_full else prev["full_refreshed_at"],
     }
     db.save_short_term_window(port["id"], **result)
     return result
@@ -190,6 +233,7 @@ def refresh(port: dict, now: datetime | None = None, log=print) -> dict | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Remplace le mois glissant d'un port par les horaires api-maree.fr.")
     parser.add_argument("--port-id", type=int, required=True)
+    parser.add_argument("--full", action="store_true", help="Retélécharger toute la fenêtre (sinon : jours nouveaux)")
     args = parser.parse_args(argv)
 
     db.init_db()
@@ -202,7 +246,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Pas d'identifiant api-maree.fr pour « {port['name']} ».", file=sys.stderr)
         return 1
     try:
-        refresh(port)
+        refresh(port, full=args.full)
+    except tide_reference.QuotaExceeded as exc:
+        print(f"[quota] {exc} : la tâche reprendra automatiquement.", file=sys.stderr)
+        return EXIT_QUOTA
     except tide_reference.ApiMareeError as exc:
         print(f"ERREUR : {exc}", file=sys.stderr)
         return 1

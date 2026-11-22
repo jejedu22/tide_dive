@@ -31,6 +31,7 @@ ERROR, WARNING = "error", "warning"
 PREREQUISITES_FROM = (10, 1)        # 1er octobre
 NEXT_YEAR_DUE_FROM = (12, 20)       # le précalcul auto est lancé le 15 décembre
 SHORT_TERM_WARN_DAYS, SHORT_TERM_ERROR_DAYS = 3, 7
+UNUSED_SHORT_TERM_WARN_DAYS, UNUSED_SHORT_TERM_ERROR_DAYS = 9, 15   # ports non utilisés : rafraîchis chaque semaine
 CALIBRATION_WARN_DAYS = 45          # recalage mensuel (le 2 de chaque mois)
 JOB_FAILURE_WINDOW = timedelta(days=3)
 WORKER_STALE_SECONDS = 180
@@ -106,6 +107,8 @@ def _freshness_problems(now: datetime) -> list[Problem]:
     out: list[Problem] = []
     if os.environ.get("API_MAREE_KEY"):
         windows = db.short_term_windows()
+        from .jobs import used_port_ids     # import tardif : jobs importe health indirectement
+        used = used_port_ids(now)
         for p in db.list_ports():
             if not p["api_maree_site"]:
                 continue
@@ -115,8 +118,10 @@ def _freshness_problems(now: datetime) -> list[Problem]:
                                    f"{p['name']} : mois glissant api-maree.fr jamais repris."))
                 continue
             age = _age_days(row["refreshed_at"], now)
-            if age > SHORT_TERM_WARN_DAYS:
-                level = ERROR if age > SHORT_TERM_ERROR_DAYS else WARNING
+            warn, error = ((SHORT_TERM_WARN_DAYS, SHORT_TERM_ERROR_DAYS) if p["id"] in used
+                           else (UNUSED_SHORT_TERM_WARN_DAYS, UNUSED_SHORT_TERM_ERROR_DAYS))
+            if age > warn:
+                level = ERROR if age > error else WARNING
                 out.append(Problem(level, f"short-term-stale:{p['id']}:{level}",
                                    f"{p['name']} : mois glissant api-maree.fr non rafraîchi depuis {int(age)} jours "
                                    f"(les horaires du mois viennent alors du calcul FES, moins précis)."))

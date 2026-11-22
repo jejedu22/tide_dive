@@ -211,6 +211,14 @@ def api_calendar_days(
     return {**calendar_fr.academy_label(academy), "days": days}
 
 
+def _note_port_viewed(port_id: int) -> None:
+    """Port recherché : il fait partie des ports dont le mois glissant api-maree.fr est rafraîchi chaque jour."""
+    try:
+        db.touch_port_viewed(port_id, datetime.now(ZoneInfo("UTC")).isoformat(timespec="seconds"))
+    except sqlite3.OperationalError:
+        pass                     # base momentanément occupée : la recherche ne doit pas échouer pour si peu
+
+
 MAX_SEARCH_DAYS = 400   # un précalcul couvre une année ; au-delà, la requête ne renverrait presque rien et coûterait cher
 
 
@@ -230,6 +238,7 @@ def api_dive_windows(
         raise HTTPException(404, "Port inconnu")
     if end < start:
         raise HTTPException(422, "La date de fin précède la date de début")
+    _note_port_viewed(port_id)
     if (end - start).days > MAX_SEARCH_DAYS:
         raise HTTPException(422, f"Période trop longue : {MAX_SEARCH_DAYS} jours au plus")
     tz = ZoneInfo(port["timezone"])

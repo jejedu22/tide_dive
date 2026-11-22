@@ -55,7 +55,7 @@ def test_prochaine_execution(cron, after, expected):
 def test_planning_et_lancer_maintenant(setup, new_client):
     root = _client(new_client, "root")
     data = root.get("/api/admin/schedule").json()
-    assert [e["key"] for e in data["entries"]][:3] == ["newsletters", "short_term", "backup"]
+    assert [e["key"] for e in data["entries"]][:4] == ["newsletters", "short_term", "short_term_all", "backup"]
     assert all(e["next_run"] for e in data["entries"])
     assert root.post("/api/admin/schedule/backup/run").json()["queued"]
     assert root.post("/api/admin/schedule/backup/run").json()["queued"] == []    # déjà en file

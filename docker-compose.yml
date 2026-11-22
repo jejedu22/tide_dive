@@ -27,6 +27,7 @@ x-app: &app
     FES_MODEL: ${FES_MODEL:-FES2014}  # modèle par défaut, tant qu'aucun n'est choisi dans l'administration
     SCHOOL_ACADEMY: ${SCHOOL_ACADEMY:-Rennes}   # académie des vacances par défaut (chaque port et structure a la sienne)
     API_MAREE_KEY: ${API_MAREE_KEY:-}           # recalage FES sur api-maree.fr (facultatif)
+    API_MAREE_HOURLY_BUDGET: ${API_MAREE_HOURLY_BUDGET:-330}   # requêtes api-maree.fr par heure (quota : 360)
     TRAEFIK_PROVIDER_TOKEN: ${TRAEFIK_PROVIDER_TOKEN:-}   # domaines des vitrines : jeton du fournisseur HTTP de Traefik (README)
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}      # connexion avec Google (voir README, « Connexion avec Google »)
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
