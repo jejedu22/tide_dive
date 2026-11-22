@@ -290,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
     start, end = tide_reference.default_window(datetime.now(timezone.utc))
     try:
         result = calibrate(port, model, start, end)
+    except tide_reference.QuotaExceeded as exc:
+        print(f"[quota] {exc} : la tâche reprendra automatiquement.", file=sys.stderr)
+        return 75                         # = short_term.EXIT_QUOTA : remise en file par le worker
     except tide_reference.ApiMareeError as exc:
         print(f"ERREUR : {exc}", file=sys.stderr)
         return 1

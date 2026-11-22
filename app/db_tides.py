@@ -489,14 +489,40 @@ def get_heights_range(port_id: int, start_iso: str, end_iso: str, sources=None) 
 
 
 def save_short_term_window(port_id: int, site: str, window_start: str, window_end: str, n_extrema: int,
-                           max_shift_min: float | None, level_diff_m: float | None, refreshed_at: str) -> None:
+                           max_shift_min: float | None, level_diff_m: float | None, refreshed_at: str,
+                           full_refreshed_at: str | None = None) -> None:
+    """full_refreshed_at : dernier téléchargement de toute la fenêtre (les autres jours, seuls les jours nouveaux)."""
     with get_conn() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO short_term_windows "
-            "(port_id, site, window_start, window_end, n_extrema, max_shift_min, level_diff_m, refreshed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (port_id, site, window_start, window_end, n_extrema, max_shift_min, level_diff_m, refreshed_at),
+            "(port_id, site, window_start, window_end, n_extrema, max_shift_min, level_diff_m, refreshed_at, "
+            "full_refreshed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (port_id, site, window_start, window_end, n_extrema, max_shift_min, level_diff_m, refreshed_at,
+             full_refreshed_at or refreshed_at),
         )
+
+
+VIEW_TOUCH_EVERY_S = 3600       # dernière consultation d'un port : écrite au plus une fois par heure
+
+
+def touch_port_viewed(port_id: int, now: str) -> None:
+    """Note qu'un port vient d'être consulté (recherche) : il fait alors partie des ports rafraîchis chaque jour."""
+    with get_conn() as conn:
+        conn.execute("UPDATE ports SET last_viewed_at = ? WHERE id = ? AND (last_viewed_at IS NULL OR "
+                     "julianday(?) - julianday(last_viewed_at) > ?)",
+                     (now, port_id, now, VIEW_TOUCH_EVERY_S / 86400))
+
+
+def ports_in_use(today: str, viewed_since: str) -> set[int]:
+    """Ports « utilisés » : port d'attache d'une structure active, créneau à venir, ou consulté depuis viewed_since."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT default_port_id AS id FROM structures WHERE default_port_id IS NOT NULL AND archived_at IS NULL
+            UNION SELECT port_id FROM slot_selections WHERE port_id IS NOT NULL AND local_date >= ?
+            UNION SELECT id FROM ports WHERE last_viewed_at >= ?
+            """, (today, viewed_since)).fetchall()
+    return {r[0] for r in rows if r[0] is not None}
 
 
 def short_term_windows() -> dict[int, sqlite3.Row]:

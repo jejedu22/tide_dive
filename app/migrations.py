@@ -790,6 +790,15 @@ def _m040_academies(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
 
 
+def _m041_api_quota(conn: sqlite3.Connection) -> None:
+    """Dernière consultation d'un port (mois glissant quotidien des ports utilisés seulement) ; dernier
+    téléchargement complet du mois glissant (les autres jours, seuls les jours nouveaux sont demandés)."""
+    if "last_viewed_at" not in _columns(conn, "ports"):
+        conn.execute("ALTER TABLE ports ADD COLUMN last_viewed_at TEXT")
+    if "full_refreshed_at" not in _columns(conn, "short_term_windows"):
+        conn.execute("ALTER TABLE short_term_windows ADD COLUMN full_refreshed_at TEXT")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(2, "un compte peut appartenir à plusieurs structures", _m002_multi_structures),
     Migration(3, "nombre de places par créneau et file d'attente", _m003_registration_limits),
@@ -830,6 +839,7 @@ MIGRATIONS: list[Migration] = [
     Migration(38, "noms de domaine des pages vitrines", _m038_site_domains),
     Migration(39, "marées précalculées dans un fichier à part", _m039_tides_file),
     Migration(40, "vacances scolaires par académie (ports, structures)", _m040_academies),
+    Migration(41, "quota api-maree.fr : ports utilisés, mois glissant par jours nouveaux", _m041_api_quota),
 ]
 
 

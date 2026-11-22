@@ -266,7 +266,13 @@ Chaque jour à 05:10, la tâche **Mois glissant** (`app/short_term.py`) enregist
 - **Créneaux déjà choisis** : recalés sur la nouvelle heure de l'étale, comme lors d'un recalcul.
 - **Années** : seules les années déjà précalculées sont concernées ; un nouveau précalcul ne touche pas aux horaires api-maree.fr.
 - **Contrôle du référentiel** : les hauteurs api-maree.fr et les hauteurs stockées (FES + `offset_zh_m`) sont au-dessus du zéro des cartes. Si leurs moyennes diffèrent de plus de 50 cm (niveau moyen du port erroné, ou site d'un autre port), rien n'est écrit ; au-delà de 15 cm, un avertissement est journalisé.
-- Dans l'onglet Ports, l'étiquette **30 j → date** indique la fin de la fenêtre reprise (signalée si elle n'a pas été rafraîchie depuis 2 jours), et le bouton **30 jours** la rafraîchit tout de suite.
+- Dans l'onglet Ports, l'étiquette **30 j → date** indique la fin de la fenêtre reprise (signalée si elle n'a pas été rafraîchie depuis 2 jours pour un port utilisé, 8 jours sinon ; l'info-bulle donne le rythme), et le bouton **30 jours** la rafraîchit tout de suite.
+
+#### Quota d'api-maree.fr (360 requêtes par heure)
+
+- **Ports utilisés seulement, chaque jour** : du lundi au samedi, la tâche ne passe que sur les ports **utilisés** — port d'attache d'une structure active, créneau à venir, ou recherche (par étale ou par hauteur d'eau) depuis 14 jours (`ports.last_viewed_at`, migration 41). Le dimanche, tous les ports dotés d'un site api-maree.fr (`enqueue short-term --used` / `--all`).
+- **Jours nouveaux seulement** : les prédictions d'api-maree.fr ne changent pas d'un jour à l'autre ; un passage ne demande que la fin de la fenêtre (depuis la fin précédente moins un jour de recouvrement) : environ **2 requêtes par port au lieu de 6**. La fenêtre entière est retéléchargée chaque semaine (`short_term_windows.full_refreshed_at`), pour un nouveau site, ou avec `python -m app.short_term --port-id N --full`.
+- **Budget et attente** : l'application compte ses requêtes de l'heure (`API_MAREE_HOURLY_BUDGET`, 330 par défaut, marge pour les actions manuelles). Budget épuisé ou réponse 429 d'api-maree.fr : plus aucune requête jusqu'à l'heure de reprise (celle qu'annonce api-maree.fr, sinon l'heure pleine suivante) ; les tâches **Mois glissant** et **Recalage** en cours sont **remises en attente** (« En attente du quota (HH:MM) » dans la liste des tâches) au lieu d'échouer, et le worker passe aux autres tâches. L'administration (Données et tâches → api-maree.fr) affiche les requêtes de l'heure et l'éventuel blocage.
 
 ### Recalage du calcul FES (long terme)
 

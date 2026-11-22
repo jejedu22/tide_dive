@@ -217,6 +217,12 @@ function renderSources() {
     sel.innerHTML = status.fes_models.map(f => `<option${f.model === status.fes_model ? " selected" : ""}>${esc(f.model)}</option>`).join("");
   }
 
+  const u = status.api_maree_usage;
+  if (u && $("api-maree-usage")) {
+    $("api-maree-usage").textContent = u.blocked_until
+      ? `api-maree.fr : quota atteint, les tâches reprendront après ${new Date(u.blocked_until).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`
+      : `api-maree.fr : ${u.used} requête(s) cette heure-ci sur ${u.budget} autorisées par l'application (quota du service : 360).`;
+  }
   // une ligne par académie utilisée (ports, structures, valeur par défaut)
   $("holidays-summary").innerHTML = `<ul class="holidays-list">${(status.school_holidays || []).map(h => `<li>
       <strong>${esc(h.academy)}</strong>${h.zone ? ` <span class="muted">(${esc(h.zone)})</span>` : ""} : ${h.periods
@@ -241,6 +247,10 @@ let openJobId = null;
 const jobsBody = $("jobs-body");
 
 function statusTag(j) {
+  if (j.waiting_quota_until) {
+    const at = new Date(j.waiting_quota_until).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return `<span class="tag job-queued" title="Quota horaire d'api-maree.fr atteint : la tâche reprendra d'elle-même">En attente du quota (${at})</span>`;
+  }
   const label = j.status === "running" && j.cancel_requested ? "Annulation…" : STATUS_LABELS[j.status];
   return `<span class="tag job-${j.status}">${label}</span>`;
 }
@@ -1751,11 +1761,13 @@ const fmtDay = iso => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit"
 // Mois glissant repris d'api-maree.fr : fin de la fenêtre, signalée si pas rafraîchie depuis 2 jours
 function shortTermCell(p) {
   const w = p.short_term;
-  if (!w) return p.api_maree_site ? `<span class="muted">30 j : à faire</span>` : "";
-  const stale = Date.now() - new Date(w.refreshed_at).getTime() > 2 * 86400e3;
+  const rhythm = p.short_term_daily ? "chaque jour (port utilisé)" : "chaque semaine (port non utilisé)";
+  if (!w) return p.api_maree_site ? `<span class="muted" title="Mis à jour ${rhythm}">30 j : à faire</span>` : "";
+  const stale = Date.now() - new Date(w.refreshed_at).getTime() > (p.short_term_daily ? 2 : 8) * 86400e3;
   const lastDay = new Date(new Date(w.window_end).getTime() - 1);   // fin exclue
   const title = [
     `Horaires repris d'api-maree.fr (${w.site}) du ${fmtDay(w.window_start)} au ${fmtDay(lastDay)}, mis à jour le ${new Date(w.refreshed_at).toLocaleString("fr-FR")}`,
+    `Mise à jour ${rhythm}${p.short_term_daily ? "" : " : port d'attache, créneau à venir ou recherche récente le font passer au rythme quotidien"}`,
     `${w.n_extrema} pleines / basses mers ; plus grand écart avec le calcul FES remplacé : ${fmtMin(w.max_shift_min)}`,
     `Hauteur moyenne api-maree.fr − FES : ${w.level_diff_m == null ? "—" : `${fmtNum(w.level_diff_m, 2)} m`}`,
     stale ? "Pas de mise à jour depuis plus de 2 jours : voir les tâches." : "",

@@ -41,7 +41,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from . import db
 
@@ -49,6 +49,8 @@ FES_MODELS = ("FES2014", "FES2022")
 MODEL_DIR = os.environ.get("TIDE_MODEL_DIRECTORY", "/models")
 POLL_SECONDS = 3
 HEARTBEAT_STALE_SECONDS = 30  # au-delà, l'administration considère le worker arrêté
+API_MAREE_KINDS = ("calibrate", "short_term")   # tâches qui interrogent api-maree.fr (quota horaire)
+EXIT_QUOTA = 75               # code de sortie « quota api-maree.fr atteint » (short_term, calibration)
 
 
 def now_iso() -> str:
@@ -201,11 +203,23 @@ def enqueue_annual(year: int, created_by: str) -> list[int]:
     return ids
 
 
-def enqueue_calibrations(created_by: str, kind: str = "calibrate") -> list[int]:
-    """Une tâche (recalage ou mois glissant) par port doté d'un identifiant api-maree.fr."""
+USED_PORT_VIEW_DAYS = 14   # port consulté dans ce délai : « utilisé », mois glissant rafraîchi chaque jour
+
+
+def used_port_ids(now: datetime | None = None) -> set[int]:
+    """Ports utilisés : port d'attache d'une structure, créneau à venir, ou recherche depuis USED_PORT_VIEW_DAYS."""
+    now = now or datetime.now(timezone.utc)
+    return db.ports_in_use(now.date().isoformat(),
+                           (now - timedelta(days=USED_PORT_VIEW_DAYS)).isoformat(timespec="seconds"))
+
+
+def enqueue_calibrations(created_by: str, kind: str = "calibrate", only_used: bool = False) -> list[int]:
+    """Une tâche (recalage ou mois glissant) par port doté d'un identifiant api-maree.fr ; only_used : seulement
+    les ports utilisés (mois glissant quotidien ; les autres passent une fois par semaine, quota api-maree.fr)."""
     ids = []
+    used = used_port_ids() if only_used else None
     for p in db.list_ports():
-        if p["api_maree_site"]:
+        if p["api_maree_site"] and (used is None or p["id"] in used):
             job_id = enqueue(kind, {"port_id": p["id"]}, created_by)
             if job_id:
                 ids.append(job_id)
@@ -268,7 +282,8 @@ class Worker:
         while not self.stopping:
             self.beat()
             try:
-                job = db.claim_next_job(now_iso())
+                # quota api-maree.fr atteint : ses tâches attendent l'heure de reprise, les autres passent
+                job = db.claim_next_job(now_iso(), API_MAREE_KINDS if self._api_blocked() else ())
             except sqlite3.OperationalError as exc:
                 if not _locked(exc):
                     raise
@@ -280,6 +295,15 @@ class Worker:
             self.execute(job)
         self.current_job = None
         self.beat()
+
+    @staticmethod
+    def _api_blocked():
+        """Heure de reprise d'api-maree.fr si son quota est atteint, sinon None (ne lève jamais)."""
+        try:
+            from . import tide_reference
+            return tide_reference.blocked_until()
+        except Exception:
+            return None
 
     @staticmethod
     def _alert_failure(job_id: int, kind: str, params_json: str) -> None:
@@ -317,6 +341,14 @@ class Worker:
 
         log(f"$ {' '.join(cmd)}\n")
         status, code = self._run_process(job_id, cmd, log)
+        if code == EXIT_QUOTA and kind in API_MAREE_KINDS:
+            until = self._api_blocked()
+            when = f"{until.astimezone():%H:%M}" if until else "l'heure suivante"
+            log(f"\n[worker] Quota api-maree.fr atteint : tâche remise en attente, elle reprendra après {when}.\n")
+            _retry(db.requeue_job, job_id, what=f"remise en attente de la tâche #{job_id}")
+            print(f"[worker] tâche #{job_id} en attente du quota api-maree.fr ({when}).", flush=True)
+            self.current_job = None
+            return
         self._finish(job_id, status, code)
         print(f"[worker] tâche #{job_id} terminée : {status} (code {code}).", flush=True)
         if status == "failed":
@@ -459,6 +491,8 @@ def main(argv: list[str] | None = None) -> int:
     short_target = p_short.add_mutually_exclusive_group(required=True)
     short_target.add_argument("--port-id", type=int)
     short_target.add_argument("--all", action="store_true", help="Tous les ports dotés d'un identifiant api-maree.fr")
+    short_target.add_argument("--used", action="store_true",
+                              help="Seulement les ports utilisés (port d'attache, créneaux à venir, recherche récente)")
     enq.add_parser("school-holidays", help="Synchroniser les vacances scolaires")
     enq.add_parser("newsletters-due", help="Mettre en file les newsletters programmées dont l'heure est venue")
 
@@ -480,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
             i for i in [enqueue("calibrate", {"port_id": args.port_id}, who)] if i
         ]
     elif args.kind == "short-term":
-        ids = enqueue_calibrations(who, "short_term") if args.all else [
+        ids = enqueue_calibrations(who, "short_term", only_used=args.used) if (args.all or args.used) else [
             i for i in [enqueue("short_term", {"port_id": args.port_id}, who)] if i
         ]
     elif args.kind == "newsletters-due":

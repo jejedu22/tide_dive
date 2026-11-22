@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS ports (
     auto_precompute INTEGER NOT NULL DEFAULT 1, -- inclus dans le précalcul annuel automatique
     api_maree_site TEXT,                      -- identifiant du site api-maree.fr (recalage), NULL = aucun
     academy TEXT,                             -- académie des vacances scolaires ; NULL = d'après la position (academies.py)
+    last_viewed_at TEXT,                      -- dernière recherche sur ce port (mois glissant quotidien si récent)
     offset_estimated INTEGER NOT NULL DEFAULT 0 -- 1 : offset_zh_m estimé depuis api-maree.fr (level_estimate.py), pas saisi
 );
 
@@ -208,7 +209,8 @@ CREATE TABLE IF NOT EXISTS short_term_windows (
     n_extrema INTEGER NOT NULL,
     max_shift_min REAL,                 -- plus grand écart d'heure avec l'étale FES remplacée
     level_diff_m REAL,                  -- hauteur moyenne api-maree.fr − FES sur la fenêtre
-    refreshed_at TEXT NOT NULL
+    refreshed_at TEXT NOT NULL,
+    full_refreshed_at TEXT              -- dernier téléchargement de toute la fenêtre (sinon : jours nouveaux)
 );
 
 -- Vacances scolaires par académie (source : data.education.gouv.fr).

@@ -301,7 +301,7 @@ def test_mois_glissant_stocke_a_part(tmp_db, monkeypatch, make_structure, make_u
     assert db.get_extrema_range(port, "2027-03-20", "2027-03-21")[0]["coefficient"] == 50   # coefficient api-maree.fr
     # le lendemain, sans coefficient api-maree.fr : celui du calcul FES, pas celui de la veille
     monkeypatch.setattr(tide_reference, "tide_extrema", lambda site, start, end: [])
-    short_term.refresh(dict(db.get_port(port)), now=now + timedelta(days=1), log=lambda *a: None)
+    short_term.refresh(dict(db.get_port(port)), now=now + timedelta(days=1), log=lambda *a: None, full=True)
 
     day_start, day_end = "2027-03-15", "2027-03-16"
     api = db.get_extrema_range(port, day_start, day_end, db.tide_sources(True, True))
@@ -318,6 +318,42 @@ def test_mois_glissant_stocke_a_part(tmp_db, monkeypatch, make_structure, make_u
     # un nouveau précalcul de l'année ne touche pas aux horaires api-maree.fr
     db.replace_year(port, year, [(t.isoformat(), float(x) + 6.0) for t, x in zip(ts, h)], fes, [], model="TEST")
     assert [r["ts_utc"] for r in db.get_extrema_range(port, day_start, day_end)] == [r["ts_utc"] for r in api]
+
+
+def test_mois_glissant_jours_nouveaux_seulement(tmp_db, monkeypatch):
+    """Quota api-maree.fr : le lendemain, seuls les jours nouveaux sont demandés ; toute la fenêtre une fois par
+    semaine (ou si le site change)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import short_term, tide_model, tide_reference
+
+    year = 2027
+    ts, h = year_series(year)
+    port = db.create_port("Binic", 48.6, -2.82, "Europe/Paris", 6.0, True, "binic")
+    fes = [(t.isoformat(), k, x + 6.0, 90.0 if k == "PM" else None) for t, k, x in tide_model.find_extrema(ts, h)]
+    db.replace_year(port, year, [(t.isoformat(), float(x) + 6.0) for t, x in zip(ts, h)], fes, [], model="TEST")
+    asked = []
+
+    def levels(site, start, end, step):
+        asked.append((start, end))
+        return [(t, float(x) + 6.0) for t, x in zip(ts, h) if start <= t <= end]
+
+    monkeypatch.setattr(tide_reference, "water_levels", levels)
+    monkeypatch.setattr(tide_reference, "tide_extrema", lambda site, start, end: [])
+    now = datetime(year, 3, 10, 12, tzinfo=timezone.utc)
+    first = short_term.refresh(dict(db.get_port(port)), now=now, log=lambda *a: None)
+    assert (asked[-1][1] - asked[-1][0]).days >= 29                       # première fois : toute la fenêtre
+    second = short_term.refresh(dict(db.get_port(port)), now=now + timedelta(days=1), log=lambda *a: None)
+    assert (asked[-1][1] - asked[-1][0]) < timedelta(days=3)               # le lendemain : 2 jours environ
+    assert second["window_start"] == "2027-03-10T00:00:00+00:00" and second["window_end"] == "2027-04-09T00:00:00+00:00"
+    assert second["full_refreshed_at"] == first["full_refreshed_at"]
+    assert abs(second["n_extrema"] - first["n_extrema"]) <= 4              # chiffres de toute la fenêtre
+    api = db.get_extrema_range(port, "2027-04-08", "2027-04-09", ("api",))
+    assert api and {r["source"] for r in api} == {"api"}                   # jour nouveau bien enregistré
+    short_term.refresh(dict(db.get_port(port)), now=now + timedelta(days=1), log=lambda *a: None)   # relancé le même jour
+    assert (asked[-1][1] - asked[-1][0]) < timedelta(days=2)               # seulement le jour de recouvrement
+    short_term.refresh(dict(db.get_port(port)), now=now + timedelta(days=8), log=lambda *a: None)
+    assert (asked[-1][1] - asked[-1][0]).days >= 29                       # une semaine après : fenêtre entière
 
 
 def test_reglages_exposes_au_compte_pour_la_note_de_source(new_client, setup):

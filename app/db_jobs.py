@@ -90,18 +90,26 @@ def request_job_cancel(job_id: int, now: str) -> None:
         )
 
 
-def claim_next_job(now: str) -> sqlite3.Row | None:
-    """Passe la plus ancienne tâche en attente à 'running' et la renvoie."""
+def claim_next_job(now: str, skip_kinds: tuple[str, ...] = ()) -> sqlite3.Row | None:
+    """Passe la plus ancienne tâche en attente à 'running' et la renvoie ; skip_kinds : sortes laissées en attente
+    (tâches api-maree.fr pendant que le quota est atteint)."""
+    skip = f" AND kind NOT IN ({', '.join('?' for _ in skip_kinds)})" if skip_kinds else ""
     with get_conn() as conn:
         return conn.execute(
-            """
+            f"""
             UPDATE jobs SET status = 'running', started_at = ?
-            WHERE id = (SELECT id FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1)
+            WHERE id = (SELECT id FROM jobs WHERE status = 'queued'{skip} ORDER BY id LIMIT 1)
               AND status = 'queued'
             RETURNING id, kind, params_json, created_by
             """,
-            (now,),
+            (now, *skip_kinds),
         ).fetchone()
+
+
+def requeue_job(job_id: int) -> None:
+    """Remet une tâche en attente (quota api-maree.fr atteint : elle reprendra à l'heure de reprise)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE jobs SET status = 'queued', started_at = NULL, exit_code = NULL WHERE id = ?", (job_id,))
 
 
 def append_job_log(job_id: int, text: str) -> None:

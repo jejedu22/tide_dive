@@ -174,6 +174,8 @@ def search_windows(
     if (end - start).days > MAX_DAYS:
         raise HTTPException(422, f"Période trop longue : {MAX_DAYS} jours au plus")
     port = db.get_port(threshold["port_id"])
+    from .main import _note_port_viewed      # import tardif : main importe water
+    _note_port_viewed(port["id"])
     tz = ZoneInfo(port["timezone"])
     start_utc = datetime.combine(start, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
     end_utc = (datetime.combine(end, datetime.min.time(), tzinfo=tz) + timedelta(days=1)).astimezone(timezone.utc)

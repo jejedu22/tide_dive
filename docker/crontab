@@ -16,8 +16,12 @@
 30 4 2 * * python -m app.jobs enqueue calibrate --all
 
 # Tous les jours, 05:10 — horaires du mois glissant (J−1 à J+29) repris
-# d'api-maree.fr, à la place du calcul FES, pour chaque port doté d'un site.
-10 5 * * * python -m app.jobs enqueue short-term --all
+# d'api-maree.fr, à la place du calcul FES, pour les ports UTILISÉS (port
+# d'attache d'une structure, créneau à venir, recherche depuis 14 jours) ;
+# seuls les jours nouveaux sont demandés (quota de 360 requêtes par heure).
+10 5 * * 1-6 python -m app.jobs enqueue short-term --used
+# Le dimanche, 05:10 — tous les ports dotés d'un site api-maree.fr.
+10 5 * * 0 python -m app.jobs enqueue short-term --all
 
 # Toutes les 5 minutes — newsletters programmées dont l'heure est venue : envoi par
 # le worker (rien n'est mis en file s'il n'y en a pas).
